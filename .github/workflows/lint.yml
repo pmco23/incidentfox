@@ -1,0 +1,61 @@
+name: lint
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write  # required for git-auto-commit-action to push fixes
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # required so CI can commit fixes
+          ref: ${{ github.head_ref || github.ref_name }}  # PR branch for PRs, pushed branch for pushes
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ruff & Black
+        run: pip install ruff black
+
+      # -----------------------------------
+      # 1) Auto-fix with Ruff (lint + isort)
+      # -----------------------------------
+      - name: Run Ruff with autofix
+        # Ruff exits non-zero if *any* violations remain after fixing; don't fail before we can commit fixes.
+        continue-on-error: true
+        run: ruff check . --fix --config ruff.toml
+
+      # ---------------------------
+      # 2) Auto-format with Black
+      # ---------------------------
+      - name: Run Black with autofix
+        run: black .
+
+      # ---------------------------------------------------
+      # 3) Commit any formatting or lint fixes back to PR
+      # ---------------------------------------------------
+      - name: Commit fixes
+        if: github.event_name == 'pull_request'
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: lint & format (auto-fix)"
+
+      # --------------------------------------------
+      # 4) Final verification (required by branch protection)
+      # --------------------------------------------
+      - name: Verify Ruff passes
+        run: ruff check . --config ruff.toml
+
+      - name: Verify Black passes
+        run: black --check .

@@ -1,0 +1,45 @@
+# Gitleaks configuration file
+# See: https://github.com/gitleaks/gitleaks#configuration
+
+title = "Custom Gitleaks Configuration"
+
+[extend]
+# Extend the default gitleaks config
+useDefault = true
+
+[allowlist]
+paths = [
+    # Conductor workspace files (gitignored, local only)
+    '''\.context/.*''',
+
+    # Knowledge base - contains documentation from external sources (e.g., Kubernetes official docs)
+    # which include example secrets/tokens that are documentation examples, not real credentials.
+    '''knowledge_base/datasources/.*/corpus\.jsonl''',
+    '''knowledge_base/datasources/.*/raw/.*''',
+
+    # Documentation files - contain example API keys/tokens for illustration purposes
+    '''docs/.*\.md''',
+    '''agent/docs/.*\.md''',
+    '''config_service/docs/.*\.md''',
+    '''DEVELOPMENT_KNOWLEDGE\.md''',
+
+    # Agent documentation and debug scripts - contain example tokens
+    '''agent/.*\.md''',
+    '''agent/debug_integration.*\.py''',
+
+    # Test/example configuration files - contain placeholder/demo credentials for testing
+    '''team_a_config\.json''',
+    '''team_a_full_config\.json''',
+    '''internal_test_configs\.txt''',
+
+    # Telemetry collector demo config - contains labeled demo license key
+    '''telemetry_collector/k8s/config\.yaml''',
+
+    # Config service auth routes - oidc_claims=principal.claims is code, not a secret
+    '''config_service/src/api/routes/auth_me\.py''',
+
+    # Files removed from main but still in git history on some branches
+    '''claude_runtime/.*''',
+    '''CORALOGIX_TEST_RESULTS\.md''',
+    '''test_coralogix_prod_ready\.py''',
+]

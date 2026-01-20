@@ -1,0 +1,131 @@
+namespace: incidentfox
+
+global:
+  # Pilot uses moving image tags (e.g. :pilot). Force pulls so nodes don't run stale cached images.
+  imagePullPolicy: Always
+  # In-cluster URL that the agent/orchestrator/web_ui use to talk to config_service.
+  configService:
+    url: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+    orgId: "pilot"
+  database:
+    databaseUrlSecretName: incidentfox-database-url
+    databaseUrlSecretKey: DATABASE_URL
+
+# Pilot recommendation: start with HTTP-only internal ALB. Add TLS/ACM once happy path passes.
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    # Public access for pilot (no VPN required).
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: "/api/health"
+  host: "ui.incidentfox.ai"
+  # Slack requires HTTPS for event delivery. To enable:
+  # - Set ingress.host to a domain you control
+  # - Set tls.enabled=true and tls.certificateArn to an ACM cert in us-east-1
+  tls:
+    enabled: true
+    certificateArn: "arn:aws:acm:us-east-1:103002841599:certificate/2c2bec2b-bdc8-4542-90b2-48a67e83bda6"
+    redirectToHttps: true
+  waf:
+    enabled: false
+    webAclArn: ""
+
+externalSecrets:
+  # Bootstrap note: set false to avoid a chicken-and-egg with Helm pre-install hooks.
+  # Once the cluster is healthy, re-enable to let ESO manage these secrets.
+  enabled: true
+  installClusterSecretStore: true
+  awsRegion: "us-east-1"
+  contract:
+    databaseUrl:
+      enabled: true
+      secretName: incidentfox-database-url
+      secretKey: DATABASE_URL
+      remoteRefKey: incidentfox/pilot/database_url
+    configService:
+      enabled: true
+      secretName: incidentfox-config-service
+      adminTokenKey: ADMIN_TOKEN
+      tokenPepperKey: TOKEN_PEPPER
+      impersonationJwtSecretKey: IMPERSONATION_JWT_SECRET
+      adminTokenRemoteRefKey: incidentfox/pilot/config_service_admin_token
+      tokenPepperRemoteRefKey: incidentfox/pilot/config_service_token_pepper
+      impersonationJwtSecretRemoteRefKey: incidentfox/pilot/config_service_impersonation_jwt_secret
+    agentOpenAI:
+      enabled: true
+      secretName: incidentfox-openai
+      apiKeyKey: api_key
+      apiKeyRemoteRefKey: incidentfox/pilot/openai_api_key
+    webUiOidc:
+      enabled: false
+    slack:
+      enabled: true
+      secretName: incidentfox-slack
+      signingSecretKey: signing_secret
+      botTokenKey: bot_token
+      signingSecretRemoteRefKey: incidentfox/pilot/slack_signing_secret
+      botTokenRemoteRefKey: incidentfox/pilot/slack_bot_token
+    orchestratorInternal:
+      enabled: true
+      secretName: incidentfox-orchestrator-internal
+      internalTokenKey: internal_token
+      internalTokenRemoteRefKey: incidentfox/pilot/orchestrator_internal_token
+    langfuse:
+      enabled: true
+      secretName: incidentfox-langfuse
+      publicKeyKey: public_key
+      secretKeyKey: secret_key
+      publicKeyRemoteRefKey: incidentfox/prod/langfuse_public_key
+      secretKeyRemoteRefKey: incidentfox/prod/langfuse_secret_key
+
+services:
+  configService:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-east-1.amazonaws.com/incidentfox-pilot-config-service:pilot"
+    adminAuthMode: token
+    teamAuthMode: token
+    oidc:
+      enabled: false
+
+  orchestrator:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-east-1.amazonaws.com/incidentfox-pilot-orchestrator:pilot"
+    requireAdminStar: true
+
+  agent:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-east-1.amazonaws.com/incidentfox-pilot-agent:pilot"
+    serviceAccount:
+      create: true
+      name: incidentfox-agent
+      annotations:
+        eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-pilot-agent"
+    tracing:
+      enabled: true
+      langfuse:
+        enabled: true
+        host: "https://us.cloud.langfuse.com"
+        secretName: incidentfox-langfuse
+        publicKeyKey: public_key
+        secretKeyKey: secret_key
+      otlp:
+        enabled: false
+
+  aiPipelineApi:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-east-1.amazonaws.com/incidentfox-pilot-ai-pipeline-api:pilot"
+
+  webUi:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-east-1.amazonaws.com/incidentfox-pilot-web-ui:pilot"
+    cookieSecure: true
+    oidc:
+      enabled: false
+    slack:
+      enabled: true
+
+

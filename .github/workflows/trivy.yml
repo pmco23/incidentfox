@@ -1,0 +1,85 @@
+name: Vulnerability scanning (Trivy)
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - agent
+          - config_service
+          - knowledge_base
+          - orchestrator
+          - web_ui
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t ${{ matrix.service }}:${{ github.sha }} ${{ matrix.service }}
+
+      # Generate SARIF for GitHub "Code scanning alerts" (SOC 2 evidence-friendly).
+      # We keep this step non-blocking so SARIF still uploads even if the gating step fails.
+      - name: Trivy image scan (SARIF report)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ matrix.service }}:${{ github.sha }}
+          format: sarif
+          output: trivy-image.sarif
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "0"
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        # SARIF upload is often blocked on PRs (especially from forks) with "Resource not accessible by integration".
+        # We still upload the SARIF as an artifact below for audit evidence.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        with:
+          sarif_file: trivy-image.sarif
+          category: ${{ matrix.service }}
+
+      # Gate on HIGH/CRITICAL vulnerabilities (SOC 2 control expectation).
+      # Prints table to logs for visibility, then fails if vulns found.
+      - name: Trivy image scan (enforce)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: ${{ matrix.service }}:${{ github.sha }}
+          format: table
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+
+      - name: Upload Trivy reports (artifact)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-reports-${{ matrix.service }}
+          path: trivy-image.sarif

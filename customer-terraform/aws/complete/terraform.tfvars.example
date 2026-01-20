@@ -1,0 +1,89 @@
+# ===================================================================
+# IncidentFox Terraform Configuration Example
+# ===================================================================
+# Copy this file to terraform.tfvars and fill in your values:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# IMPORTANT: Never commit terraform.tfvars to version control!
+# Add it to .gitignore to protect sensitive information.
+# ===================================================================
+
+# ===================================================================
+# Required Configuration
+# ===================================================================
+
+# Your organization name (lowercase, alphanumeric, hyphens only)
+# This will be used as a prefix for all AWS resource names
+# Example: "acme-corp", "contoso", "initech"
+customer_name = "acme-corp"
+
+# AWS region where resources will be deployed
+# Common options: us-west-2, us-east-1, eu-west-1, ap-southeast-1
+aws_region = "us-west-2"
+
+# Environment name (production, staging, dev)
+environment = "production"
+
+# PostgreSQL master password
+# REQUIREMENTS:
+# - Minimum 16 characters
+# - Include uppercase, lowercase, numbers, and special characters
+# - Store securely (use a password manager)
+# Generate strong password: openssl rand -base64 24
+rds_password = "CHANGE_ME_min_16_chars_strong_password!"
+
+# ===================================================================
+# Network Configuration (Optional - Defaults Provided)
+# ===================================================================
+
+# VPC CIDR block - ensure this doesn't overlap with existing networks
+# vpc_cidr = "10.0.0.0/16"
+
+# Availability zones for high availability (minimum 2 required)
+# availability_zones = ["us-west-2a", "us-west-2b", "us-west-2c"]
+
+# ===================================================================
+# EKS Cluster Configuration (Optional - Defaults Provided)
+# ===================================================================
+
+# Kubernetes version
+# kubernetes_version = "1.29"
+
+# Worker node configuration
+# eks_node_desired_count = 3
+# eks_node_min_count     = 3
+# eks_node_max_count     = 6
+
+# EC2 instance types for worker nodes
+# Options: t3.xlarge (4 vCPU, 16GB), t3.2xlarge (8 vCPU, 32GB)
+# See: https://aws.amazon.com/ec2/instance-types/
+# eks_node_instance_types = ["t3.xlarge"]
+
+# ===================================================================
+# RDS PostgreSQL Configuration (Optional - Defaults Provided)
+# ===================================================================
+
+# PostgreSQL version
+# rds_engine_version = "15.4"
+
+# RDS instance type
+# Options: db.t3.large (2 vCPU, 8GB), db.t3.xlarge (4 vCPU, 16GB)
+# See: https://aws.amazon.com/rds/instance-types/
+# rds_instance_class = "db.t3.large"
+
+# Initial storage size in GB (will auto-scale if needed)
+# rds_allocated_storage_gb = 100
+
+# Backup retention (7-35 days recommended for production)
+# rds_backup_retention_days = 7
+
+# Deletion protection (true recommended for production)
+# rds_deletion_protection = true
+
+# ===================================================================
+# Optional Features
+# ===================================================================
+
+# Enable External Secrets Operator for AWS Secrets Manager integration
+# Set to false if managing secrets manually via kubectl
+# enable_external_secrets = true

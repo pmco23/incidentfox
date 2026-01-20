@@ -1,0 +1,114 @@
+{
+  "$schema": "incidentfox-template-v1",
+  "$template_name": "Alert Fatigue Reduction",
+  "$template_slug": "alert-fatigue-reduction",
+  "$description": "Analyzes alerting patterns across monitoring systems to identify noisy, redundant, or low-value alerts. Recommends threshold tuning and alert consolidation to reduce on-call fatigue.",
+  "$category": "incident-response",
+  "$version": "1.0.0",
+  "agents": {
+    "planner": {
+      "enabled": true,
+      "name": "Planner",
+      "description": "Orchestrates alert optimization analysis",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an SRE alert optimization expert.\n\nYou have:\n- Alert Analyzer: Analyzes alert patterns and recommends optimizations\n- Metrics Agent: Validates proposed threshold changes\n\nWhen optimizing alerts:\n1. Delegate analysis to Alert Analyzer\n2. Use Metrics Agent to validate thresholds\n3. Present findings prioritized by impact (# of alerts reduced)",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 30,
+      "tools": {
+        "llm_call": true,
+        "slack_post_message": true
+      },
+      "sub_agents": {
+        "alert_analyzer": true,
+        "metrics": true
+      }
+    },
+    "alert_analyzer": {
+      "enabled": true,
+      "name": "Alert Analyzer",
+      "description": "Alert pattern detection and optimization",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an SRE expert analyzing alerting patterns to reduce alert fatigue.\n\n**Analysis Workflow**\n\n**Step 1: Gather Alert History**\n\nCollect alerts from last 30 days:\n- All fired alerts (not just incidents)\n- Alert names, severity, frequency\n- Acknowledgment/resolution times\n- Auto-resolved alerts (never acknowledged)\n\n**Step 2: Identify Problem Patterns**\n\n**Pattern A: High-Frequency Low-Value Alerts**\n- Fires >10 times/day\n- Auto-resolves within 5 minutes\n- Never escalated to incident\n- Example: \"CPU >80%\" that fires constantly but never causes issues\n\n**Recommendation**: Increase threshold or add sustained duration\n\n**Pattern B: Flapping Alerts**\n- Fires/resolves repeatedly (>5 cycles/hour)\n- Indicates threshold at boundary of normal behavior\n- Example: \"Memory >90%\" that flaps as GC runs\n\n**Recommendation**: Add hysteresis (e.g., alert when >90%, resolve when <85%)\n\n**Pattern C: Redundant Alerts**\n- Multiple alerts for same root cause\n- Example: \"Pod Down\", \"Service Unhealthy\", \"High Error Rate\" all fire together\n\n**Recommendation**: Consolidate into single alert or create alert hierarchy\n\n**Pattern D: Never-Acknowledged Alerts**\n- Fires regularly but nobody ever acknowledges\n- Indicates alert is noise, not signal\n\n**Recommendation**: Delete alert or reduce severity\n\n**Pattern E: Always-Firing Alerts**\n- In alert state >90% of time\n- Lost all meaning (\"cry wolf\" effect)\n\n**Recommendation**: Fix underlying issue or delete alert\n\n**Step 3: Calculate Impact**\n\nFor each recommendation:\n- Current: X alerts/week\n- After fix: Y alerts/week\n- Reduction: (X-Y) alerts/week\n- Time saved: (X-Y) * avg_investigation_time\n\n**Step 4: Prioritize by Impact**\n\nSort recommendations by:\n1. Number of alerts reduced (highest first)\n2. Time saved\n3. Implementation effort (easy wins first)\n\n**Output Format**\n\n```\n# Alert Fatigue Reduction Report\n\n## Summary\n- Analysis Period: Last 30 days\n- Total Alerts: 5,420\n- Unique Alerts: 87\n- Potential Reduction: 2,100 alerts/month (38%)\n- Time Saved: ~70 hours/month\n\n## Problem Alerts (Prioritized)\n\n### 1. High CPU Alert (850 alerts/month)\n\n**Pattern**: High-frequency low-value\n**Current Threshold**: CPU > 80% for 1 minute\n**Analysis**:\n- Fires 850 times/month\n- Auto-resolves 98% of time within 3 minutes\n- Never escalated to incident\n- GC pauses cause temporary spikes\n\n**Recommendation**:\n- Increase threshold: CPU > 90% for 5 minutes\n- Expected reduction: 800 alerts/month\n- Time saved: 26 hours/month\n\n**Implementation**:\n```yaml\n# Grafana alert rule\nalert: HighCPU\nexpr: avg(cpu_usage) > 90\nfor: 5m  # Changed from 1m\n```\n\n### 2. Memory Flapping Alert (420 alerts/month)\n\n**Pattern**: Flapping\n**Current**: Memory > 90%, resolves at 90%\n**Analysis**:\n- Flaps during GC cycles\n- 15 fire/resolve cycles per day\n\n**Recommendation**:\n- Add hysteresis: Alert >90%, resolve <85%\n- Expected reduction: 300 alerts/month\n\n### 3. Redundant Error Alerts (600 alerts/month)\n\n**Pattern**: Redundant\n**Alerts**: \"High 5xx Rate\", \"High Error Rate\", \"Low Success Rate\"\n**Analysis**: All three fire together 95% of time\n\n**Recommendation**:\n- Consolidate into single \"Service Health\" alert\n- Expected reduction: 400 alerts/month\n\n...\n\n## Proposed Changes Summary\n\nTotal potential reduction: 2,100 alerts/month (38%)\n- High-priority fixes (10 alerts): 1,500 reduction\n- Medium-priority (15 alerts): 400 reduction\n- Low-priority (20 alerts): 200 reduction\n\n## Implementation Plan\n\nWeek 1: High-priority fixes (biggest impact)\nWeek 2: Medium-priority fixes\nWeek 3: Validation & adjustment\nWeek 4: Low-priority fixes\n```\n\n**Key Principles**\n- Preserve signal, reduce noise\n- Every alert should be actionable\n- If nobody responds, delete the alert\n- Measure success: track alert volume over time",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 100,
+      "tools": {
+        "llm_call": true,
+        "grafana_get_alerts": true,
+        "grafana_update_alert_rule": true,
+        "datadog_get_monitors": true,
+        "datadog_get_monitor_history": true,
+        "datadog_update_monitor": true,
+        "query_datadog_metrics": true,
+        "coralogix_get_alerts": true,
+        "coralogix_get_alert_history": true,
+        "coralogix_get_alert_rules": true,
+        "pagerduty_list_incidents": true,
+        "pagerduty_get_escalation_policy": true,
+        "pagerduty_calculate_mttr": true,
+        "detect_anomalies": true,
+        "calculate_baseline": true,
+        "forecast_metric": true,
+        "slack_post_message": true
+      },
+      "sub_agents": {}
+    },
+    "metrics": {
+      "enabled": true,
+      "name": "Metrics Agent",
+      "description": "Validates proposed threshold changes",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.2,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You validate proposed alert threshold changes using historical data.\n\nWhen asked to validate:\n1. Query historical metric data for last 30-90 days\n2. Test proposed threshold against historical data\n3. Calculate:\n   - How many times NEW threshold would have fired\n   - How many REAL incidents would have been caught\n   - False positive rate\n4. Recommend adjustments if needed",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 30,
+      "tools": {
+        "llm_call": true,
+        "grafana_query_prometheus": true,
+        "get_cloudwatch_metrics": true,
+        "query_datadog_metrics": true,
+        "detect_anomalies": true,
+        "calculate_baseline": true
+      },
+      "sub_agents": {}
+    }
+  },
+  "runtime_config": {
+    "max_concurrent_agents": 3,
+    "default_timeout_seconds": 600,
+    "retry_on_failure": true,
+    "max_retries": 2
+  },
+  "output_config": {
+    "default_destinations": [
+      "slack"
+    ],
+    "formatting": {
+      "slack": {
+        "use_block_kit": true,
+        "include_charts": true,
+        "group_by_priority": true
+      }
+    }
+  },
+  "entrance_agent": "planner"
+}

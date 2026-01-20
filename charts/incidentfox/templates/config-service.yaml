@@ -1,0 +1,121 @@
+{{- if .Values.services.configService.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-config-service
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "incidentfox.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.services.configService.replicas }}
+  selector:
+    matchLabels:
+      app: incidentfox-config-service
+  template:
+    metadata:
+      labels:
+        app: incidentfox-config-service
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.global.imagePullSecrets | indent 8 }}
+      {{- end }}
+      containers:
+        - name: config-service
+          image: {{ required "services.configService.image is required" .Values.services.configService.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.configService.servicePort }}
+          resources:
+{{ toYaml .Values.services.configService.resources | indent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.global.database.databaseUrlSecretName }}
+                  key: {{ .Values.global.database.databaseUrlSecretKey }}
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.configService.secretName }}
+                  key: {{ .Values.externalSecrets.contract.configService.adminTokenKey }}
+            - name: ADMIN_AUTH_MODE
+              value: {{ default "token" .Values.services.configService.adminAuthMode | quote }}
+            - name: TEAM_AUTH_MODE
+              value: {{ default "token" .Values.services.configService.teamAuthMode | quote }}
+            - name: TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.configService.secretName }}
+                  key: {{ .Values.externalSecrets.contract.configService.tokenPepperKey }}
+            - name: IMPERSONATION_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.configService.secretName }}
+                  key: {{ .Values.externalSecrets.contract.configService.impersonationJwtSecretKey }}
+            - name: IMPERSONATION_JWT_AUDIENCE
+              value: "incidentfox-agent-runtime"
+            - name: ADMIN_PERMISSIONS_DEFAULT
+              value: {{ default "admin:*" .Values.services.configService.adminPermissionsDefault | quote }}
+            - name: ADMIN_GROUP_PERMISSIONS_JSON
+              value: {{ default "{}" .Values.services.configService.adminGroupPermissionsJson | quote }}
+            - name: OIDC_ENABLED
+              value: {{ (default false .Values.services.configService.oidc.enabled) | ternary "1" "0" | quote }}
+            - name: OIDC_ISSUER
+              value: {{ default "" .Values.services.configService.oidc.issuer | quote }}
+            - name: OIDC_AUDIENCE
+              value: {{ default "" .Values.services.configService.oidc.audience | quote }}
+            - name: OIDC_JWKS_URL
+              value: {{ default "" .Values.services.configService.oidc.jwksUrl | quote }}
+            - name: OIDC_JWKS_JSON
+              value: {{ default "" .Values.services.configService.oidc.jwksJson | quote }}
+            - name: OIDC_ALG
+              value: {{ default "RS256" .Values.services.configService.oidc.alg | quote }}
+            - name: OIDC_LEEWAY_SECONDS
+              value: {{ default 30 .Values.services.configService.oidc.leewaySeconds | int | quote }}
+            - name: OIDC_GROUPS_CLAIM
+              value: {{ default "groups" .Values.services.configService.oidc.groupsClaim | quote }}
+            - name: OIDC_ADMIN_GROUP
+              value: {{ default "incidentfox-config-admin" .Values.services.configService.oidc.adminGroup | quote }}
+            - name: OIDC_ORG_ID_CLAIM
+              value: {{ default "org_id" .Values.services.configService.oidc.orgIdClaim | quote }}
+            - name: OIDC_TEAM_NODE_ID_CLAIM
+              value: {{ default "team_node_id" .Values.services.configService.oidc.teamNodeIdClaim | quote }}
+            - name: OIDC_EMAIL_CLAIM
+              value: {{ default "email" .Values.services.configService.oidc.emailClaim | quote }}
+            - name: OIDC_SUBJECT_CLAIM
+              value: {{ default "sub" .Values.services.configService.oidc.subjectClaim | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.services.configService.servicePort }}
+            initialDelaySeconds: {{ dig "services" "configService" "readinessProbe" "initialDelaySeconds" 5 .Values }}
+            periodSeconds: {{ dig "services" "configService" "readinessProbe" "periodSeconds" 10 .Values }}
+            timeoutSeconds: {{ dig "services" "configService" "readinessProbe" "timeoutSeconds" 5 .Values }}
+            failureThreshold: {{ dig "services" "configService" "readinessProbe" "failureThreshold" 5 .Values }}
+          {{- if .Values.services.configService.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.services.configService.livenessProbe.path | quote }}
+              port: {{ .Values.services.configService.servicePort }}
+            initialDelaySeconds: {{ .Values.services.configService.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.services.configService.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ dig "services" "configService" "livenessProbe" "timeoutSeconds" 5 .Values }}
+            failureThreshold: {{ dig "services" "configService" "livenessProbe" "failureThreshold" 5 .Values }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-config-service
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: incidentfox-config-service
+  ports:
+    - port: {{ .Values.services.configService.servicePort }}
+      targetPort: {{ .Values.services.configService.servicePort }}
+      protocol: TCP
+{{- end }}
+
+

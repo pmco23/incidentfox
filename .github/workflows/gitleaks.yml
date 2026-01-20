@@ -1,0 +1,49 @@
+name: Secret scanning (Gitleaks)
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks via Docker (free)
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/repo \
+            zricethezav/gitleaks:latest \
+            detect \
+              --source="/repo" \
+              --config="/repo/.gitleaks.toml" \
+              --report-path="/repo/gitleaks.sarif" \
+              --report-format="sarif" \
+              --verbose
+
+      - name: Upload Gitleaks report (artifact)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        # SARIF upload is often blocked on PRs (especially from forks) with "Resource not accessible by integration".
+        # We still upload the SARIF as an artifact above for audit evidence.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        with:
+          sarif_file: gitleaks.sarif

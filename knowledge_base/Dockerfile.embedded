@@ -1,0 +1,39 @@
+# RAPTOR Knowledge Base API Server - Embedded Tree Version
+# This version bakes the tree directly into the image (larger but no S3 download needed)
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install API server dependencies
+RUN pip install --no-cache-dir fastapi uvicorn httpx
+
+# Copy RAPTOR library and API server
+COPY raptor/ ./raptor/
+COPY api_server.py .
+
+# Copy tree files directly into image (no S3 download needed)
+COPY trees/mega_ultra_v2/ ./trees/mega_ultra_v2/
+
+# Environment
+ENV RAPTOR_TREES_DIR=/app/trees
+ENV RAPTOR_DEFAULT_TREE=mega_ultra_v2
+ENV PORT=8000
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "api_server.py"]
+

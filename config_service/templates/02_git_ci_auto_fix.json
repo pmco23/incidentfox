@@ -1,0 +1,129 @@
+{
+  "$schema": "incidentfox-template-v1",
+  "$template_name": "Git CI Issue Triage & Auto-Fix",
+  "$template_slug": "git-ci-auto-fix",
+  "$description": "Analyzes GitHub Actions and AWS CodePipeline failures, identifies root causes, and can automatically commit fixes for common issues",
+  "$category": "ci-cd",
+  "$version": "1.0.0",
+  "agents": {
+    "planner": {
+      "enabled": true,
+      "name": "Planner",
+      "description": "Orchestrates CI/CD investigation and fixes",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a CI/CD expert orchestrating automated issue resolution.\n\nYou have:\n- CI Agent: Workflow analysis, test failure detection\n- Coding Agent: Code fixes, test generation\n\nWhen a CI failure occurs:\n1. Delegate to CI Agent for analysis\n2. If auto-fixable, delegate to Coding Agent\n3. Otherwise, provide detailed diagnosis for manual intervention\n4. Always post results to PR as comment",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 30,
+      "tools": {
+        "think": true,
+        "llm_call": true
+      },
+      "sub_agents": {
+        "ci": true,
+        "coding": true
+      }
+    },
+    "ci": {
+      "enabled": true,
+      "name": "CI Agent",
+      "description": "CI/CD workflow analysis and test failure detection",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.4,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a CI/CD expert analyzing test and build failures.\n\nYour expertise:\n- Test failures (Jest, Cypress, Pytest, unit/integration/e2e)\n- Build errors (Docker, npm, Maven, webpack)\n- Linting and formatting issues (ESLint, Prettier, Black)\n- Dependency conflicts and version issues\n- Flaky test detection\n\nAnalysis approach:\n1. Download and parse workflow logs\n2. Identify failure type (test, build, lint, deploy)\n3. Extract error messages and stack traces\n4. Read relevant source files\n5. Determine if auto-fixable or needs human review\n\nFor test failures:\n- Distinguish real failures from flaky tests\n- Identify test file and line number\n- Read test code and implementation\n- Suggest minimal fix\n\nFor auto-fixable issues:\n- Formatting (run prettier/black)\n- Missing imports\n- Simple type errors\n- Dependency updates\n\nFor complex issues, provide detailed analysis for developer",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 100,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "get_workflow_run_info": true,
+        "download_workflow_run_logs": true,
+        "list_workflow_runs": true,
+        "github_get_pr": true,
+        "github_list_pr_commits": true,
+        "post_pr_comment": true,
+        "github_create_pr_review": true,
+        "read_github_file": true,
+        "search_github_code": true,
+        "list_files": true,
+        "read_file": true,
+        "list_directory": true,
+        "repo_search_text": true,
+        "git_status": true,
+        "git_diff": true,
+        "git_log": true,
+        "git_blame": true,
+        "docker_build": true,
+        "docker_logs": true
+      },
+      "sub_agents": {}
+    },
+    "coding": {
+      "enabled": true,
+      "name": "Coding Agent",
+      "description": "Code fixes and test generation",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.4,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a senior software engineer fixing code issues.\n\nYour approach:\n1. Read CI Agent's analysis\n2. Read relevant source files\n3. Generate minimal fix (don't over-engineer)\n4. Run tests locally if possible\n5. Commit fix with clear message\n6. Post PR comment confirming fix\n\nFix guidelines:\n- Keep changes minimal and focused\n- Preserve existing code style\n- Don't refactor unrelated code\n- Add comments only if logic is non-obvious\n- Use conventional commit messages",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 100,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "read_file": true,
+        "write_file": true,
+        "edit_file": true,
+        "list_directory": true,
+        "git_status": true,
+        "git_diff": true,
+        "git_add": true,
+        "git_commit": true,
+        "git_push": true,
+        "commit_file_changes": true,
+        "post_pr_comment": true,
+        "npm_run": true,
+        "pytest_run": true,
+        "run_jest": true,
+        "run_eslint": true,
+        "run_prettier": true
+      },
+      "sub_agents": {}
+    }
+  },
+  "runtime_config": {
+    "max_concurrent_agents": 3,
+    "default_timeout_seconds": 600,
+    "retry_on_failure": true,
+    "max_retries": 1
+  },
+  "output_config": {
+    "default_destinations": [
+      "github"
+    ],
+    "formatting": {
+      "github": {
+        "use_markdown": true,
+        "include_code_snippets": true
+      }
+    }
+  },
+  "entrance_agent": "planner"
+}

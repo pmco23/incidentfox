@@ -1,0 +1,8 @@
+apiVersion: v2
+name: incidentfox
+description: IncidentFox umbrella chart (config_service, agent, orchestrator, ai_pipeline_api, web_ui)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+

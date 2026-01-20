@@ -1,0 +1,17 @@
+# Copy this file: cp terraform.tfvars.example terraform.tfvars
+
+customer_name = "acme-corp"
+aws_region    = "us-west-2"
+environment   = "production"
+
+# PostgreSQL password (minimum 16 characters)
+rds_password = "CHANGE_ME_min_16_chars!"
+
+# Your existing VPC ID (find in AWS Console → VPC)
+existing_vpc_id = "vpc-0123456789abcdef0"
+
+# Your EKS cluster's security group ID (find in AWS Console → EKS → Cluster → Networking)
+eks_cluster_security_group_id = "sg-0123456789abcdef0"
+
+# Subnet tag patterns for database subnets (default looks for *private* tagged subnets)
+# database_subnet_tags = ["*private*", "*database*"]

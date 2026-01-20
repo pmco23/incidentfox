@@ -1,0 +1,160 @@
+# IncidentFox Production - us-west-2 (incidentfox-demo cluster)
+# Co-located with otel-demo for end-to-end evaluation
+
+namespace: incidentfox
+
+global:
+  imagePullPolicy: Always
+  configService:
+    url: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+    orgId: "prod"
+  database:
+    databaseUrlSecretName: incidentfox-database-url
+    databaseUrlSecretKey: DATABASE_URL
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/healthcheck-path: "/api/health"
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+  host: "ui.incidentfox.ai"
+  tls:
+    enabled: true
+    # us-west-2 ACM certificate
+    certificateArn: "arn:aws:acm:us-west-2:103002841599:certificate/e79b663b-062a-45de-96a0-b4e8e50e3c4f"
+    redirectToHttps: true
+  waf:
+    enabled: false
+    webAclArn: ""
+
+externalSecrets:
+  # ExternalSecrets are managed separately (already created manually)
+  enabled: false
+  installClusterSecretStore: false
+  awsRegion: "us-west-2"
+  contract:
+    databaseUrl:
+      enabled: true
+      secretName: incidentfox-database-url
+      secretKey: DATABASE_URL
+      # Use existing RDS in us-west-2
+      remoteRefKey: incidentfox-config-service/rds
+    configService:
+      enabled: true
+      secretName: incidentfox-config-service
+      adminTokenKey: ADMIN_TOKEN
+      tokenPepperKey: TOKEN_PEPPER
+      impersonationJwtSecretKey: IMPERSONATION_JWT_SECRET
+      adminTokenRemoteRefKey: incidentfox-config-service/admin_token
+      tokenPepperRemoteRefKey: incidentfox-config-service/token_pepper
+      # Need to create this secret
+      impersonationJwtSecretRemoteRefKey: incidentfox-config-service/impersonation_jwt_secret
+    agentOpenAI:
+      enabled: true
+      secretName: incidentfox-openai
+      apiKeyKey: api_key
+      apiKeyRemoteRefKey: incidentfox/prod/openai_api_key
+    webUiOidc:
+      enabled: false
+    slack:
+      enabled: true
+      secretName: incidentfox-slack
+      signingSecretKey: signing_secret
+      botTokenKey: bot_token
+      signingSecretRemoteRefKey: incidentfox/prod/slack_signing_secret
+      botTokenRemoteRefKey: incidentfox/prod/slack_bot_token
+    github:
+      enabled: true
+      secretName: incidentfox-github
+      webhookSecretKey: webhook_secret  # Key name in K8s secret
+    pagerduty:
+      enabled: false  # TODO: Add secret to AWS Secrets Manager first
+      secretName: incidentfox-pagerduty
+      webhookSecretKey: webhook_secret
+      remoteRefKey: incidentfox/prod/pagerduty_webhook_secret
+    incidentio:
+      enabled: true
+      secretName: incidentfox-incidentio
+      webhookSecretKey: webhook_secret
+      remoteRefKey: incidentfox/prod/incidentio_webhook_secret
+    orchestratorInternal:
+      enabled: true
+      secretName: incidentfox-orchestrator-internal
+      internalTokenKey: internal_token
+      internalTokenRemoteRefKey: incidentfox/prod/orchestrator_internal_token
+    langfuse:
+      enabled: false  # Using OpenAI tracing UI instead
+
+services:
+  configService:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-config-service:latest"
+    adminAuthMode: token
+    teamAuthMode: token
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "4Gi"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 5
+    oidc:
+      enabled: false
+
+  orchestrator:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-orchestrator:latest"
+    requireAdminStar: true
+    slackAgentMaxTurns: "200"
+    slackAgentTimeoutSeconds: "180"
+
+  agent:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
+    serviceAccount:
+      create: true
+      name: incidentfox-agent
+      annotations:
+        # Need to create this IAM role in us-west-2
+        eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-prod-agent"
+    tracing:
+      enabled: false  # Using OpenAI tracing UI
+      langfuse:
+        enabled: false
+      otlp:
+        enabled: false
+    # Enable K8s tools - agent can access otel-demo namespace
+    kubernetes:
+      enabled: true
+      namespace: "otel-demo"
+
+  aiPipelineApi:
+    # Disabled temporarily - DB migration failing due to node memory pressure
+    enabled: false
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-ai-pipeline-api:latest"
+
+  webUi:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-web-ui:latest"
+    cookieSecure: true
+    oidc:
+      enabled: false
+    slack:
+      enabled: true

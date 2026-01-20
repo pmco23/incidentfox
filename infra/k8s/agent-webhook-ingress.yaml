@@ -1,0 +1,33 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: incidentfox-agent-webhook
+  namespace: incidentfox
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    # HTTP only for now - GitHub webhooks work with HTTP
+    # For production, add HTTPS with proper certificate
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /webhooks
+            pathType: Prefix
+            backend:
+              service:
+                name: incidentfox-agent
+                port:
+                  number: 8080
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: incidentfox-agent
+                port:
+                  number: 8080
+

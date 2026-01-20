@@ -1,0 +1,50 @@
+.env
+.venv
+__pycache__/
+.pytest_cache/
+
+# Conductor workspace files
+.context/
+
+# Terraform
+**/.terraform/
+**/terraform.tfstate
+**/terraform.tfstate.backup
+**/*.tfstate
+**/*.tfstate.backup
+**/terraform.tfvars
+**/terraform.tfvars.json
+**/*.tfvars
+**/tfplan
+**/*.tfplan
+
+# Docker temp auth used by deploy script
+config_service/.docker-tmp/
+
+# Local scratch / exported secrets (do not commit)
+database/local/tmp_secrets
+database/local/rds_commands
+
+# Knowledge base generated artifacts / caches (can be regenerated)
+knowledge_base/**/.cache/
+knowledge_base/**/.cache/**
+knowledge_base/**/runs/
+knowledge_base/**/runs/**
+knowledge_base/**/*.pkl
+knowledge_base/**/*.sqlite
+
+
+eval_results_*.json
+
+# Mac OS artifacts
+.DS_Store
+**/.DS_Store
+
+# Next.js development logs
+.next/dev/logs/
+
+note.md
+
+# Large generated files
+knowledge_base/trees/mega_ultra_v2/tree_explorer.html
+knowledge_base/trees/mega_ultra_v2/keywords.json

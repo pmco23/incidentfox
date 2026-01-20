@@ -1,0 +1,120 @@
+{{- /*
+HorizontalPodAutoscalers (optional per service).
+*/ -}}
+
+{{- if and .Values.services.configService.enabled .Values.services.configService.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidentfox-config-service
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidentfox-config-service
+  minReplicas: {{ .Values.services.configService.hpa.minReplicas }}
+  maxReplicas: {{ .Values.services.configService.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.configService.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+
+{{- if and .Values.services.orchestrator.enabled .Values.services.orchestrator.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidentfox-orchestrator
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidentfox-orchestrator
+  minReplicas: {{ .Values.services.orchestrator.hpa.minReplicas }}
+  maxReplicas: {{ .Values.services.orchestrator.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.orchestrator.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+
+{{- if and .Values.services.agent.enabled .Values.services.agent.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidentfox-agent
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidentfox-agent
+  minReplicas: {{ .Values.services.agent.hpa.minReplicas }}
+  maxReplicas: {{ .Values.services.agent.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.agent.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+
+{{- if and .Values.services.aiPipelineApi.enabled .Values.services.aiPipelineApi.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidentfox-ai-pipeline-api
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidentfox-ai-pipeline-api
+  minReplicas: {{ .Values.services.aiPipelineApi.hpa.minReplicas }}
+  maxReplicas: {{ .Values.services.aiPipelineApi.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.aiPipelineApi.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+
+{{- if and .Values.services.webUi.enabled .Values.services.webUi.hpa.enabled }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: incidentfox-web-ui
+  namespace: {{ .Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: incidentfox-web-ui
+  minReplicas: {{ .Values.services.webUi.hpa.minReplicas }}
+  maxReplicas: {{ .Values.services.webUi.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.services.webUi.hpa.targetCPUUtilizationPercentage }}
+{{- end }}
+
+

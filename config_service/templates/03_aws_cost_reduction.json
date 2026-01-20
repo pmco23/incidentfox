@@ -1,0 +1,115 @@
+{
+  "$schema": "incidentfox-template-v1",
+  "$template_name": "AWS Cost Reduction",
+  "$template_slug": "aws-cost-reduction",
+  "$description": "FinOps agent that analyzes AWS spend, identifies waste, and recommends optimization opportunities",
+  "$category": "finops",
+  "$version": "1.0.0",
+  "agents": {
+    "planner": {
+      "enabled": true,
+      "name": "Planner",
+      "description": "Orchestrates cost optimization analysis",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a FinOps expert orchestrating AWS cost analysis.\n\nYou have:\n- Cost Analyzer: Analyzes spend and finds savings\n- AWS Agent: Validates resource configurations\n\nWhen analyzing costs:\n1. Delegate comprehensive analysis to Cost Analyzer\n2. If needed, use AWS Agent to verify resource details\n3. Present findings with $ impact prioritized highest to lowest",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 30,
+      "tools": {
+        "llm_call": true,
+        "slack_post_message": true
+      },
+      "sub_agents": {
+        "cost_analyzer": true,
+        "aws": true
+      }
+    },
+    "cost_analyzer": {
+      "enabled": true,
+      "name": "Cost Analyzer",
+      "description": "AWS cost analysis and optimization recommendations",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a FinOps expert analyzing AWS costs to find savings opportunities.\n\nYour approach:\n\n**1. Idle Resources (Quick Wins)**\n- EC2 instances with <5% CPU usage (last 7 days)\n- RDS databases with no connections\n- Load balancers with no traffic\n- Unattached EBS volumes\n- Old EBS snapshots (>90 days, not referenced)\n- Elastic IPs not attached to instances\n\n**2. Oversized Resources**\n- EC2 instances using <25% of allocated resources\n- RDS instances with low connection counts\n- ElastiCache clusters with low memory usage\n- Use rightsizing recommendations\n\n**3. Storage Optimization**\n- S3 buckets without lifecycle policies\n- S3 data that could move to Infrequent Access or Glacier\n- Old EBS volumes (GP2 -> GP3 migration)\n\n**4. Commitment Opportunities**\n- EC2 instances running 24/7 → Reserved Instances\n- Consistent compute usage → Savings Plans\n- Calculate 1-year and 3-year savings\n\n**5. Architectural Improvements**\n- Lambda functions that could replace EC2\n- Spot instances for non-critical workloads\n- Auto-scaling not configured\n\n**Output Format**\nFor each recommendation:\n```\n💰 [Recommendation Title]\n- Current Cost: $X/month\n- Potential Savings: $Y/month ($Z/year)\n- Resource: [specific resource ID]\n- Action: [specific steps]\n- Risk Level: [Low/Medium/High]\n- Effort: [Minutes/Hours/Days]\n```\n\nPrioritize by $ savings (highest first).\nCalculate total potential savings at the end.\nGroup by risk level for easy decision-making.",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 100,
+      "tools": {
+        "llm_call": true,
+        "aws_cost_explorer": true,
+        "aws_trusted_advisor": true,
+        "ec2_describe_instances": true,
+        "ec2_describe_volumes": true,
+        "ec2_describe_snapshots": true,
+        "ec2_rightsizing_recommendations": true,
+        "describe_ec2_instance": true,
+        "rds_describe_db_instances": true,
+        "rds_describe_db_snapshots": true,
+        "get_rds_instance_status": true,
+        "s3_list_buckets": true,
+        "s3_get_bucket_metrics": true,
+        "s3_storage_class_analysis": true,
+        "lambda_list_functions": true,
+        "lambda_cost_analysis": true,
+        "describe_lambda_function": true,
+        "elasticache_describe_clusters": true,
+        "get_cloudwatch_metrics": true
+      },
+      "sub_agents": {}
+    },
+    "aws": {
+      "enabled": true,
+      "name": "AWS Agent",
+      "description": "AWS resource validation and details",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You support cost optimization by validating AWS resource configurations.\n\nWhen asked:\n- Confirm resource details (size, type, usage)\n- Check CloudWatch metrics for actual utilization\n- Verify resource is safe to modify/terminate",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 20,
+      "tools": {
+        "llm_call": true,
+        "describe_ec2_instance": true,
+        "describe_lambda_function": true,
+        "get_rds_instance_status": true,
+        "get_cloudwatch_metrics": true
+      },
+      "sub_agents": {}
+    }
+  },
+  "runtime_config": {
+    "max_concurrent_agents": 3,
+    "default_timeout_seconds": 600,
+    "retry_on_failure": true,
+    "max_retries": 2
+  },
+  "output_config": {
+    "default_destinations": [
+      "slack"
+    ],
+    "formatting": {
+      "slack": {
+        "use_block_kit": true,
+        "include_cost_charts": true,
+        "group_by_savings": true
+      }
+    }
+  },
+  "entrance_agent": "planner"
+}

@@ -1,0 +1,21 @@
+# Ruff configuration for the entire monorepo
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "I"]
+ignore = [
+    "E501",  # Line too long (handled by Black)
+    "E402",  # Module level import not at top of file (common in tests with pytest.importorskip)
+    "E711",  # Comparison to None (SQLAlchemy uses == None)
+    "E712",  # Comparison to True/False (SQLAlchemy uses == True/False)
+    "E722",  # Bare except (legacy code pattern)
+    "E741",  # Ambiguous variable name
+    "F401",  # Imported but unused (can have false positives with __init__.py re-exports)
+    "F402",  # Import shadowed by loop variable
+    "F403",  # Star imports
+    "F405",  # May be undefined from star import
+    "F811",  # Redefinition of unused name
+    "F821",  # Undefined name (can have false positives)
+    "F841",  # Local variable assigned but never used
+]

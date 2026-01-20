@@ -1,0 +1,204 @@
+"""
+Execution Context for Thread-Safe Multi-Tenant Agent Runs
+
+Provides request-scoped context for team configuration and integrations,
+ensuring proper isolation between concurrent agent executions.
+"""
+
+from __future__ import annotations
+
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any
+
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+# Thread-safe per-request storage
+_execution_context: ContextVar[ExecutionContext | None] = ContextVar(
+    "execution_context", default=None
+)
+
+
+@dataclass
+class ExecutionContext:
+    """
+    Execution context for a single agent run.
+
+    Contains team-specific configuration including integrations,
+    ensuring proper multi-tenant isolation.
+    """
+
+    org_id: str
+    team_node_id: str
+    team_config: dict[str, Any]
+
+    @property
+    def integrations(self) -> dict[str, Any]:
+        """Get integrations configuration for this execution."""
+        return self.team_config.get("integrations", {})
+
+    def get_integration_config(self, integration_id: str) -> dict[str, Any]:
+        """
+        Get configuration for a specific integration.
+
+        Args:
+            integration_id: Integration identifier (e.g., "coralogix", "snowflake")
+
+        Returns:
+            Integration config dict, or empty dict if not configured
+        """
+        integration = self.integrations.get(integration_id, {})
+
+        if not integration:
+            logger.warning(
+                "integration_not_configured",
+                integration_id=integration_id,
+                org_id=self.org_id,
+                team_node_id=self.team_node_id,
+            )
+            return {}
+
+        # Return the config section (org + team merged)
+        return integration.get("config", {})
+
+    def is_integration_configured(
+        self, integration_id: str, required_fields: list[str] = None
+    ) -> bool:
+        """
+        Check if an integration is properly configured.
+
+        Args:
+            integration_id: Integration identifier
+            required_fields: Optional list of required fields to check
+
+        Returns:
+            True if integration has all required fields
+        """
+        config = self.get_integration_config(integration_id)
+
+        if not config:
+            return False
+
+        if required_fields:
+            return all(config.get(field) for field in required_fields)
+
+        return True
+
+
+def set_execution_context(
+    org_id: str, team_node_id: str, team_config: dict[str, Any]
+) -> ExecutionContext:
+    """
+    Set execution context for current request/task.
+
+    This should be called at the start of each agent execution.
+
+    Args:
+        org_id: Organization ID
+        team_node_id: Team node ID
+        team_config: Full team configuration including integrations
+
+    Returns:
+        The created ExecutionContext
+    """
+    context = ExecutionContext(
+        org_id=org_id, team_node_id=team_node_id, team_config=team_config
+    )
+
+    _execution_context.set(context)
+
+    logger.info(
+        "execution_context_set",
+        org_id=org_id,
+        team_node_id=team_node_id,
+        integrations=list(context.integrations.keys()),
+    )
+
+    return context
+
+
+def get_execution_context() -> ExecutionContext | None:
+    """
+    Get execution context for current request/task.
+
+    Returns:
+        ExecutionContext if set, None otherwise
+    """
+    return _execution_context.get()
+
+
+def clear_execution_context():
+    """
+    Clear execution context after request/task completion.
+
+    This should be called in a finally block to ensure cleanup.
+    """
+    context = _execution_context.get()
+    if context:
+        logger.debug(
+            "execution_context_cleared",
+            org_id=context.org_id,
+            team_node_id=context.team_node_id,
+        )
+
+    _execution_context.set(None)
+
+
+def require_execution_context() -> ExecutionContext:
+    """
+    Get execution context, raising error if not set.
+
+    Use this in tools that require context to be set.
+
+    Returns:
+        ExecutionContext
+
+    Raises:
+        RuntimeError: If context not set
+    """
+    context = get_execution_context()
+
+    if context is None:
+        raise RuntimeError(
+            "No execution context set. "
+            "Tools must be called within an agent execution context. "
+            "Use set_execution_context() before running agents."
+        )
+
+    return context
+
+
+class ExecutionContextManager:
+    """
+    Context manager for execution context.
+
+    Usage:
+        async with ExecutionContextManager(org_id, team_node_id, team_config):
+            result = await agent.run(query)
+    """
+
+    def __init__(self, org_id: str, team_node_id: str, team_config: dict[str, Any]):
+        self.org_id = org_id
+        self.team_node_id = team_node_id
+        self.team_config = team_config
+        self.context: ExecutionContext | None = None
+
+    def __enter__(self) -> ExecutionContext:
+        self.context = set_execution_context(
+            self.org_id, self.team_node_id, self.team_config
+        )
+        return self.context
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        clear_execution_context()
+
+    async def __aenter__(self) -> ExecutionContext:
+        self.context = set_execution_context(
+            self.org_id, self.team_node_id, self.team_config
+        )
+        return self.context
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        clear_execution_context()

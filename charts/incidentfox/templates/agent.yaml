@@ -1,0 +1,118 @@
+{{- if .Values.services.agent.enabled }}
+{{- if .Values.services.agent.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.services.agent.serviceAccount.name | quote }}
+  namespace: {{ .Values.namespace }}
+  {{- if .Values.services.agent.serviceAccount.annotations }}
+  annotations:
+{{ toYaml .Values.services.agent.serviceAccount.annotations | indent 4 }}
+  {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-agent
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.services.agent.replicas }}
+  selector:
+    matchLabels:
+      app: incidentfox-agent
+  template:
+    metadata:
+      labels:
+        app: incidentfox-agent
+    spec:
+      {{- if .Values.services.agent.serviceAccount.name }}
+      serviceAccountName: {{ .Values.services.agent.serviceAccount.name | quote }}
+      {{- end }}
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.global.imagePullSecrets | indent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ required "services.agent.image is required" .Values.services.agent.image }}
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.services.agent.servicePort }}
+          resources:
+{{ toYaml .Values.services.agent.resources | indent 12 }}
+          env:
+            - name: USE_CONFIG_SERVICE
+              value: "true"
+            - name: CONFIG_BASE_URL
+              value: {{ required "global.configService.url is required" .Values.global.configService.url | quote }}
+            # Enable K8s tools (agent has in-cluster access via service account)
+            - name: K8S_ENABLED
+              value: "true"
+            - name: K8S_NAMESPACE
+              value: {{ .Values.namespace | quote }}
+            # Tracing configuration (Langfuse / OTEL)
+            {{- if .Values.services.agent.tracing.enabled }}
+            - name: TRACING_ENABLED
+              value: "true"
+            {{- if .Values.services.agent.tracing.langfuse.enabled }}
+            - name: LANGFUSE_HOST
+              value: {{ .Values.services.agent.tracing.langfuse.host | quote }}
+            - name: LANGFUSE_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.services.agent.tracing.langfuse.secretName }}
+                  key: {{ .Values.services.agent.tracing.langfuse.publicKeyKey }}
+            - name: LANGFUSE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.services.agent.tracing.langfuse.secretName }}
+                  key: {{ .Values.services.agent.tracing.langfuse.secretKeyKey }}
+            {{- end }}
+            {{- if .Values.services.agent.tracing.otlp.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.services.agent.tracing.otlp.endpoint | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.services.agent.staticTeamToken.enabled }}
+            - name: INCIDENTFOX_TEAM_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.services.agent.staticTeamToken.secretName }}
+                  key: {{ .Values.services.agent.staticTeamToken.secretKey }}
+            {{- end }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.agentOpenAI.secretName }}
+                  key: {{ .Values.externalSecrets.contract.agentOpenAI.apiKeyKey }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.services.agent.servicePort }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- if .Values.services.agent.livenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.services.agent.livenessProbe.path | quote }}
+              port: {{ .Values.services.agent.servicePort }}
+            initialDelaySeconds: {{ .Values.services.agent.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.services.agent.livenessProbe.periodSeconds }}
+          {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-agent
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: incidentfox-agent
+  ports:
+    - port: {{ .Values.services.agent.servicePort }}
+      targetPort: {{ .Values.services.agent.servicePort }}
+      protocol: TCP
+{{- end }}
+
+

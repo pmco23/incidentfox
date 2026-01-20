@@ -1,0 +1,528 @@
+Pulled: registry-1.docker.io/incidentfox/incidentfox:0.1.0
+Digest: sha256:50edb632b2d3d6c20436b0ab27b2d7b6dd04c0b229b7eb65253ce1c52d7bd680
+---
+# Source: incidentfox/templates/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: "incidentfox"
+---
+# Source: incidentfox/templates/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incidentfox-config-service
+  namespace: incidentfox
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: incidentfox-config-service
+---
+# Source: incidentfox/templates/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incidentfox-orchestrator
+  namespace: incidentfox
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: incidentfox-orchestrator
+---
+# Source: incidentfox/templates/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incidentfox-agent
+  namespace: incidentfox
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: incidentfox-agent
+---
+# Source: incidentfox/templates/pdb.yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: incidentfox-web-ui
+  namespace: incidentfox
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: incidentfox-web-ui
+---
+# Source: incidentfox/templates/agent.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "incidentfox-agent"
+  namespace: incidentfox
+---
+# Source: incidentfox/templates/agent.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-agent
+  namespace: incidentfox
+spec:
+  selector:
+    app: incidentfox-agent
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Source: incidentfox/templates/config-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-config-service
+  namespace: incidentfox
+spec:
+  selector:
+    app: incidentfox-config-service
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+# Source: incidentfox/templates/orchestrator.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-orchestrator
+  namespace: incidentfox
+spec:
+  selector:
+    app: incidentfox-orchestrator
+  ports:
+    - port: 8070
+      targetPort: 8070
+      protocol: TCP
+---
+# Source: incidentfox/templates/web-ui.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentfox-web-ui
+  namespace: incidentfox
+spec:
+  selector:
+    app: incidentfox-web-ui
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+# Source: incidentfox/templates/agent.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-agent
+  namespace: incidentfox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: incidentfox-agent
+  template:
+    metadata:
+      labels:
+        app: incidentfox-agent
+    spec:
+      serviceAccountName: "incidentfox-agent"
+      imagePullSecrets:
+        - name: incidentfox-registry
+      containers:
+        - name: agent
+          image: incidentfox/agent:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 2000m
+              memory: 3Gi
+            requests:
+              cpu: 200m
+              memory: 512Mi
+          env:
+            - name: USE_CONFIG_SERVICE
+              value: "true"
+            - name: CONFIG_BASE_URL
+              value: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+            # Enable K8s tools (agent has in-cluster access via service account)
+            - name: K8S_ENABLED
+              value: "true"
+            - name: K8S_NAMESPACE
+              value: "incidentfox"
+            # Tracing configuration (Langfuse / OTEL)
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-openai
+                  key: api_key
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: "/health"
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+# Source: incidentfox/templates/config-service.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-config-service
+  namespace: incidentfox
+  labels:
+    app.kubernetes.io/name: "incidentfox"
+    app.kubernetes.io/instance: "customer-review"
+    app.kubernetes.io/managed-by: "Helm"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: incidentfox-config-service
+  template:
+    metadata:
+      labels:
+        app: incidentfox-config-service
+    spec:
+      imagePullSecrets:
+        - name: incidentfox-registry
+      containers:
+        - name: config-service
+          image: incidentfox/config-service:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-database-url
+                  key: DATABASE_URL
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-config-service
+                  key: ADMIN_TOKEN
+            - name: ADMIN_AUTH_MODE
+              value: "token"
+            - name: TEAM_AUTH_MODE
+              value: "token"
+            - name: TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-config-service
+                  key: TOKEN_PEPPER
+            - name: IMPERSONATION_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-config-service
+                  key: IMPERSONATION_JWT_SECRET
+            - name: IMPERSONATION_JWT_AUDIENCE
+              value: "incidentfox-agent-runtime"
+            - name: ADMIN_PERMISSIONS_DEFAULT
+              value: "admin:*"
+            - name: ADMIN_GROUP_PERMISSIONS_JSON
+              value: "{}"
+            - name: OIDC_ENABLED
+              value: "0"
+            - name: OIDC_ISSUER
+              value: ""
+            - name: OIDC_AUDIENCE
+              value: ""
+            - name: OIDC_JWKS_URL
+              value: ""
+            - name: OIDC_JWKS_JSON
+              value: ""
+            - name: OIDC_ALG
+              value: "RS256"
+            - name: OIDC_LEEWAY_SECONDS
+              value: "30"
+            - name: OIDC_GROUPS_CLAIM
+              value: "groups"
+            - name: OIDC_ADMIN_GROUP
+              value: "incidentfox-config-admin"
+            - name: OIDC_ORG_ID_CLAIM
+              value: "org_id"
+            - name: OIDC_TEAM_NODE_ID_CLAIM
+              value: "team_node_id"
+            - name: OIDC_EMAIL_CLAIM
+              value: "email"
+            - name: OIDC_SUBJECT_CLAIM
+              value: "sub"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: "/health"
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+# Source: incidentfox/templates/orchestrator.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-orchestrator
+  namespace: incidentfox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: incidentfox-orchestrator
+  template:
+    metadata:
+      labels:
+        app: incidentfox-orchestrator
+    spec:
+      imagePullSecrets:
+        - name: incidentfox-registry
+      containers:
+        - name: orchestrator
+          image: incidentfox/orchestrator:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8070
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-database-url
+                  key: DATABASE_URL
+            - name: CONFIG_SERVICE_URL
+              value: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+            - name: AI_PIPELINE_API_URL
+              value: "http://incidentfox-ai-pipeline-api.incidentfox.svc.cluster.local:8090"
+            - name: AGENT_API_URL
+              value: "http://incidentfox-agent.incidentfox.svc.cluster.local:8080"
+            - name: ORCHESTRATOR_ADMIN_AUTH_CACHE_TTL_SECONDS
+              value: "15"
+            - name: ORCHESTRATOR_REQUIRE_ADMIN_STAR
+              value: "1"
+            - name: ORCHESTRATOR_REQUIRED_PERMISSION_PROVISION_TEAM
+              value: "admin:provision"
+            - name: ORCHESTRATOR_REQUIRED_PERMISSION_PROVISION_READ
+              value: "admin:provision:read"
+            - name: ORCHESTRATOR_REQUIRED_PERMISSION_AGENT_RUN
+              value: "admin:agent:run"
+            - name: ORCHESTRATOR_INTERNAL_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: "incidentfox-config-service"
+                  key: "ADMIN_TOKEN"
+            # Slack-triggered agent run parameters (enterprise defaults)
+            - name: ORCHESTRATOR_SLACK_AGENT_MAX_TURNS
+              value: "50"
+            - name: ORCHESTRATOR_SLACK_AGENT_TIMEOUT_SECONDS
+              value: "180"
+            # K8s namespace for CronJobs and dedicated deployments
+            - name: K8S_NAMESPACE
+              value: "incidentfox"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8070
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: "/health"
+              port: 8070
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+# Source: incidentfox/templates/web-ui.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incidentfox-web-ui
+  namespace: incidentfox
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: incidentfox-web-ui
+  template:
+    metadata:
+      labels:
+        app: incidentfox-web-ui
+    spec:
+      imagePullSecrets:
+        - name: incidentfox-registry
+      containers:
+        - name: web-ui
+          image: incidentfox/web-ui:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          env:
+            - name: CONFIG_SERVICE_URL
+              value: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+            - name: ORCHESTRATOR_URL
+              value: "http://incidentfox-orchestrator.incidentfox.svc.cluster.local:8070"
+            # Ensure Next.js binds on all interfaces in Kubernetes (otherwise it may bind to pod hostname only,
+            # which breaks kubectl port-forward and can confuse health checks).
+            - name: HOSTNAME
+              value: "0.0.0.0"
+            - name: WEB_UI_COOKIE_SECURE
+              value: "0"
+            - name: NEXT_PUBLIC_WEB_UI_OIDC_ENABLED
+              value: "0"
+            - name: WEB_UI_OIDC_ENABLED
+              value: "0"
+            - name: WEB_UI_PUBLIC_BASE_URL
+              value: ""
+            - name: WEB_UI_OIDC_AUTHORIZATION_ENDPOINT
+              value: ""
+            - name: WEB_UI_OIDC_TOKEN_ENDPOINT
+              value: ""
+            - name: WEB_UI_OIDC_CLIENT_ID
+              value: ""
+            - name: WEB_UI_OIDC_SCOPES
+              value: "openid email profile groups"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: "/"
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+# Source: incidentfox/templates/web-ui.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: incidentfox-web-ui
+  namespace: incidentfox
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    kubernetes.io/ingress.class: alb
+spec:
+  ingressClassName: "nginx"
+  rules:
+    -
+      host: "incidentfox.customer.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: incidentfox-web-ui
+                port:
+                  number: 3000
+---
+# Source: incidentfox/templates/migrations.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: incidentfox-config-service-migrate
+  namespace: incidentfox
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: incidentfox/config-service:v1.0.0
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-lc", "alembic upgrade head"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-database-url
+                  key: DATABASE_URL
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-config-service
+                  key: ADMIN_TOKEN
+            - name: TOKEN_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-config-service
+                  key: TOKEN_PEPPER
+---
+# Source: incidentfox/templates/migrations.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: incidentfox-orchestrator-migrate
+  namespace: incidentfox
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: incidentfox/orchestrator:v1.0.0
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-m", "incidentfox_orchestrator.db_migrate"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: incidentfox-database-url
+                  key: DATABASE_URL
+            # Orchestrator settings currently require these; they are not used by db_migrate,
+            # but we provide them to satisfy Settings validation.
+            - name: CONFIG_SERVICE_URL
+              value: "http://%!s(<nil>)-config-service:0"
+            - name: AI_PIPELINE_API_URL
+              value: "http://%!s(<nil>)-ai-pipeline-api:0"
+            - name: AGENT_API_URL
+              value: "http://%!s(<nil>)-agent:0"

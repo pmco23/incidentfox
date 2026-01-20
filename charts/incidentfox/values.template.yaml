@@ -1,0 +1,370 @@
+# ===================================================================
+# IncidentFox Customer Installation - values.yaml Template
+# ===================================================================
+#
+# This template contains all configuration values customers need to
+# provide when installing IncidentFox in their Kubernetes cluster.
+#
+# Quick Start:
+#   1. Copy this file: cp values-template.yaml values-customer.yaml
+#   2. Replace all <CUSTOMER_FILLS> with your actual values
+#   3. Create required Kubernetes secrets (see installation guide)
+#   4. Install: helm install incidentfox oci://registry-1.docker.io/incidentfox/incidentfox \
+#               --version 0.1.0 -f values-customer.yaml -n incidentfox
+#
+# Support: support@incidentfox.ai
+# Docs: https://docs.incidentfox.ai
+# ===================================================================
+
+# Kubernetes namespace (default: incidentfox)
+namespace: incidentfox
+
+global:
+  # Image pull policy (IfNotPresent recommended for production)
+  imagePullPolicy: IfNotPresent
+
+  # ===================================================================
+  # REQUIRED: Docker Registry Authentication
+  # ===================================================================
+  # Kubernetes secret for pulling private images from Docker Hub
+  # This secret should contain your license key for authentication
+  imagePullSecrets:
+    - name: incidentfox-registry
+
+  # ===================================================================
+  # REQUIRED: Database Configuration
+  # ===================================================================
+  # Your PostgreSQL database connection (RDS, CloudSQL, or self-hosted)
+  # See: https://docs.incidentfox.ai/database-setup
+  database:
+    # Kubernetes secret containing DATABASE_URL
+    databaseUrlSecretName: incidentfox-database-url
+    databaseUrlSecretKey: DATABASE_URL
+
+  # ===================================================================
+  # REQUIRED: Config Service URL
+  # ===================================================================
+  configService:
+    # Internal cluster URL (default is correct for same-namespace deployment)
+    url: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
+
+    # Your organization identifier (alphanumeric, lowercase, e.g., "acme-corp")
+    orgId: "<CUSTOMER_FILLS>"  # Example: "acme-corp"
+
+# ===================================================================
+# Ingress Configuration
+# ===================================================================
+ingress:
+  enabled: true
+
+  # ===================================================================
+  # CUSTOMER CHOOSES: Ingress Controller Type
+  # ===================================================================
+  # Options:
+  #   - "alb"      → AWS Load Balancer Controller (AWS EKS)
+  #   - "nginx"    → NGINX Ingress Controller (any cloud/on-prem)
+  #   - "traefik"  → Traefik (any cloud/on-prem)
+  className: "nginx"  # <CUSTOMER_FILLS>
+
+  annotations:
+    # ===================================================================
+    # AWS ALB Example (uncomment if using AWS)
+    # ===================================================================
+    # kubernetes.io/ingress.class: alb
+    # alb.ingress.kubernetes.io/scheme: internet-facing  # or "internal"
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # alb.ingress.kubernetes.io/healthcheck-path: "/api/health"
+
+    # ===================================================================
+    # NGINX Ingress Example (uncomment if using NGINX)
+    # ===================================================================
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+
+    # ===================================================================
+    # Traefik Example (uncomment if using Traefik)
+    # ===================================================================
+    # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # traefik.ingress.kubernetes.io/router.tls: "true"
+
+  # ===================================================================
+  # REQUIRED: Your Domain
+  # ===================================================================
+  host: "<CUSTOMER_FILLS>"  # Example: "incidentfox.acme-corp.com"
+
+  tls:
+    enabled: true
+
+    # AWS ACM Certificate ARN (AWS ALB only)
+    certificateArn: ""  # Example: "arn:aws:acm:us-east-1:123456789012:certificate/abc123..."
+
+    redirectToHttps: true
+
+  # Optional: AWS WAF (AWS ALB only)
+  waf:
+    enabled: false
+    webAclArn: ""  # Example: "arn:aws:wafv2:us-east-1:123456789012:global/webacl/..."
+
+# ===================================================================
+# External Secrets Operator (Optional but Recommended)
+# ===================================================================
+# ESO syncs secrets from AWS Secrets Manager, HashiCorp Vault, etc.
+# If disabled, you must create Kubernetes secrets manually.
+# See: https://docs.incidentfox.ai/secrets-management
+externalSecrets:
+  # Set to true if you have External Secrets Operator installed
+  enabled: false  # <CUSTOMER_DECIDES>
+
+  apiVersion: external-secrets.io/v1
+  installClusterSecretStore: true
+
+  # AWS Secrets Manager configuration (if using AWS)
+  awsRegion: "us-east-1"  # <CUSTOMER_FILLS if using AWS>
+
+  contract:
+    # ===================================================================
+    # REQUIRED: Database URL Secret
+    # ===================================================================
+    databaseUrl:
+      enabled: true
+      secretName: incidentfox-database-url
+      secretKey: DATABASE_URL
+      # Path in AWS Secrets Manager (or other secrets backend)
+      remoteRefKey: "incidentfox/database_url"  # <CUSTOMER_FILLS if ESO enabled>
+
+    # ===================================================================
+    # REQUIRED: Config Service Internal Secrets
+    # ===================================================================
+    configService:
+      enabled: true
+      secretName: incidentfox-config-service
+      adminTokenKey: ADMIN_TOKEN
+      tokenPepperKey: TOKEN_PEPPER
+      impersonationJwtSecretKey: IMPERSONATION_JWT_SECRET
+      # Paths in secrets backend
+      adminTokenRemoteRefKey: "incidentfox/admin_token"  # <CUSTOMER_FILLS>
+      tokenPepperRemoteRefKey: "incidentfox/token_pepper"  # <CUSTOMER_FILLS>
+      impersonationJwtSecretRemoteRefKey: "incidentfox/impersonation_jwt_secret"  # <CUSTOMER_FILLS>
+
+    # ===================================================================
+    # REQUIRED: OpenAI API Key
+    # ===================================================================
+    agentOpenAI:
+      enabled: true
+      secretName: incidentfox-openai
+      apiKeyKey: api_key
+      apiKeyRemoteRefKey: "incidentfox/openai_api_key"  # <CUSTOMER_FILLS>
+
+    # ===================================================================
+    # OPTIONAL: Slack Integration
+    # ===================================================================
+    slack:
+      enabled: false  # <CUSTOMER_DECIDES>
+      secretName: incidentfox-slack
+      signingSecretKey: signing_secret
+      botTokenKey: bot_token
+      signingSecretRemoteRefKey: "incidentfox/slack_signing_secret"
+      botTokenRemoteRefKey: "incidentfox/slack_bot_token"
+
+    # ===================================================================
+    # OPTIONAL: GitHub Integration
+    # ===================================================================
+    github:
+      enabled: false  # <CUSTOMER_DECIDES>
+      secretName: incidentfox-github
+      webhookSecretKey: GITHUB_WEBHOOK_SECRET
+      remoteRefKey: "incidentfox/github_webhook_secret"
+
+# ===================================================================
+# Service Images & Configuration
+# ===================================================================
+# NOTE: Image URLs are provided by IncidentFox and should not be changed
+#       unless you are using a private registry mirror
+services:
+  # ===================================================================
+  # Config Service (Core API)
+  # ===================================================================
+  configService:
+    enabled: true
+    # Image provided by IncidentFox (DO NOT CHANGE unless using mirror)
+    image: "incidentfox/config-service:v1.0.0"
+    replicas: 2
+
+    # Authentication mode for admin access
+    adminAuthMode: token  # Options: "token", "oidc", "both"
+    teamAuthMode: token
+
+    # ===================================================================
+    # OPTIONAL: Enterprise SSO/OIDC
+    # ===================================================================
+    oidc:
+      enabled: false  # <CUSTOMER_DECIDES: true for enterprise SSO>
+      issuer: ""  # Example: "https://login.microsoftonline.com/{tenant-id}/v2.0"
+      audience: "incidentfox"
+      jwksUrl: ""  # Example: "https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys"
+      adminGroup: "incidentfox-admins"  # OIDC group name for admin access
+      emailClaim: "email"
+      groupsClaim: "groups"
+
+    # Resource limits (adjust based on your workload)
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  # ===================================================================
+  # Agent Service (LLM Runtime)
+  # ===================================================================
+  agent:
+    enabled: true
+    image: "incidentfox/agent:v1.0.0"
+    replicas: 2
+
+    serviceAccount:
+      create: true
+      name: incidentfox-agent
+      annotations: {}
+        # ===================================================================
+        # AWS IRSA Example (if agent needs AWS access)
+        # ===================================================================
+        # eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/incidentfox-agent"
+
+    # ===================================================================
+    # OPTIONAL: LLM Observability
+    # ===================================================================
+    tracing:
+      enabled: false  # <CUSTOMER_DECIDES>
+      langfuse:
+        enabled: false
+        host: "https://cloud.langfuse.com"
+        secretName: "incidentfox-langfuse"
+        publicKeyKey: "LANGFUSE_PUBLIC_KEY"
+        secretKeyKey: "LANGFUSE_SECRET_KEY"
+      otlp:
+        enabled: false
+        endpoint: ""  # Example: "http://jaeger-collector:4317"
+
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "3Gi"
+
+  # ===================================================================
+  # Orchestrator (Workflow Engine)
+  # ===================================================================
+  orchestrator:
+    enabled: true
+    image: "incidentfox/orchestrator:v1.0.0"
+    replicas: 2
+
+    # RBAC enforcement
+    requireAdminStar: true
+    requiredPermissions:
+      provisionTeam: admin:provision
+      provisionRead: admin:provision:read
+      agentRun: admin:agent:run
+
+    # Slack-triggered agent run limits
+    slack:
+      agentMaxTurns: 50         # Max tool calls per run
+      agentTimeoutSeconds: 180  # 3 minutes timeout
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+  # ===================================================================
+  # Web UI (Dashboard)
+  # ===================================================================
+  webUi:
+    enabled: true
+    image: "incidentfox/web-ui:v1.0.0"
+    replicas: 2
+
+    # Set to true if serving over HTTPS (recommended)
+    cookieSecure: true  # <CUSTOMER_FILLS: true for HTTPS, false for HTTP>
+
+    # ===================================================================
+    # OPTIONAL: Web UI OIDC Login
+    # ===================================================================
+    oidc:
+      enabled: false  # <CUSTOMER_DECIDES>
+
+    slack:
+      enabled: false  # <CUSTOMER_DECIDES>
+
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+
+# ===================================================================
+# Advanced Configuration (Optional)
+# ===================================================================
+
+# Pod Disruption Budgets (recommended for production)
+# All services have PDB enabled by default with minAvailable: 1
+
+# Horizontal Pod Autoscaling (disabled by default)
+# Uncomment to enable auto-scaling based on CPU:
+# services:
+#   agent:
+#     hpa:
+#       enabled: true
+#       minReplicas: 2
+#       maxReplicas: 10
+#       targetCPUUtilizationPercentage: 70
+
+# ===================================================================
+# What Customers Need to Provide (Checklist)
+# ===================================================================
+#
+# Before running `helm install`, ensure you have:
+#
+# ✅ 1. Kubernetes cluster (v1.24+) with 3+ nodes
+# ✅ 2. PostgreSQL database (13+)
+# ✅ 3. Ingress controller installed (ALB, NGINX, or Traefik)
+# ✅ 4. DNS record pointing to ingress
+# ✅ 5. TLS certificate (ACM or cert-manager)
+# ✅ 6. OpenAI API key (or compatible LLM endpoint)
+# ✅ 7. Kubernetes secrets created (8 secrets total)
+# ✅ 8. Docker registry authentication (see below)
+#
+# ===================================================================
+# Docker Registry Authentication
+# ===================================================================
+#
+# To pull IncidentFox images, authenticate with your license key:
+#
+# ```bash
+# # Using your license key as Docker password
+# echo YOUR_LICENSE_KEY | docker login -u incidentfox --password-stdin
+#
+# # Create imagePullSecret for Kubernetes
+# kubectl create secret docker-registry incidentfox-registry \
+#   --docker-server=docker.io \
+#   --docker-username=incidentfox \
+#   --docker-password=YOUR_LICENSE_KEY \
+#   -n incidentfox
+# ```
+#
+# Your license key is provided by IncidentFox sales.
+# Contact: sales@incidentfox.ai
+#
+# ===================================================================

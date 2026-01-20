@@ -1,0 +1,34 @@
+# Runtime dependencies for production images (exclude dev/test tools).
+
+# Core
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+pyyaml>=6.0
+structlog>=23.0.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+alembic>=1.12.0
+
+# API
+fastapi>=0.115.0
+uvicorn>=0.30.0
+python-multipart>=0.0.6
+
+# HTTP / Metrics
+httpx>=0.27.0
+prometheus-client>=0.19.0
+# Security patches (urllib3, pyasn1, jaraco.context, starlette) applied in Dockerfile
+
+# Auth (OIDC/JWT)
+PyJWT>=2.8.0
+cryptography>=41.0.0
+
+# Optional cache (enabled via CONFIG_CACHE_BACKEND=redis)
+redis>=5.0.0
+
+# MCP (for MCP preview functionality)
+mcp==1.24.0
+
+

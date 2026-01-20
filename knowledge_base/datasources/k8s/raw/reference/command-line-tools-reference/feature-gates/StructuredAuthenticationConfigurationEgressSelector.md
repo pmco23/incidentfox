@@ -1,0 +1,1 @@
+Enables Egress Selector in Structured Authentication Configuration.

@@ -1,0 +1,347 @@
+namespace: incidentfox
+
+global:
+  imagePullPolicy: IfNotPresent
+
+  # Docker registry authentication for private images
+  imagePullSecrets:
+    - name: incidentfox-registry
+
+  # External DB (recommended). Provide via External Secrets -> K8s Secret -> env.
+  database:
+    # If you want each service to share a single DATABASE_URL secret:
+    databaseUrlSecretName: incidentfox-database-url
+    databaseUrlSecretKey: DATABASE_URL
+
+  configService:
+    url: "" # e.g. http://incidentfox-config-service.incidentfox.svc.cluster.local:8080
+    orgId: "pilot"
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+  host: "" # optional hostname
+  tls:
+    enabled: false
+    certificateArn: "" # ACM cert ARN for your custom domain
+    redirectToHttps: true
+  waf:
+    enabled: false
+    webAclArn: "" # AWS WAFv2 Web ACL ARN
+
+externalSecrets:
+  enabled: true
+  # API version for ESO resources. With modern ESO, v1 is served; some older clusters may require v1beta1.
+  apiVersion: external-secrets.io/v1
+  installClusterSecretStore: true
+  awsRegion: us-west-2
+  # These are examples; customers will map to their own secrets layout.
+  # Required secrets contract (K8s Secret names/keys) and example remote refs.
+  # Adapt the `remoteRef.key` strings to match your Secrets Manager names.
+  contract:
+    databaseUrl:
+      enabled: true
+      secretName: incidentfox-database-url
+      secretKey: DATABASE_URL
+      remoteRefKey: incidentfox/prod/database_url
+    configService:
+      enabled: true
+      secretName: incidentfox-config-service
+      adminTokenKey: ADMIN_TOKEN
+      tokenPepperKey: TOKEN_PEPPER
+      impersonationJwtSecretKey: IMPERSONATION_JWT_SECRET
+      adminTokenRemoteRefKey: incidentfox/prod/config_service_admin_token
+      tokenPepperRemoteRefKey: incidentfox/prod/config_service_token_pepper
+      impersonationJwtSecretRemoteRefKey: incidentfox/prod/config_service_impersonation_jwt_secret
+    agentOpenAI:
+      enabled: true
+      secretName: incidentfox-openai
+      apiKeyKey: api_key
+      apiKeyRemoteRefKey: incidentfox/prod/openai_api_key
+    webUiOidc:
+      enabled: false
+      secretName: incidentfox-web-ui-oidc
+      clientSecretKey: client_secret
+      clientSecretRemoteRefKey: incidentfox/prod/web_ui_oidc_client_secret
+    slack:
+      enabled: false
+      secretName: incidentfox-slack
+      signingSecretKey: signing_secret
+      botTokenKey: bot_token
+      signingSecretRemoteRefKey: incidentfox/prod/slack_signing_secret
+      botTokenRemoteRefKey: incidentfox/prod/slack_bot_token
+    github:
+      enabled: false
+      secretName: incidentfox-github
+      webhookSecretKey: GITHUB_WEBHOOK_SECRET
+      # GitHub App secret contains multiple keys; we extract just the webhook secret
+      remoteRefKey: incidentfox/extend/github-app
+      remoteRefProperty: GITHUB_WEBHOOK_SECRET
+    pagerduty:
+      enabled: false
+      secretName: incidentfox-pagerduty
+      webhookSecretKey: webhook_secret
+      remoteRefKey: incidentfox/prod/pagerduty_webhook_secret
+    incidentio:
+      enabled: false
+      secretName: incidentfox-incidentio
+      webhookSecretKey: webhook_secret
+      remoteRefKey: incidentfox/prod/incidentio_webhook_secret
+    orchestratorInternal:
+      enabled: false
+      secretName: incidentfox-orchestrator-internal
+      internalTokenKey: internal_token
+      internalTokenRemoteRefKey: incidentfox/prod/orchestrator_internal_token
+    # Langfuse tracing (optional)
+    langfuse:
+      enabled: false
+      secretName: incidentfox-langfuse
+      publicKeyKey: LANGFUSE_PUBLIC_KEY
+      secretKeyKey: LANGFUSE_SECRET_KEY
+      publicKeyRemoteRefKey: incidentfox/prod/langfuse_public_key
+      secretKeyRemoteRefKey: incidentfox/prod/langfuse_secret_key
+    newRelic:
+      enabled: true
+      secretName: incidentfox-newrelic
+      apiKeyKey: NEW_RELIC_API_KEY
+      apiKeyRemoteRefKey: incidentfox/prod/newrelic_api_key
+
+services:
+  configService:
+    enabled: true
+    image: "incidentfox/config-service:v1.0.0"
+    replicas: 2
+    servicePort: 8080
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    # Auth modes: token|oidc|both
+    adminAuthMode: token
+    teamAuthMode: token
+    # Optional OIDC (for enterprise SSO)
+    oidc:
+      enabled: false
+      issuer: ""
+      audience: ""
+      jwksUrl: ""
+      # Inline JWKS JSON (optional; not recommended for prod). Prefer jwksUrl.
+      jwksJson: ""
+      alg: RS256
+      leewaySeconds: 30
+      groupsClaim: groups
+      adminGroup: incidentfox-config-admin
+      orgIdClaim: org_id
+      teamNodeIdClaim: team_node_id
+      emailClaim: email
+      subjectClaim: sub
+    # Admin RBAC (OIDC group -> permissions). Default keeps backwards-compatible admin:*.
+    adminPermissionsDefault: "admin:*"
+    adminGroupPermissionsJson: "{}"
+  agent:
+    enabled: true
+    image: "incidentfox/agent:v1.0.0"
+    replicas: 2
+    servicePort: 8080
+    serviceAccount:
+      create: true
+      name: incidentfox-agent
+      annotations: {}
+    # Tracing configuration (supports multiple backends via OTEL)
+    tracing:
+      enabled: false
+      # Langfuse - LLM-specific observability (https://langfuse.com)
+      langfuse:
+        enabled: false
+        host: "https://us.cloud.langfuse.com"
+        secretName: "incidentfox-langfuse"
+        publicKeyKey: "LANGFUSE_PUBLIC_KEY"
+        secretKeyKey: "LANGFUSE_SECRET_KEY"
+      # Generic OTLP exporter (Jaeger, Tempo, Datadog, etc.)
+      otlp:
+        enabled: false
+        endpoint: ""  # e.g., http://jaeger-collector:4317
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "3Gi"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 10
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 10
+      targetCPUUtilizationPercentage: 70
+    # Shared-runtime default: team config is resolved per-request via X-IncidentFox-Team-Token header.
+    # Set this only for single-tenant/dev mode.
+    staticTeamToken:
+      enabled: false
+      secretName: incidentfox-team-token
+      secretKey: token
+  orchestrator:
+    enabled: true
+    image: "incidentfox/orchestrator:v1.0.0"
+    replicas: 2
+    servicePort: 8070
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    # Small in-memory cache to reduce config_service /auth/me pressure.
+    adminAuthCacheTtlSeconds: 15
+    # If true, require `admin:*` in principal permissions (in addition to any endpoint-scoped permissions).
+    requireAdminStar: true
+    requiredPermissions:
+      provisionTeam: admin:provision
+      provisionRead: admin:provision:read
+      agentRun: admin:agent:run
+    # Slack-triggered agent runs (enterprise defaults)
+    slack:
+      agentMaxTurns: 50         # Max tool calls per run (enterprise: 30-100)
+      agentTimeoutSeconds: 180  # 3 minutes (enterprise: 2-5 min)
+  aiPipelineApi:
+    enabled: false  # Optional - knowledge base service (not included in core v1.0.0)
+    image: "incidentfox/knowledge-base:v1.0.0"
+    replicas: 2
+    servicePort: 8090
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 20
+      periodSeconds: 10
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+  webUi:
+    enabled: true
+    image: "incidentfox/web-ui:v1.0.0"
+    replicas: 2
+    servicePort: 3000
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    livenessProbe:
+      enabled: true
+      path: /
+      initialDelaySeconds: 10
+      periodSeconds: 10
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 70
+    cookieSecure: false
+    oidc:
+      enabled: false
+    slack:
+      enabled: false
+      publicBaseUrl: "" # e.g. https://incidentfox.company.com
+      authorizationEndpoint: ""
+      tokenEndpoint: ""
+      clientId: ""
+      scopes: "openid email profile groups"
+      # Prefer injecting client secret via External Secrets Operator into a K8s Secret:
+      clientSecret:
+        secretName: "" # e.g. incidentfox-web-ui-oidc
+        secretKey: "client_secret"
+        # Optional: (not recommended) set a raw value directly in values.
+        value: ""
+  dependencyService:
+    enabled: true
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox/dependency-service:v1.0.0"
+    replicas: 2
+    servicePort: 8085
+    logLevel: "INFO"
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    # New Relic configuration for distributed tracing
+    newRelic:
+      enabled: true
+      accountId: ""  # Set your New Relic account ID
+      # API key should be stored in AWS Secrets Manager and injected via External Secrets
+      secretName: "incidentfox-newrelic"
+      apiKeyKey: "NEW_RELIC_API_KEY"
+    livenessProbe:
+      enabled: true
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 30
+    pdb:
+      enabled: true
+      minAvailable: 1
+    hpa:
+      enabled: false
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilizationPercentage: 70
+
+

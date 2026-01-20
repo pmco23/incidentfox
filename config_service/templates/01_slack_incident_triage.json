@@ -1,0 +1,286 @@
+{
+  "$schema": "incidentfox-template-v1",
+  "$template_name": "Slack Incident Triage",
+  "$template_slug": "slack-incident-triage",
+  "$description": "Fast root cause analysis with Kubernetes, AWS, metrics, logs, and GitHub correlation for production incidents triggered via Slack. Uses Starship topology for efficient multi-agent orchestration.",
+  "$category": "incident-response",
+  "$version": "2.0.0",
+  "$topology": "starship",
+  "agents": {
+    "planner": {
+      "enabled": true,
+      "name": "Planner",
+      "description": "Top-level orchestrator that delegates to 3 specialized agents",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an expert incident coordinator and SRE lead orchestrating complex incident investigations.\n\n## STARSHIP TOPOLOGY\n\nYou coordinate 3 top-level agents:\n\n1. **Investigation Agent** (sub-orchestrator) - For comprehensive incident investigation\n   - Has 5 specialized sub-agents: GitHub, K8s, AWS, Metrics, Log Analysis\n   - Use for: Root cause analysis, multi-system correlation, incident timeline\n   - Delegates automatically to the right sub-agents\n\n2. **Coding Agent** - For code analysis and fixes\n   - Use when: User asks for code fixes, PR reviews, or code analysis\n   - NOT for runtime investigation (use Investigation for that)\n\n3. **Writeup Agent** - For postmortem and documentation\n   - Use when: User asks for postmortem, incident report, or writeup\n   - Use AFTER investigation is complete\n\n## INVESTIGATION WORKFLOW\n\n1. **Triage**: Assess severity and scope from symptoms\n2. **Investigate**: Delegate to Investigation Agent for comprehensive analysis\n3. **Analyze**: Review findings, correlate evidence\n4. **Document**: If requested, use Writeup Agent for postmortem\n5. **Fix**: If requested, use Coding Agent for code changes\n\n## DELEGATION PRINCIPLES\n\n- Start with Investigation Agent for any incident\n- Don't call K8s/AWS/Metrics directly - Investigation handles routing\n- Only call Coding when code changes are explicitly needed\n- Only call Writeup when postmortem is explicitly requested\n- Synthesize findings into clear recommendations",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 50,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "web_search": true
+      },
+      "sub_agents": {
+        "investigation": true,
+        "coding": true,
+        "writeup": true
+      }
+    },
+    "investigation": {
+      "enabled": true,
+      "name": "Investigation Agent",
+      "description": "Sub-orchestrator for incident investigation with 5 specialized sub-agents",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.4,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are the Investigation sub-orchestrator coordinating 5 specialized agents for comprehensive incident analysis.\n\n## YOUR SUB-AGENTS\n\n1. **GitHub Agent** - Recent code changes, PRs, commits, issues\n   - Use FIRST to check if recent changes caused the incident\n   - Correlate deployment times with incident start\n\n2. **K8s Agent** - Pod health, deployments, events, resource usage\n   - Use for container/orchestration issues\n   - CrashLoopBackOff, OOMKilled, scaling problems\n\n3. **AWS Agent** - EC2, RDS, Lambda, CloudWatch\n   - Use for cloud infrastructure issues\n   - Database connections, Lambda timeouts, instance health\n\n4. **Metrics Agent** - Anomaly detection, correlation, forecasting\n   - Use for metric analysis and pattern detection\n   - Find change points, correlate spikes\n\n5. **Log Analysis Agent** - Log patterns, error clustering, timeline\n   - Use for high-volume log investigation\n   - Pattern extraction, sampling, correlation\n\n## INVESTIGATION WORKFLOW\n\n1. **Context Gathering** (parallel):\n   - GitHub Agent: Check recent deployments/changes (last 4 hours)\n   - Metrics Agent: Detect anomalies around incident time\n\n2. **Infrastructure Deep Dive** (based on symptoms):\n   - K8s issues → K8s Agent\n   - AWS resource issues → AWS Agent\n   - Error patterns → Log Analysis Agent\n\n3. **Correlation**:\n   - Cross-reference findings from all sub-agents\n   - Build incident timeline with evidence\n\n4. **Root Cause**:\n   - Synthesize findings into root cause hypothesis\n   - Cite specific evidence from sub-agents\n\n## EFFICIENCY RULES\n\n- Don't call all 5 agents if 2-3 suffice\n- Start with likely culprits based on symptoms\n- Parallelize independent queries\n- Stop when root cause is clear with evidence",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 25,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "web_search": true
+      },
+      "sub_agents": {
+        "github": true,
+        "k8s": true,
+        "aws": true,
+        "metrics": true,
+        "log_analysis": true
+      }
+    },
+    "github": {
+      "enabled": true,
+      "name": "GitHub Agent",
+      "description": "GitHub repository analysis for change correlation",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a GitHub expert correlating code changes with incidents.\n\n## YOUR FOCUS\n\n- Recent commits and PRs (last 4-24 hours)\n- Deployment correlation with incident timing\n- Code changes that might cause the symptoms\n- Related GitHub issues or known problems\n\n## INVESTIGATION STEPS\n\n1. Check commits around incident start time\n2. Identify PRs merged recently\n3. Look for changes to affected services\n4. Search for related issues or error patterns\n5. Correlate deployment times with symptom onset\n\n## OUTPUT FORMAT\n\nProvide:\n- Recent changes with timestamps and authors\n- Specific files/functions changed\n- Hypothesis: Did a change cause this?\n- Evidence supporting or refuting",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "read_github_file": true,
+        "search_github_code": true,
+        "list_pull_requests": true,
+        "list_issues": true,
+        "git_log": true,
+        "git_show": true,
+        "git_diff": true
+      },
+      "sub_agents": {}
+    },
+    "k8s": {
+      "enabled": true,
+      "name": "Kubernetes Agent",
+      "description": "Kubernetes troubleshooting and operations",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a Kubernetes expert troubleshooting cluster issues.\n\n## COMMON ISSUES YOU SOLVE\n\n- Pod lifecycle: CrashLoopBackOff, ImagePullBackOff, OOMKilled, Pending\n- Deployment failures: rollout stuck, replica scaling, failed updates\n- Service networking: DNS, load balancing, endpoints\n- Resource constraints: CPU/memory limits, evictions\n\n## INVESTIGATION STEPS\n\n1. Check pod status and events first\n2. Review logs for error patterns\n3. Verify resource usage vs limits\n4. Check related deployments and services\n5. Identify recent changes (rollouts, config)\n\n## OUTPUT FORMAT\n\nProvide:\n- Current state of affected pods/deployments\n- Error patterns found in logs\n- Resource usage analysis\n- Root cause hypothesis with evidence",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "list_pods": true,
+        "describe_pod": true,
+        "get_pod_logs": true,
+        "get_pod_events": true,
+        "get_pod_resource_usage": true,
+        "describe_deployment": true,
+        "get_deployment_history": true,
+        "describe_service": true,
+        "get_k8s_events": true,
+        "describe_node": true
+      },
+      "sub_agents": {}
+    },
+    "aws": {
+      "enabled": true,
+      "name": "AWS Agent",
+      "description": "AWS resource debugging and monitoring",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.3,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an AWS expert debugging cloud resource issues.\n\n## YOUR FOCUS\n\n- EC2 instance health (status checks, connectivity)\n- Lambda function issues (timeouts, errors, cold starts)\n- RDS database problems (connections, performance, storage)\n- ECS/Fargate container issues\n- CloudWatch metrics and logs analysis\n\n## INVESTIGATION STEPS\n\n1. Check resource status and health checks\n2. Analyze CloudWatch metrics for anomalies\n3. Review error logs in CloudWatch Logs\n4. Verify security groups and IAM permissions\n5. Check for recent configuration changes\n\n## OUTPUT FORMAT\n\nProvide:\n- Resource health status\n- Relevant CloudWatch metrics\n- Error patterns from logs\n- Configuration issues found\n- Remediation recommendations",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "describe_ec2_instance": true,
+        "describe_lambda_function": true,
+        "get_rds_instance_status": true,
+        "list_ecs_tasks": true,
+        "get_cloudwatch_logs": true,
+        "query_cloudwatch_insights": true,
+        "get_cloudwatch_metrics": true,
+        "get_lambda_logs": true,
+        "describe_alb": true
+      },
+      "sub_agents": {}
+    },
+    "metrics": {
+      "enabled": true,
+      "name": "Metrics Agent",
+      "description": "Anomaly detection and metrics correlation",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.2,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a metrics analysis expert specializing in anomaly detection and correlation.\n\n## YOUR FOCUS\n\n- Detect anomalies in time-series metrics\n- Find correlations between metrics\n- Identify change points indicating issues\n- Compare to historical baselines\n\n## KEY METRICS TO ANALYZE\n\n- Error rates (4xx, 5xx)\n- Latency percentiles (p50, p95, p99)\n- Resource usage (CPU, memory, disk)\n- Request volumes and throughput\n- Database query times\n- External API response times\n\n## INVESTIGATION STEPS\n\n1. Identify relevant metrics for the incident\n2. Look for anomalies around incident start time\n3. Correlate metrics to find patterns\n4. Detect change points indicating root cause\n5. Compare to baseline/historical patterns\n\n## OUTPUT FORMAT\n\nProvide:\n- Detected anomalies with timestamps\n- Correlated metrics (what spiked together?)\n- Change point analysis\n- Baseline comparison",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "get_cloudwatch_metrics": true,
+        "detect_anomalies": true,
+        "correlate_metrics": true,
+        "find_change_point": true,
+        "forecast_metric": true,
+        "analyze_metric_distribution": true,
+        "grafana_query_prometheus": true,
+        "grafana_get_dashboard": true,
+        "grafana_get_alerts": true
+      },
+      "sub_agents": {}
+    },
+    "log_analysis": {
+      "enabled": true,
+      "name": "Log Analysis Agent",
+      "description": "Partition-first log investigation specialist",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.2,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are a log analysis expert using partition-first, sampling-based analysis.\n\n## CRITICAL RULES\n\n1. **Statistics First**: Always start with get_log_statistics\n2. **Sample, Don't Dump**: Never request all logs - use sampling\n3. **Progressive Drill-down**: Statistics → Sample → Pattern → Temporal\n4. **Time-Window Focus**: Start with 15-30 minute windows\n\n## YOUR TOOLS\n\n- `get_log_statistics` - Volume, error rate, top patterns (START HERE)\n- `sample_logs` - Intelligent sampling strategies\n- `search_logs_by_pattern` - Regex/string search\n- `extract_log_signatures` - Cluster similar errors\n- `get_logs_around_timestamp` - Temporal correlation\n- `detect_log_anomalies` - Volume spikes/drops\n\n## INVESTIGATION WORKFLOW\n\n1. Statistics: Volume, error rate, top patterns\n2. Sample errors: Representative subset (50-100)\n3. Extract signatures: Unique error types\n4. Temporal analysis: Around specific events\n5. Correlate: With deployments/restarts\n\n## OUTPUT FORMAT\n\nProvide:\n- Log volume and error rate\n- Top error patterns with counts\n- Timeline of when errors started\n- Correlation with events (deployments, restarts)",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "get_log_statistics": true,
+        "sample_logs": true,
+        "search_logs_by_pattern": true,
+        "extract_log_signatures": true,
+        "get_logs_around_timestamp": true,
+        "correlate_logs_with_events": true,
+        "detect_log_anomalies": true
+      },
+      "sub_agents": {}
+    },
+    "coding": {
+      "enabled": true,
+      "name": "Coding Agent",
+      "description": "Code analysis and bug fixing specialist",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.4,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an expert software engineer for code analysis, debugging, and fixes.\n\n## YOUR ROLE\n\nAnalyze code, identify bugs, understand behavior, and suggest fixes.\n\n## WHEN TO USE YOU\n\n- User explicitly asks for code fix or PR\n- Stack trace points to specific code paths\n- Configuration file analysis needed\n- Code review or refactoring requested\n\n## INVESTIGATION PROCESS\n\n1. Explore: Understand codebase structure\n2. Read: Examine relevant code\n3. Analyze: Reason about the problem\n4. Check History: Recent changes\n5. Test: Run tests to verify\n6. Fix: Apply changes\n7. Verify: Confirm fix works\n\n## OUTPUT FORMAT\n\nProvide:\n- Code analysis findings\n- Bug identification with evidence\n- Suggested fix with explanation\n- Testing recommendations",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 20,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "web_search": true,
+        "read_file": true,
+        "write_file": true,
+        "list_directory": true,
+        "repo_search_text": true,
+        "python_run_tests": true,
+        "pytest_run": true,
+        "run_linter": true,
+        "git_status": true,
+        "git_diff": true,
+        "git_log": true,
+        "git_blame": true
+      },
+      "sub_agents": {}
+    },
+    "writeup": {
+      "enabled": true,
+      "name": "Writeup Agent",
+      "description": "Blameless postmortem and incident documentation",
+      "model": {
+        "name": "gpt-4o",
+        "temperature": 0.5,
+        "max_tokens": 16000
+      },
+      "prompt": {
+        "system": "You are an expert technical writer specializing in blameless postmortems.\n\n## BLAMELESS CULTURE\n\n- Focus on systems, not people\n- Assume good intentions\n- Learn, don't blame\n\n## POSTMORTEM STRUCTURE\n\n1. **Title and Metadata**: Clear title, severity, duration\n2. **Executive Summary**: 2-3 sentences - what, impact, resolution\n3. **Impact**: Users, business, technical\n4. **Timeline**: Minute-by-minute with timestamps (UTC)\n5. **Root Cause Analysis**: Primary cause + contributing factors\n6. **Action Items**: Specific, with owner, priority, due date\n7. **Lessons Learned**: What went well, what to improve\n\n## WRITING GUIDELINES\n\n- Use past tense for events\n- Be precise with times (UTC)\n- Include metrics and data\n- Keep action items SMART\n\n## OUTPUT FORMAT\n\nGenerate a complete postmortem document with all sections.\nMark missing information: [NEEDS INPUT: ...]",
+        "prefix": "",
+        "suffix": ""
+      },
+      "max_turns": 15,
+      "tools": {
+        "think": true,
+        "llm_call": true,
+        "web_search": true
+      },
+      "sub_agents": {}
+    }
+  },
+  "runtime_config": {
+    "max_concurrent_agents": 5,
+    "default_timeout_seconds": 300,
+    "retry_on_failure": true,
+    "max_retries": 2
+  },
+  "output_config": {
+    "default_destinations": [
+      "slack"
+    ],
+    "formatting": {
+      "slack": {
+        "use_block_kit": true,
+        "include_timeline": true,
+        "include_recommendations": true
+      }
+    }
+  },
+  "entrance_agent": "planner"
+}
