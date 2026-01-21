@@ -1,6 +1,7 @@
 """HTTP client for IncidentFox Agent API."""
 
-from typing import Any, Dict, List
+import json
+from typing import Any, AsyncGenerator, Dict, List
 
 import httpx
 
@@ -141,6 +142,100 @@ class AgentClient:
                     "success": False,
                     "error": str(e),
                     "agent": agent_name,
+                }
+
+    async def run_agent_stream(
+        self, agent_name: str, message: str, previous_response_id: str | None = None
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        Run an agent with SSE streaming.
+
+        Yields events as the agent executes:
+        - agent_started: Agent execution has begun
+        - tool_started: A tool call is starting
+        - tool_completed: A tool call has finished
+        - agent_completed: Final result (includes success, output, duration, last_response_id)
+
+        Args:
+            agent_name: Name of agent to run (e.g., "planner")
+            message: User message/query
+            previous_response_id: Optional response ID for chaining (continues conversation without pre-creating)
+
+        Yields:
+            Dict with event_type and event data
+        """
+        url = f"{self.base_url}/agents/{agent_name}/run/stream"
+
+        # Build request body
+        request_body = {
+            "message": message,
+            "context": {},
+            "max_turns": 20,
+            "timeout": 600,
+        }
+        # Include previous_response_id if provided (for chaining follow-up queries)
+        if previous_response_id:
+            request_body["previous_response_id"] = previous_response_id
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._headers(),
+                    json=request_body,
+                ) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        yield {
+                            "event_type": "error",
+                            "error": f"HTTP {response.status_code}: {error_text.decode()[:500]}",
+                        }
+                        return
+
+                    # Parse SSE events
+                    event_type = None
+                    data_buffer = []
+
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+
+                        if line.startswith("event:"):
+                            event_type = line[6:].strip()
+                        elif line.startswith("data:"):
+                            data_buffer.append(line[5:].strip())
+                        elif line == "" and event_type and data_buffer:
+                            # End of event - parse and yield
+                            try:
+                                data_str = "".join(data_buffer)
+                                data = json.loads(data_str)
+                                yield {
+                                    "event_type": event_type,
+                                    **data,
+                                }
+                            except json.JSONDecodeError:
+                                yield {
+                                    "event_type": event_type,
+                                    "raw_data": "".join(data_buffer),
+                                }
+                            # Reset for next event
+                            event_type = None
+                            data_buffer = []
+
+            except httpx.TimeoutException:
+                yield {
+                    "event_type": "error",
+                    "error": "Connection timed out",
+                }
+            except httpx.ConnectError:
+                yield {
+                    "event_type": "error",
+                    "error": f"Cannot connect to agent at {self.base_url}",
+                }
+            except Exception as e:
+                yield {
+                    "event_type": "error",
+                    "error": str(e),
                 }
 
     def get_config(self) -> Dict[str, Any]:
