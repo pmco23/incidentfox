@@ -5,12 +5,32 @@
 **AI-powered incident investigation and infrastructure automation.**
 
 IncidentFox is an AI SRE / AI On-Call engineer that integrates with your observability stack, infrastructure, and collaboration tools to automatically investigate incidents, find root causes, and suggest fixes.
-![image](https://github.com/user-attachments/assets/b6892fe8-0a19-40f9-9d86-465aa3387108)
 
 🌐 **Try it live:** [ui.incidentfox.ai](https://ui.incidentfox.ai) | 📧 **Enterprise & On-Premise:** [founders@incidentfox.ai](mailto:founders@incidentfox.ai)
 
-![image](https://github.com/user-attachments/assets/8c785a32-c46a-4d5b-8297-fe13f23a2392)
-![image](https://github.com/user-attachments/assets/60934195-83bf-4d5d-ab7e-0c32e60dbe86)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/b6892fe8-0a19-40f9-9d86-465aa3387108" width="600" alt="Slack Investigation">
+  <br>
+  <em>Investigate incidents directly from Slack</em>
+</p>
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/3a46b0f2-c7e9-40b2-ba7a-9f64420e8b56" width="700" controls autoplay loop muted></video>
+  <br>
+  <em>Local CLI for terminal-native developers</em>
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/8c785a32-c46a-4d5b-8297-fe13f23a2392" alt="IncidentFox Web Console">
+  <br>
+  <em>Web Console — View and manage multi-agent workflows for your use case</em>
+</p>
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/60934195-83bf-4d5d-ab7e-0c32e60dbe86" alt="Knowledge Base">
+  <br>
+  <em>Hierarchical RAG — High-performance retrieval for your proprietary knowledge</em>
+</p>
 
 
 
@@ -268,7 +288,11 @@ curl -X POST https://your-domain/api/orchestrator/agents/run \
 │  complex tasks│          │  Troubleshooting│          │ Metrics, CI, etc│
 └───────────────┘          └─────────────────┘          └─────────────────┘
 ```
-![image](https://github.com/user-attachments/assets/5e0a4afa-d807-4931-b2d6-186984e329de)
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/5e0a4afa-d807-4931-b2d6-186984e329de" alt="Agent Architecture Diagram">
+  <br>
+  <em>Multi-Agent Architecture - Specialized agents collaborate to investigate incidents</em>
+</p>
 
 
 ### Agent Capabilities
