@@ -737,6 +737,30 @@ async def rag_answer_direct(question: str, tree: str = "", top_k: int = 5):
         console.print("[dim]Make sure RAPTOR is running: make start-raptor[/dim]")
 
 
+def display_about():
+    """Display project information and how to contribute."""
+    about_text = """
+[bold blue]IncidentFox[/bold blue] - AI-Powered SRE Assistant
+
+Maintained by the IncidentFox team.
+
+[bold]Open Source[/bold]
+  https://github.com/incidentfox/incidentfox
+
+[bold]Team & Enterprise Features[/bold]
+  Slack bot integration, GitHub bot, shared runbooks,
+  team dashboards, and more.
+  Visit our GitHub for details.
+
+[bold]Feedback & Support[/bold]
+  Open an issue: https://github.com/incidentfox/incidentfox/issues
+  Email: support@incidentfox.dev
+
+If IncidentFox helps your team, consider starring the repo!
+"""
+    console.print(Panel(about_text.strip(), title="About IncidentFox", border_style="blue"))
+
+
 @click.command()
 @click.option("--agent", "-a", default="planner", help="Entry agent (default: planner)")
 @click.option("--list-agents", is_flag=True, help="List available agents")
@@ -1445,6 +1469,10 @@ async def run_repl(
                 session_response_id = None
                 session_state.clear()
                 console.print("[green]Started new conversation[/green]")
+                continue
+
+            if cmd == "/about":
+                display_about()
                 continue
 
             if cmd.startswith("/config "):
@@ -2407,6 +2435,7 @@ def display_help():
 | `/context edit` | Edit key_context.txt (team knowledge, common issues) |
 | `/clear` | Clear screen |
 | `/new` | Start a new conversation |
+| `/about` | Show project info and how to contribute |
 | `quit` | Exit CLI |
 
 ## Agent Management
