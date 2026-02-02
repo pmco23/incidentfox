@@ -4427,13 +4427,17 @@ def handle_mention_setup_wizard(ack, body, client):
         trial_info = config_client.get_trial_status(team_id)
 
         onboarding = get_onboarding_modules()
-        wizard_view = onboarding.build_setup_wizard_page1(team_id=team_id, trial_info=trial_info)
+        wizard_view = onboarding.build_setup_wizard_page1(
+            team_id=team_id, trial_info=trial_info
+        )
 
         client.views_open(trigger_id=body["trigger_id"], view=wizard_view)
         logger.info(f"Opened setup wizard from channel mention for team {team_id}")
 
     except Exception as e:
-        logger.error(f"Failed to open setup wizard from channel mention: {e}", exc_info=True)
+        logger.error(
+            f"Failed to open setup wizard from channel mention: {e}", exc_info=True
+        )
 
 
 def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -> bool:
@@ -4478,7 +4482,11 @@ def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -
                 },
                 "accessory": {
                     "type": "button",
-                    "text": {"type": "plain_text", "text": "Configure IncidentFox", "emoji": True},
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Configure IncidentFox",
+                        "emoji": True,
+                    },
                     "action_id": "mention_open_setup_wizard",
                     "style": "primary",
                 },
@@ -4486,7 +4494,9 @@ def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -
         ]
 
         if trial_info and trial_info.get("expired"):
-            blocks[0]["text"]["text"] = ":warning: Your free trial has ended. Please configure IncidentFox to continue."
+            blocks[0]["text"][
+                "text"
+            ] = ":warning: Your free trial has ended. Please configure IncidentFox to continue."
 
         client.chat_postMessage(
             channel=channel_id,
