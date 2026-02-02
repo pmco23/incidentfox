@@ -519,9 +519,7 @@ class ConfigServiceClient:
 
         try:
             self._update_config(org_id, team_node_id, update)
-            logger.info(
-                f"Saved {integration_id} config for workspace {slack_team_id}"
-            )
+            logger.info(f"Saved {integration_id} config for workspace {slack_team_id}")
             return True
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to save {integration_id} config: {e}")

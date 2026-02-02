@@ -351,7 +351,9 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
     return True, ""
 
 
-def build_welcome_message(trial_info: Optional[Dict] = None, team_name: str = "") -> list:
+def build_welcome_message(
+    trial_info: Optional[Dict] = None, team_name: str = ""
+) -> list:
     """
     Build welcome message sent as DM to installer after OAuth install.
 
@@ -365,83 +367,103 @@ def build_welcome_message(trial_info: Optional[Dict] = None, team_name: str = ""
     blocks = []
 
     # Header
-    blocks.append({
-        "type": "header",
-        "text": {"type": "plain_text", "text": "Welcome to IncidentFox!", "emoji": True},
-    })
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": "Welcome to IncidentFox!",
+                "emoji": True,
+            },
+        }
+    )
 
     # Trial status banner
     if trial_info and not trial_info.get("expired"):
         days = trial_info.get("days_remaining", 7)
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f":gift: *Your {days}-day free trial is active!*\n\n"
-                    "I'm an AI-powered SRE assistant that helps investigate incidents. "
-                    "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
-                ),
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":gift: *Your {days}-day free trial is active!*\n\n"
+                        "I'm an AI-powered SRE assistant that helps investigate incidents. "
+                        "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
+                    ),
+                },
+            }
+        )
     else:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "I'm an AI-powered SRE assistant that helps investigate incidents.\n\n"
-                    "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
-                ),
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "I'm an AI-powered SRE assistant that helps investigate incidents.\n\n"
+                        "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
+                    ),
+                },
+            }
+        )
 
     blocks.append({"type": "divider"})
 
     # Quick start
-    blocks.append({
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": (
-                "*Quick Start*\n"
-                "1. Go to any channel\n"
-                "2. Type `@IncidentFox why is this pod crashing?`\n"
-                "3. Share error messages, logs, or screenshots for context"
-            ),
-        },
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Quick Start*\n"
+                    "1. Go to any channel\n"
+                    "2. Type `@IncidentFox why is this pod crashing?`\n"
+                    "3. Share error messages, logs, or screenshots for context"
+                ),
+            },
+        }
+    )
 
     blocks.append({"type": "divider"})
 
     # Action buttons
-    blocks.append({
-        "type": "actions",
-        "elements": [
-            {
-                "type": "button",
-                "action_id": "open_setup_wizard",
-                "text": {"type": "plain_text", "text": "Set Up Integrations", "emoji": True},
-                "style": "primary",
-            },
-            {
-                "type": "button",
-                "action_id": "dismiss_welcome",
-                "text": {"type": "plain_text", "text": "Maybe Later"},
-            },
-        ],
-    })
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": "open_setup_wizard",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Set Up Integrations",
+                        "emoji": True,
+                    },
+                    "style": "primary",
+                },
+                {
+                    "type": "button",
+                    "action_id": "dismiss_welcome",
+                    "text": {"type": "plain_text", "text": "Maybe Later"},
+                },
+            ],
+        }
+    )
 
     # Help footer
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":bulb: Connect your observability tools (Datadog, CloudWatch, etc.) for richer investigations.",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":bulb: Connect your observability tools (Datadog, CloudWatch, etc.) for richer investigations.",
+                }
+            ],
+        }
+    )
 
     return blocks
 
@@ -551,15 +573,17 @@ def build_setup_wizard_page1(
     blocks = []
 
     # Progress indicator
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":one: *API Key*  →  :two: Integrations",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":one: *API Key*  →  :two: Integrations",
+                }
+            ],
+        }
+    )
 
     blocks.append({"type": "divider"})
 
@@ -568,104 +592,130 @@ def build_setup_wizard_page1(
 
     if has_trial:
         days = trial_info.get("days_remaining", 7)
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f":gift: *You have {days} days left on your free trial.*\n\n"
-                    "You can use the trial API or add your own Anthropic API key."
-                ),
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":gift: *You have {days} days left on your free trial.*\n\n"
+                        "You can use the trial API or add your own Anthropic API key."
+                    ),
+                },
+            }
+        )
 
         # Radio buttons for API key choice
-        blocks.append({
-            "type": "input",
-            "block_id": "api_choice_block",
-            "element": {
-                "type": "radio_buttons",
-                "action_id": "api_choice_input",
-                "initial_option": {
-                    "text": {"type": "plain_text", "text": "Use Trial API (recommended)"},
-                    "value": "trial",
-                },
-                "options": [
-                    {
-                        "text": {"type": "plain_text", "text": "Use Trial API (recommended)"},
+        blocks.append(
+            {
+                "type": "input",
+                "block_id": "api_choice_block",
+                "element": {
+                    "type": "radio_buttons",
+                    "action_id": "api_choice_input",
+                    "initial_option": {
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Use Trial API (recommended)",
+                        },
                         "value": "trial",
                     },
-                    {
-                        "text": {"type": "plain_text", "text": "Use My Own API Key"},
-                        "value": "byok",
-                    },
-                ],
-            },
-            "label": {"type": "plain_text", "text": "API Key"},
-        })
+                    "options": [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Use Trial API (recommended)",
+                            },
+                            "value": "trial",
+                        },
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Use My Own API Key",
+                            },
+                            "value": "byok",
+                        },
+                    ],
+                },
+                "label": {"type": "plain_text", "text": "API Key"},
+            }
+        )
     else:
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    ":key: *Set up your Anthropic API key*\n\n"
-                    "IncidentFox uses Claude to investigate incidents. "
-                    "Enter your API key below."
-                ),
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        ":key: *Set up your Anthropic API key*\n\n"
+                        "IncidentFox uses Claude to investigate incidents. "
+                        "Enter your API key below."
+                    ),
+                },
+            }
+        )
 
     # API Key input (optional if trial, required otherwise)
-    blocks.append({
-        "type": "input",
-        "block_id": "api_key_block",
-        "optional": has_trial,
-        "element": {
-            "type": "plain_text_input",
-            "action_id": "api_key_input",
-            "placeholder": {"type": "plain_text", "text": "sk-ant-api..."},
-        },
-        "label": {"type": "plain_text", "text": "Anthropic API Key"},
-        "hint": {
-            "type": "plain_text",
-            "text": "Get your API key from console.anthropic.com",
-        },
-    })
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "api_key_block",
+            "optional": has_trial,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "api_key_input",
+                "placeholder": {"type": "plain_text", "text": "sk-ant-api..."},
+            },
+            "label": {"type": "plain_text", "text": "Anthropic API Key"},
+            "hint": {
+                "type": "plain_text",
+                "text": "Get your API key from console.anthropic.com",
+            },
+        }
+    )
 
     # Optional API endpoint
-    blocks.append({
-        "type": "input",
-        "block_id": "api_endpoint_block",
-        "optional": True,
-        "element": {
-            "type": "plain_text_input",
-            "action_id": "api_endpoint_input",
-            "placeholder": {"type": "plain_text", "text": "https://api.anthropic.com (default)"},
-        },
-        "label": {"type": "plain_text", "text": "API Endpoint (Optional)"},
-        "hint": {
-            "type": "plain_text",
-            "text": "Leave blank to use default. Set if using an internal ML gateway.",
-        },
-    })
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "api_endpoint_block",
+            "optional": True,
+            "element": {
+                "type": "plain_text_input",
+                "action_id": "api_endpoint_input",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": "https://api.anthropic.com (default)",
+                },
+            },
+            "label": {"type": "plain_text", "text": "API Endpoint (Optional)"},
+            "hint": {
+                "type": "plain_text",
+                "text": "Leave blank to use default. Set if using an internal ML gateway.",
+            },
+        }
+    )
 
     # Help text
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":lock: Your API key is encrypted and stored securely.",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":lock: Your API key is encrypted and stored securely.",
+                }
+            ],
+        }
+    )
 
     # Store metadata for the submission handler
-    private_metadata = json.dumps({
-        "team_id": team_id,
-        "has_trial": has_trial,
-    })
+    private_metadata = json.dumps(
+        {
+            "team_id": team_id,
+            "has_trial": has_trial,
+        }
+    )
 
     return {
         "type": "modal",
@@ -699,29 +749,33 @@ def build_setup_wizard_page2(
     blocks = []
 
     # Progress indicator (step 1 complete)
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":white_check_mark: API Key  →  :two: *Integrations*",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":white_check_mark: API Key  →  :two: *Integrations*",
+                }
+            ],
+        }
+    )
 
     blocks.append({"type": "divider"})
 
-    blocks.append({
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": (
-                "*Connect your tools* (optional)\n\n"
-                "Add integrations so I can pull logs, metrics, and deployment data "
-                "during investigations."
-            ),
-        },
-    })
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Connect your tools* (optional)\n\n"
+                    "Add integrations so I can pull logs, metrics, and deployment data "
+                    "during investigations."
+                ),
+            },
+        }
+    )
 
     # Group integrations by category
     categories = {}
@@ -749,13 +803,15 @@ def build_setup_wizard_page2(
         if not cat_schemas:
             continue
 
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{category_labels.get(cat, cat.title())}*",
-            },
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{category_labels.get(cat, cat.title())}*",
+                },
+            }
+        )
 
         # Create buttons for each integration in this category (max 5 per row)
         button_elements = []
@@ -789,15 +845,17 @@ def build_setup_wizard_page2(
 
     # Help text
     blocks.append({"type": "divider"})
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":bulb: You can always add more integrations later from the Home tab.",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":bulb: You can always add more integrations later from the Home tab.",
+                }
+            ],
+        }
+    )
 
     # Store metadata
     private_metadata = json.dumps({"team_id": team_id})
@@ -840,20 +898,28 @@ def build_integration_config_modal(
     docs_url = schema.get("docs_url")
 
     # Header with integration name
-    blocks.append({
-        "type": "header",
-        "text": {"type": "plain_text", "text": f"Configure {integration_name}", "emoji": True},
-    })
+    blocks.append(
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": f"Configure {integration_name}",
+                "emoji": True,
+            },
+        }
+    )
 
     # Description
     if description:
         desc_text = description
         if docs_url:
             desc_text += f"\n\n<{docs_url}|View documentation>"
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": desc_text},
-        })
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": desc_text},
+            }
+        )
 
     blocks.append({"type": "divider"})
 
@@ -874,18 +940,27 @@ def build_integration_config_modal(
 
         if field_type == "secret":
             # Secret fields: plain text input, don't pre-fill
-            blocks.append({
-                "type": "input",
-                "block_id": f"field_{field_id}",
-                "optional": not field_required,
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": f"input_{field_id}",
-                    "placeholder": {"type": "plain_text", "text": field_placeholder or "Enter value..."},
-                },
-                "label": {"type": "plain_text", "text": field_name},
-                "hint": {"type": "plain_text", "text": field_hint} if field_hint else None,
-            })
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": not field_required,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": f"input_{field_id}",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": field_placeholder or "Enter value...",
+                        },
+                    },
+                    "label": {"type": "plain_text", "text": field_name},
+                    "hint": (
+                        {"type": "plain_text", "text": field_hint}
+                        if field_hint
+                        else None
+                    ),
+                }
+            )
             # Remove hint if None
             if not field_hint:
                 del blocks[-1]["hint"]
@@ -894,22 +969,32 @@ def build_integration_config_modal(
             # Boolean fields: checkboxes
             initial_options = []
             if existing_config.get(field_id):
-                initial_options = [{"text": {"type": "plain_text", "text": field_name}, "value": "true"}]
+                initial_options = [
+                    {
+                        "text": {"type": "plain_text", "text": field_name},
+                        "value": "true",
+                    }
+                ]
 
-            blocks.append({
-                "type": "input",
-                "block_id": f"field_{field_id}",
-                "optional": True,
-                "element": {
-                    "type": "checkboxes",
-                    "action_id": f"input_{field_id}",
-                    "options": [
-                        {"text": {"type": "plain_text", "text": field_name}, "value": "true"}
-                    ],
-                    "initial_options": initial_options if initial_options else None,
-                },
-                "label": {"type": "plain_text", "text": field_name},
-            })
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": True,
+                    "element": {
+                        "type": "checkboxes",
+                        "action_id": f"input_{field_id}",
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": field_name},
+                                "value": "true",
+                            }
+                        ],
+                        "initial_options": initial_options if initial_options else None,
+                    },
+                    "label": {"type": "plain_text", "text": field_name},
+                }
+            )
             # Clean up None initial_options
             if not initial_options:
                 del blocks[-1]["element"]["initial_options"]
@@ -923,24 +1008,32 @@ def build_integration_config_modal(
             existing_value = existing_config.get(field_id)
             initial_option = None
             if existing_value:
-                initial_option = {"text": {"type": "plain_text", "text": existing_value}, "value": existing_value}
+                initial_option = {
+                    "text": {"type": "plain_text", "text": existing_value},
+                    "value": existing_value,
+                }
 
             element = {
                 "type": "static_select",
                 "action_id": f"input_{field_id}",
-                "placeholder": {"type": "plain_text", "text": field_placeholder or "Select..."},
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": field_placeholder or "Select...",
+                },
                 "options": options,
             }
             if initial_option:
                 element["initial_option"] = initial_option
 
-            blocks.append({
-                "type": "input",
-                "block_id": f"field_{field_id}",
-                "optional": not field_required,
-                "element": element,
-                "label": {"type": "plain_text", "text": field_name},
-            })
+            blocks.append(
+                {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": not field_required,
+                    "element": element,
+                    "label": {"type": "plain_text", "text": field_name},
+                }
+            )
 
         else:
             # Default: string field (plain text input, can pre-fill)
@@ -948,7 +1041,10 @@ def build_integration_config_modal(
             element = {
                 "type": "plain_text_input",
                 "action_id": f"input_{field_id}",
-                "placeholder": {"type": "plain_text", "text": field_placeholder or "Enter value..."},
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": field_placeholder or "Enter value...",
+                },
             }
             if existing_value:
                 element["initial_value"] = str(existing_value)
@@ -967,22 +1063,26 @@ def build_integration_config_modal(
 
     # Security note
     blocks.append({"type": "divider"})
-    blocks.append({
-        "type": "context",
-        "elements": [
-            {
-                "type": "mrkdwn",
-                "text": ":lock: Credentials are encrypted and stored securely.",
-            }
-        ],
-    })
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":lock: Credentials are encrypted and stored securely.",
+                }
+            ],
+        }
+    )
 
     # Store metadata for submission handler
-    private_metadata = json.dumps({
-        "team_id": team_id,
-        "integration_id": integration_id,
-        "field_names": field_names,
-    })
+    private_metadata = json.dumps(
+        {
+            "team_id": team_id,
+            "integration_id": integration_id,
+            "field_names": field_names,
+        }
+    )
 
     return {
         "type": "modal",

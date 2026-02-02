@@ -2279,7 +2279,9 @@ def handle_message(event, client, context):
                 # First interaction! Send welcome message
                 onboarding = get_onboarding_modules()
                 config_client = get_config_client()
-                trial_info = config_client.get_trial_status(team_id) if team_id else None
+                trial_info = (
+                    config_client.get_trial_status(team_id) if team_id else None
+                )
                 welcome_blocks = onboarding.build_dm_welcome_message(trial_info)
                 client.chat_postMessage(
                     channel=channel_id,
@@ -4081,11 +4083,7 @@ def handle_setup_wizard_page1(ack, body, client, view):
         )
 
     # Get API key value
-    api_key = (
-        values.get("api_key_block", {})
-        .get("api_key_input", {})
-        .get("value", "")
-    )
+    api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
     if api_key:
         api_key = api_key.strip()
 
@@ -4385,7 +4383,9 @@ def handle_home_integration_action(ack, body, client):
         logger.info(f"Opened {action_type} modal for {integration_id} from Home Tab")
 
     except Exception as e:
-        logger.error(f"Failed to open integration modal from Home Tab: {e}", exc_info=True)
+        logger.error(
+            f"Failed to open integration modal from Home Tab: {e}", exc_info=True
+        )
 
 
 @app.action("home_open_api_key_modal")
@@ -4621,12 +4621,18 @@ if __name__ == "__main__":
                         from slack_sdk import WebClient
 
                         dm_client = WebClient(token=bot_token)
-                        dm_response = dm_client.conversations_open(users=[installer_user_id])
+                        dm_response = dm_client.conversations_open(
+                            users=[installer_user_id]
+                        )
                         dm_channel = dm_response.get("channel", {}).get("id")
 
                         if dm_channel:
                             onboarding = get_onboarding_modules()
-                            trial_info = provision_result.get("trial_info") if provision_result else None
+                            trial_info = (
+                                provision_result.get("trial_info")
+                                if provision_result
+                                else None
+                            )
                             welcome_blocks = onboarding.build_welcome_message(
                                 trial_info=trial_info, team_name=team_name
                             )
@@ -4635,7 +4641,9 @@ if __name__ == "__main__":
                                 text="Welcome to IncidentFox!",
                                 blocks=welcome_blocks,
                             )
-                            logger.info(f"Sent welcome DM to installer {installer_user_id}")
+                            logger.info(
+                                f"Sent welcome DM to installer {installer_user_id}"
+                            )
                     except Exception as dm_error:
                         logger.warning(f"Failed to send welcome DM: {dm_error}")
 
