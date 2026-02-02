@@ -54,9 +54,28 @@ SLACK_CLIENT_ID = os.environ.get("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.environ.get("SLACK_CLIENT_SECRET")
 SLACK_SCOPES = [
     "app_mentions:read",
-    "chat:write",
     "channels:history",
+    "channels:join",
+    "channels:read",
+    "chat:write",
+    "chat:write.customize",
+    "commands",
+    "files:read",
     "files:write",
+    "groups:history",
+    "groups:read",
+    "im:history",
+    "im:read",
+    "im:write",
+    "links:read",
+    "links:write",
+    "metadata.message:read",
+    "mpim:history",
+    "mpim:read",
+    "reactions:read",
+    "reactions:write",
+    "usergroups:read",
+    "users:read",
 ]
 
 # Check if OAuth is configured (for public distribution)
@@ -2214,10 +2233,65 @@ def handle_message(event, client, context):
     logger.info(f"   type={event.get('type')}")
     logger.info(f"   subtype={event.get('subtype')}")
     logger.info(f"   channel={event.get('channel')}")
+    logger.info(f"   channel_type={event.get('channel_type')}")
     logger.info(f"   user={event.get('user')}")
     logger.info(f"   bot_id={event.get('bot_id')}")
     logger.info(f"   text={event.get('text', '')[:100]}")
     logger.info("=" * 60)
+
+    # ============================================================================
+    # DM HANDLING - First-time welcome and help command (Slack review requirement)
+    # ============================================================================
+    channel_type = event.get("channel_type")
+    if channel_type == "im":
+        user_id = event.get("user")
+        team_id = context.get("team_id")
+        channel_id = event.get("channel")
+        dm_text = event.get("text", "").strip().lower()
+
+        # Skip bot's own messages
+        if event.get("bot_id"):
+            return
+
+        # Handle help command first
+        if dm_text == "help":
+            try:
+                onboarding = get_onboarding_modules()
+                help_blocks = onboarding.build_help_message()
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="IncidentFox Help",
+                    blocks=help_blocks,
+                )
+                logger.info(f"Sent help message to user {user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send help message: {e}")
+            return  # Don't process further
+
+        # Check if this is first-time DM (no previous bot messages in this channel)
+        try:
+            history = client.conversations_history(channel=channel_id, limit=10)
+            bot_has_messaged = any(
+                msg.get("bot_id") for msg in history.get("messages", [])
+            )
+
+            if not bot_has_messaged:
+                # First interaction! Send welcome message
+                onboarding = get_onboarding_modules()
+                config_client = get_config_client()
+                trial_info = config_client.get_trial_status(team_id) if team_id else None
+                welcome_blocks = onboarding.build_dm_welcome_message(trial_info)
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="Welcome to IncidentFox!",
+                    blocks=welcome_blocks,
+                )
+                logger.info(f"Sent first-time DM welcome to user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to check/send DM welcome: {e}")
+
+        # DMs don't need further processing (alerts, Coralogix links, etc.)
+        return
 
     # ============================================================================
     # INCIDENT.IO ALERT DETECTION - Check for "New alert" messages from bots
@@ -3919,6 +3993,425 @@ def handle_api_key_submission(ack, body, client, view):
         logger.error(f"Error saving API key: {e}", exc_info=True)
 
 
+@app.action("open_setup_wizard")
+def handle_open_setup_wizard(ack, body, client):
+    """Open the setup wizard modal (from welcome message)."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in body for setup wizard")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+
+        onboarding = get_onboarding_modules()
+        # Use setup wizard if available, otherwise fall back to API key modal
+        if hasattr(onboarding, "build_setup_wizard_page1"):
+            modal = onboarding.build_setup_wizard_page1(team_id, trial_info)
+        else:
+            modal = onboarding.build_api_key_modal(team_id, trial_info=trial_info)
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened setup wizard for team {team_id}")
+    except Exception as e:
+        logger.error(f"Failed to open setup wizard: {e}", exc_info=True)
+
+
+@app.action("dismiss_welcome")
+def handle_dismiss_welcome(ack, body, client):
+    """Dismiss the welcome message with helpful tips."""
+    ack()
+
+    try:
+        channel = body.get("channel", {}).get("id")
+        message_ts = body.get("message", {}).get("ts")
+        if channel and message_ts:
+            client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text="No problem! Mention @IncidentFox anytime to start investigating.",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                ":wave: No problem! You can start investigating right away.\n\n"
+                                "Just mention `@IncidentFox` in any channel with your question. "
+                                "You can always set up integrations later from the *Home* tab."
+                            ),
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":bulb: Tip: Type `help` in this DM anytime for guidance.",
+                            }
+                        ],
+                    },
+                ],
+            )
+    except Exception as e:
+        logger.warning(f"Failed to update dismissed welcome message: {e}")
+
+
+@app.view("setup_wizard_page1")
+def handle_setup_wizard_page1(ack, body, client, view):
+    """Handle page 1 of setup wizard submission."""
+    import json
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    has_trial = private_metadata.get("has_trial", False)
+    values = view.get("state", {}).get("values", {})
+
+    # Get API key choice (if trial available)
+    api_choice = "byok"  # Default to BYOK
+    if has_trial:
+        api_choice = (
+            values.get("api_choice_block", {})
+            .get("api_choice_input", {})
+            .get("selected_option", {})
+            .get("value", "trial")
+        )
+
+    # Get API key value
+    api_key = (
+        values.get("api_key_block", {})
+        .get("api_key_input", {})
+        .get("value", "")
+    )
+    if api_key:
+        api_key = api_key.strip()
+
+    # Get optional endpoint
+    api_endpoint = (
+        values.get("api_endpoint_block", {})
+        .get("api_endpoint_input", {})
+        .get("value", "")
+    )
+    if api_endpoint:
+        api_endpoint = api_endpoint.strip()
+
+    # Validate: if BYOK selected, API key is required
+    if api_choice == "byok" and not api_key:
+        ack(
+            response_action="errors",
+            errors={"api_key_block": "API key is required when using your own key"},
+        )
+        return
+
+    # Validate API key format if provided
+    if api_key:
+        onboarding = get_onboarding_modules()
+        is_valid, error_message = onboarding.validate_api_key(api_key)
+        if not is_valid:
+            ack(response_action="errors", errors={"api_key_block": error_message})
+            return
+
+    # Save API key if BYOK
+    if api_choice == "byok" and api_key:
+        config_client = get_config_client()
+        config_client.save_api_key(
+            slack_team_id=team_id,
+            api_key=api_key,
+            api_endpoint=api_endpoint if api_endpoint else None,
+        )
+        logger.info(f"Saved API key from wizard for team {team_id}")
+
+    # Fetch schemas and configured integrations for page 2
+    config_client = get_config_client()
+    schemas = config_client.get_integration_schemas()
+    configured = config_client.get_configured_integrations(team_id)
+
+    # Build page 2 and update the modal
+    onboarding = get_onboarding_modules()
+    page2 = onboarding.build_setup_wizard_page2(team_id, schemas, configured)
+
+    ack(response_action="update", view=page2)
+    logger.info(f"Advanced to wizard page 2 for team {team_id}")
+
+
+@app.view("setup_wizard_page2")
+def handle_setup_wizard_page2(ack, body, client, view):
+    """Handle page 2 of setup wizard submission (Done button)."""
+    import json
+
+    ack()
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+
+    # Send completion message to user
+    user_id = body.get("user", {}).get("id")
+    if user_id:
+        try:
+            dm_response = client.conversations_open(users=[user_id])
+            dm_channel = dm_response.get("channel", {}).get("id")
+
+            if dm_channel:
+                client.chat_postMessage(
+                    channel=dm_channel,
+                    text="Setup complete!",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    ":white_check_mark: *Setup complete!*\n\n"
+                                    "You're all set. Mention `@IncidentFox` in any channel "
+                                    "to start investigating incidents.\n\n"
+                                    "You can manage integrations anytime from the *Home* tab."
+                                ),
+                            },
+                        },
+                    ],
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send completion DM: {e}")
+
+    logger.info(f"Completed setup wizard for team {team_id}")
+
+
+@app.action(re.compile(r"^configure_integration_.*"))
+def handle_configure_integration(ack, body, client):
+    """Handle integration configuration button click from wizard page 2."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Extract integration_id from action_id (e.g., "configure_integration_datadog")
+    integration_id = action_id.replace("configure_integration_", "")
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id for configure_integration action")
+        return
+
+    try:
+        config_client = get_config_client()
+        schemas = config_client.get_integration_schemas()
+        schema = next((s for s in schemas if s.get("id") == integration_id), None)
+
+        if not schema:
+            logger.error(f"Schema not found for integration {integration_id}")
+            return
+
+        # Get existing config if any
+        configured = config_client.get_configured_integrations(team_id)
+        existing_config = configured.get(integration_id, {})
+
+        # Build and push the integration config modal
+        onboarding = get_onboarding_modules()
+        if hasattr(onboarding, "build_integration_config_modal"):
+            modal = onboarding.build_integration_config_modal(
+                team_id=team_id,
+                schema=schema,
+                existing_config=existing_config,
+            )
+            client.views_push(trigger_id=body["trigger_id"], view=modal)
+            logger.info(f"Pushed config modal for {integration_id}")
+        else:
+            logger.warning("build_integration_config_modal not yet implemented")
+
+    except Exception as e:
+        logger.error(f"Failed to open integration config modal: {e}", exc_info=True)
+
+
+@app.view("integration_config_submission")
+def handle_integration_config_submission(ack, body, client, view):
+    """Handle integration configuration modal submission."""
+    import json
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    integration_id = private_metadata.get("integration_id")
+    field_names = private_metadata.get("field_names", [])
+
+    values = view.get("state", {}).get("values", {})
+
+    # Extract field values
+    config = {}
+    for field_id in field_names:
+        block_id = f"field_{field_id}"
+        action_id = f"input_{field_id}"
+
+        block_values = values.get(block_id, {})
+        field_value = block_values.get(action_id, {})
+
+        # Handle different field types
+        if "value" in field_value:
+            # Plain text input
+            val = field_value.get("value")
+            if val:
+                config[field_id] = val.strip()
+        elif "selected_option" in field_value:
+            # Select
+            selected = field_value.get("selected_option", {})
+            if selected:
+                config[field_id] = selected.get("value")
+        elif "selected_options" in field_value:
+            # Checkboxes (boolean)
+            selected = field_value.get("selected_options", [])
+            config[field_id] = len(selected) > 0
+
+    # Save the integration config
+    if team_id and integration_id and config:
+        try:
+            config_client = get_config_client()
+            success = config_client.save_integration_config(
+                slack_team_id=team_id,
+                integration_id=integration_id,
+                config=config,
+            )
+
+            if success:
+                logger.info(f"Saved {integration_id} config for team {team_id}")
+            else:
+                logger.error(f"Failed to save {integration_id} config")
+
+        except Exception as e:
+            logger.error(f"Error saving integration config: {e}", exc_info=True)
+
+    # Close the modal (clear from stack to return to page 2)
+    ack(response_action="clear")
+
+    # Try to refresh Home Tab if user is there
+    user_id = body.get("user", {}).get("id")
+    if user_id and team_id:
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            configured = config_client.get_configured_integrations(team_id)
+            schemas = config_client.get_integration_schemas()
+
+            # Only refresh if home_tab module exists
+            try:
+                from home_tab import build_home_tab_view
+
+                home_view = build_home_tab_view(
+                    team_id=team_id,
+                    trial_info=trial_info,
+                    configured_integrations=configured,
+                    available_schemas=schemas,
+                )
+                client.views_publish(user_id=user_id, view=home_view)
+                logger.info(f"Refreshed Home Tab for user {user_id}")
+            except ImportError:
+                pass  # home_tab not yet created
+        except Exception as e:
+            logger.warning(f"Failed to refresh Home Tab: {e}")
+
+
+@app.event("app_home_opened")
+def handle_app_home_opened(client, event, context):
+    """Render the Home Tab when user opens it."""
+    user_id = event.get("user")
+    team_id = context.get("team_id")
+
+    if not team_id:
+        logger.warning("No team_id in app_home_opened event")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+        schemas = config_client.get_integration_schemas()
+
+        from home_tab import build_home_tab_view
+
+        view = build_home_tab_view(
+            team_id=team_id,
+            trial_info=trial_info,
+            configured_integrations=configured,
+            available_schemas=schemas,
+        )
+
+        client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Published Home Tab for user {user_id}, team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to publish Home Tab: {e}", exc_info=True)
+
+
+@app.action(re.compile(r"^home_(edit|add)_integration_.*"))
+def handle_home_integration_action(ack, body, client):
+    """Handle Edit/Connect buttons on Home Tab."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Parse action: home_edit_integration_datadog or home_add_integration_datadog
+    parts = action_id.split("_")
+    action_type = parts[1]  # "edit" or "add"
+    integration_id = "_".join(parts[3:])  # Handle IDs with underscores
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in home integration action")
+        return
+
+    try:
+        config_client = get_config_client()
+        schemas = config_client.get_integration_schemas()
+        schema = next((s for s in schemas if s.get("id") == integration_id), None)
+
+        if not schema:
+            logger.error(f"Schema not found for {integration_id}")
+            return
+
+        existing_config = None
+        if action_type == "edit":
+            configured = config_client.get_configured_integrations(team_id)
+            existing_config = configured.get(integration_id, {})
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_integration_config_modal(
+            team_id=team_id,
+            schema=schema,
+            existing_config=existing_config,
+        )
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened {action_type} modal for {integration_id} from Home Tab")
+
+    except Exception as e:
+        logger.error(f"Failed to open integration modal from Home Tab: {e}", exc_info=True)
+
+
+@app.action("home_open_api_key_modal")
+def handle_home_api_key_modal(ack, body, client):
+    """Open API key modal from Home Tab."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in home_open_api_key_modal")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_api_key_modal(team_id, trial_info=trial_info)
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened API key modal from Home Tab for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open API key modal from Home Tab: {e}", exc_info=True)
+
+
 def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -> bool:
     """
     Check if workspace has access to the service.
@@ -4119,6 +4612,32 @@ if __name__ == "__main__":
                     logger.warning(
                         f"Failed to provision workspace in config_service: {provision_error}"
                     )
+                    provision_result = None
+
+                # Send welcome DM to installer
+                installer_user_id = authed_user.get("id")
+                if installer_user_id and bot_token:
+                    try:
+                        from slack_sdk import WebClient
+
+                        dm_client = WebClient(token=bot_token)
+                        dm_response = dm_client.conversations_open(users=[installer_user_id])
+                        dm_channel = dm_response.get("channel", {}).get("id")
+
+                        if dm_channel:
+                            onboarding = get_onboarding_modules()
+                            trial_info = provision_result.get("trial_info") if provision_result else None
+                            welcome_blocks = onboarding.build_welcome_message(
+                                trial_info=trial_info, team_name=team_name
+                            )
+                            dm_client.chat_postMessage(
+                                channel=dm_channel,
+                                text="Welcome to IncidentFox!",
+                                blocks=welcome_blocks,
+                            )
+                            logger.info(f"Sent welcome DM to installer {installer_user_id}")
+                    except Exception as dm_error:
+                        logger.warning(f"Failed to send welcome DM: {dm_error}")
 
                 # Render custom success page with trial info
                 return render_template(
