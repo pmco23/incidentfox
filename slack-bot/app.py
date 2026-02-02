@@ -1688,24 +1688,28 @@ def handle_mention(event, say, client, context):
     loading_url = get_asset_url("loading")
 
     # Build initial blocks with S3-hosted loading GIF
-    initial_blocks = [
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "image",
-                    "image_url": loading_url,
-                    "alt_text": "Loading",
-                },
-                {"type": "mrkdwn", "text": "Investigating..."},
-            ],
-        }
-    ] if loading_url else [
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-        }
-    ]
+    initial_blocks = (
+        [
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating..."},
+                ],
+            }
+        ]
+        if loading_url
+        else [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+            }
+        ]
+    )
 
     initial_response = client.chat_postMessage(
         channel=channel_id,
@@ -2059,26 +2063,28 @@ Use all available tools to gather context about this issue."""
     loading_url = get_asset_url("loading")
 
     # Build initial blocks with S3-hosted loading GIF
-    initial_blocks = [
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "image",
-                    "image_url": loading_url,
-                    "alt_text": "Loading",
-                },
-                {"type": "mrkdwn", "text": "Investigating alert..."},
-            ],
-        }
-    ] if loading_url else [
-        {
-            "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": "⏳ Investigating alert..."}
-            ],
-        }
-    ]
+    initial_blocks = (
+        [
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating alert..."},
+                ],
+            }
+        ]
+        if loading_url
+        else [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating alert..."}],
+            }
+        ]
+    )
 
     initial_response = client.chat_postMessage(
         channel=channel_id,
@@ -2351,24 +2357,28 @@ def handle_message(event, client, context):
 
         loading_url = get_asset_url("loading")
 
-        initial_blocks = [
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "image",
-                        "image_url": loading_url,
-                        "alt_text": "Loading",
-                    },
-                    {"type": "mrkdwn", "text": "Investigating..."},
-                ],
-            }
-        ] if loading_url else [
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-            }
-        ]
+        initial_blocks = (
+            [
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "image",
+                            "image_url": loading_url,
+                            "alt_text": "Loading",
+                        },
+                        {"type": "mrkdwn", "text": "Investigating..."},
+                    ],
+                }
+            ]
+            if loading_url
+            else [
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+                }
+            ]
+        )
 
         initial_response = client.chat_postMessage(
             channel=channel_id,
@@ -4455,7 +4465,9 @@ def handle_open_advanced_settings(ack, body, client):
         config_client = get_config_client()
         anthropic_config = config_client.get_integration_config(team_id, "anthropic")
         existing_api_key = bool(anthropic_config and anthropic_config.get("api_key"))
-        existing_endpoint = anthropic_config.get("api_endpoint") if anthropic_config else None
+        existing_endpoint = (
+            anthropic_config.get("api_endpoint") if anthropic_config else None
+        )
 
         onboarding = get_onboarding_modules()
         modal = onboarding.build_advanced_settings_modal(

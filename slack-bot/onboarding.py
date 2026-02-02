@@ -845,8 +845,8 @@ def build_integrations_page(
     category_buttons = []
     for cat_id, cat_info in CATEGORIES.items():
         is_selected = cat_id == category_filter
-        emoji = cat_info.get('emoji', '')
-        name = cat_info['name']
+        emoji = cat_info.get("emoji", "")
+        name = cat_info["name"]
         button_text = f"{emoji} {name}".strip() if emoji else name
         button = {
             "type": "button",
@@ -932,7 +932,9 @@ def build_integrations_page(
                                 "action_id": f"configure_integration_{int_id}",
                                 "text": {
                                     "type": "plain_text",
-                                    "text": "Configure" if not is_configured else "Edit",
+                                    "text": (
+                                        "Configure" if not is_configured else "Edit"
+                                    ),
                                     "emoji": True,
                                 },
                                 "style": "primary" if not is_configured else None,
@@ -945,7 +947,9 @@ def build_integrations_page(
                     del blocks[-1]["elements"][0]["style"]
             else:
                 # Fallback: use emoji icon and button accessory
-                section_block["text"]["text"] = f"{icon} *{status_indicator}{name}*\n{description}"
+                section_block["text"][
+                    "text"
+                ] = f"{icon} *{status_indicator}{name}*\n{description}"
                 section_block["accessory"] = {
                     "type": "button",
                     "action_id": f"configure_integration_{int_id}",
@@ -982,21 +986,27 @@ def build_integrations_page(
                 name = integration["name"]
                 logo_url = get_integration_logo_url(int_id)
                 if logo_url:
-                    context_elements.append({
-                        "type": "image",
-                        "image_url": logo_url,
-                        "alt_text": name,
-                    })
-                context_elements.append({
-                    "type": "plain_text",
-                    "text": name,
-                    "emoji": True,
-                })
+                    context_elements.append(
+                        {
+                            "type": "image",
+                            "image_url": logo_url,
+                            "alt_text": name,
+                        }
+                    )
+                context_elements.append(
+                    {
+                        "type": "plain_text",
+                        "text": name,
+                        "emoji": True,
+                    }
+                )
             if context_elements:
-                blocks.append({
-                    "type": "context",
-                    "elements": context_elements,
-                })
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": context_elements,
+                    }
+                )
 
     # No integrations message
     if not active_integrations and not coming_soon_integrations:
@@ -1293,7 +1303,11 @@ def build_integration_config_modal(
         "type": "section",
         "text": {
             "type": "mrkdwn",
-            "text": f"*{integration_name}*\n{description}" if logo_url else f"{icon} *{integration_name}*\n{description}",
+            "text": (
+                f"*{integration_name}*\n{description}"
+                if logo_url
+                else f"{icon} *{integration_name}*\n{description}"
+            ),
         },
     }
     if logo_url:
@@ -1324,7 +1338,9 @@ def build_integration_config_modal(
         return {
             "type": "modal",
             "callback_id": "integration_coming_soon",
-            "private_metadata": json.dumps({"team_id": team_id, "integration_id": int_id}),
+            "private_metadata": json.dumps(
+                {"team_id": team_id, "integration_id": int_id}
+            ),
             "title": {"type": "plain_text", "text": integration_name[:24]},
             "close": {"type": "plain_text", "text": "Close"},
             "blocks": blocks,
@@ -1339,7 +1355,10 @@ def build_integration_config_modal(
         enabled_initial_options = [
             {
                 "text": {"type": "mrkdwn", "text": "*Enable this integration*"},
-                "description": {"type": "mrkdwn", "text": "When enabled, IncidentFox can use this integration during investigations."},
+                "description": {
+                    "type": "mrkdwn",
+                    "text": "When enabled, IncidentFox can use this integration during investigations.",
+                },
                 "value": "enabled",
             }
         ]
@@ -1355,11 +1374,16 @@ def build_integration_config_modal(
                 "options": [
                     {
                         "text": {"type": "mrkdwn", "text": "*Enable this integration*"},
-                        "description": {"type": "mrkdwn", "text": "When enabled, IncidentFox can use this integration during investigations."},
+                        "description": {
+                            "type": "mrkdwn",
+                            "text": "When enabled, IncidentFox can use this integration during investigations.",
+                        },
                         "value": "enabled",
                     }
                 ],
-                "initial_options": enabled_initial_options if enabled_initial_options else None,
+                "initial_options": (
+                    enabled_initial_options if enabled_initial_options else None
+                ),
             },
             "label": {"type": "plain_text", "text": "Status"},
         }
@@ -1378,7 +1402,9 @@ def build_integration_config_modal(
                 "type": "video",
                 "title": {
                     "type": "plain_text",
-                    "text": video_config.get("title", f"How to set up {integration_name}"),
+                    "text": video_config.get(
+                        "title", f"How to set up {integration_name}"
+                    ),
                     "emoji": True,
                 },
                 "title_url": video_config.get("title_url"),
@@ -1389,7 +1415,9 @@ def build_integration_config_modal(
                 },
                 "video_url": video_config.get("video_url"),
                 "thumbnail_url": video_config.get("thumbnail_url"),
-                "alt_text": video_config.get("alt_text", f"{integration_name} setup tutorial"),
+                "alt_text": video_config.get(
+                    "alt_text", f"{integration_name} setup tutorial"
+                ),
                 "author_name": "IncidentFox",
                 "provider_name": "YouTube",
                 "provider_icon_url": "https://www.youtube.com/s/desktop/b3c2a2a0/img/favicon_144x144.png",
@@ -1571,7 +1599,7 @@ def build_integration_config_modal(
     # Use integration-specific placeholder or a generic default
     context_placeholder = schema.get(
         "context_prompt_placeholder",
-        "e.g., 'Describe your setup, naming conventions, or any context that helps the AI understand your environment.'"
+        "e.g., 'Describe your setup, naming conventions, or any context that helps the AI understand your environment.'",
     )
     context_element = {
         "type": "plain_text_input",
