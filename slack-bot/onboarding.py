@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Categories for filtering
 CATEGORIES = {
-    "all": {"name": "All", "emoji": ""},
-    "observability": {"name": "Logs & Metrics", "emoji": ""},
-    "incident": {"name": "Incidents", "emoji": ""},
-    "cloud": {"name": "Cloud", "emoji": ""},
-    "scm": {"name": "Dev Tools", "emoji": ""},
-    "infra": {"name": "Infra", "emoji": ""},
+    "all": {"name": "All", "emoji": ":star2:"},
+    "observability": {"name": "Logs & Metrics", "emoji": ":bar_chart:"},
+    "incident": {"name": "Incidents", "emoji": ":fire_engine:"},
+    "cloud": {"name": "Cloud", "emoji": ":cloud:"},
+    "scm": {"name": "Dev Tools", "emoji": ":hammer_and_wrench:"},
+    "infra": {"name": "Infra", "emoji": ":wrench:"},
 }
 
 # All supported integrations
@@ -57,6 +57,7 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             "4. Copy the API key and your domain below"
         ),
         "docs_url": "https://coralogix.com/docs/api-keys/",
+        "context_prompt_placeholder": "e.g., 'Our logs use application=myapp for filtering. Production has env=prod tag. Error logs are in severity=error.'",
         "fields": [
             {
                 "id": "api_key",
@@ -107,6 +108,7 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             "3. Copy the key below"
         ),
         "docs_url": "https://api-docs.incident.io/",
+        "context_prompt_placeholder": "e.g., 'SEV1 incidents require immediate response. Use #incident-response channel. Our SLO is 99.9% uptime.'",
         "fields": [
             {
                 "id": "api_key",
@@ -1017,7 +1019,7 @@ def build_integrations_page(
                 {
                     "type": "mrkdwn",
                     "text": (
-                        ":bulb: You can add more integrations anytime from the *Home* tab.\n"
+                        ":bulb: Add more integrations anytime: click *IncidentFox* in the sidebar → *Home* tab.\n"
                         ":lock: All credentials are encrypted and stored securely."
                     ),
                 }
@@ -1566,13 +1568,18 @@ def build_integration_config_modal(
     )
 
     context_prompt_value = existing_config.get("context_prompt", "")
+    # Use integration-specific placeholder or a generic default
+    context_placeholder = schema.get(
+        "context_prompt_placeholder",
+        "e.g., 'Describe your setup, naming conventions, or any context that helps the AI understand your environment.'"
+    )
     context_element = {
         "type": "plain_text_input",
         "action_id": "input_context_prompt",
         "multiline": True,
         "placeholder": {
             "type": "plain_text",
-            "text": "e.g., 'Our Coralogix logs use application=myapp for filtering. Production logs have env=prod tag.'",
+            "text": context_placeholder,
         },
     }
     if context_prompt_value:
