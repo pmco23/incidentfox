@@ -202,6 +202,177 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon_fallback": ":bar_chart:",
         "description": "Query dashboards and annotations.",
     },
+    {
+        "id": "splunk",
+        "name": "Splunk",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":splunk:",
+        "icon_fallback": ":mag:",
+        "description": "Query logs and metrics from Splunk.",
+    },
+    {
+        "id": "elasticsearch",
+        "name": "Elasticsearch",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":elasticsearch:",
+        "icon_fallback": ":mag:",
+        "description": "Query logs and search data from Elasticsearch.",
+    },
+    {
+        "id": "opensearch",
+        "name": "OpenSearch",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":opensearch:",
+        "icon_fallback": ":mag:",
+        "description": "Query logs and search data from OpenSearch.",
+    },
+    {
+        "id": "newrelic",
+        "name": "New Relic",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":newrelic:",
+        "icon_fallback": ":chart:",
+        "description": "Query APM, logs, and infrastructure metrics.",
+    },
+    {
+        "id": "honeycomb",
+        "name": "Honeycomb",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":honeycomb:",
+        "icon_fallback": ":honeybee:",
+        "description": "Query observability data and traces.",
+    },
+    {
+        "id": "dynatrace",
+        "name": "Dynatrace",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":dynatrace:",
+        "icon_fallback": ":chart:",
+        "description": "Query application performance and infrastructure.",
+    },
+    {
+        "id": "chronosphere",
+        "name": "Chronosphere",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":chronosphere:",
+        "icon_fallback": ":clock:",
+        "description": "Query cloud-native observability data.",
+    },
+    {
+        "id": "victoriametrics",
+        "name": "VictoriaMetrics",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":victoriametrics:",
+        "icon_fallback": ":chart:",
+        "description": "Query time-series metrics.",
+    },
+    {
+        "id": "kloudfuse",
+        "name": "Kloudfuse",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":kloudfuse:",
+        "icon_fallback": ":cloud:",
+        "description": "Unified observability platform.",
+    },
+    {
+        "id": "sentry",
+        "name": "Sentry",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":sentry:",
+        "icon_fallback": ":bug:",
+        "description": "Query application errors and performance issues.",
+    },
+    {
+        "id": "gcp",
+        "name": "Google Cloud",
+        "category": "cloud",
+        "status": "coming_soon",
+        "icon": ":gcp:",
+        "icon_fallback": ":cloud:",
+        "description": "Query GCP services and resources.",
+    },
+    {
+        "id": "azure",
+        "name": "Azure",
+        "category": "cloud",
+        "status": "coming_soon",
+        "icon": ":azure:",
+        "icon_fallback": ":cloud:",
+        "description": "Query Azure services and resources.",
+    },
+    {
+        "id": "jira",
+        "name": "Jira",
+        "category": "scm",
+        "status": "coming_soon",
+        "icon": ":jira:",
+        "icon_fallback": ":ticket:",
+        "description": "Query issues and project data.",
+    },
+    {
+        "id": "linear",
+        "name": "Linear",
+        "category": "scm",
+        "status": "coming_soon",
+        "icon": ":linear:",
+        "icon_fallback": ":ticket:",
+        "description": "Query issues and project status.",
+    },
+    {
+        "id": "notion",
+        "name": "Notion",
+        "category": "scm",
+        "status": "coming_soon",
+        "icon": ":notion:",
+        "icon_fallback": ":notebook:",
+        "description": "Search documentation and runbooks.",
+    },
+    {
+        "id": "glean",
+        "name": "Glean",
+        "category": "scm",
+        "status": "coming_soon",
+        "icon": ":glean:",
+        "icon_fallback": ":mag:",
+        "description": "Search across workplace knowledge.",
+    },
+    {
+        "id": "servicenow",
+        "name": "ServiceNow",
+        "category": "incident",
+        "status": "coming_soon",
+        "icon": ":servicenow:",
+        "icon_fallback": ":ticket:",
+        "description": "Query incidents and change requests.",
+    },
+    {
+        "id": "temporal",
+        "name": "Temporal",
+        "category": "infra",
+        "status": "coming_soon",
+        "icon": ":temporal:",
+        "icon_fallback": ":gear:",
+        "description": "Query workflow executions and state.",
+    },
+    {
+        "id": "snowflake",
+        "name": "Snowflake",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":snowflake:",
+        "icon_fallback": ":snowflake:",
+        "description": "Query data warehouse and analytics.",
+    },
 ]
 
 
@@ -861,9 +1032,9 @@ def build_integrations_page(
             button["style"] = "primary"
         category_buttons.append(button)
 
-    # Split into rows of 5 (Slack limit)
-    for i in range(0, len(category_buttons), 5):
-        blocks.append({"type": "actions", "elements": category_buttons[i : i + 5]})
+    # Split into rows of 3 for better visual balance (6 categories = 2 rows of 3)
+    for i in range(0, len(category_buttons), 3):
+        blocks.append({"type": "actions", "elements": category_buttons[i : i + 3]})
 
     blocks.append({"type": "divider"})
 
@@ -886,7 +1057,7 @@ def build_integrations_page(
         )
 
         # Create integration cards with logos
-        for integration in active_integrations:
+        for idx, integration in enumerate(active_integrations):
             int_id = integration["id"]
             name = integration["name"]
             icon = integration.get("icon_fallback", ":gear:")
@@ -964,6 +1135,10 @@ def build_integrations_page(
                 # Remove None style
                 if blocks[-1]["accessory"].get("style") is None:
                     del blocks[-1]["accessory"]["style"]
+
+            # Add divider between integrations (not after the last one)
+            if idx < len(active_integrations) - 1:
+                blocks.append({"type": "divider"})
 
     # Coming soon integrations section
     if coming_soon_integrations:
