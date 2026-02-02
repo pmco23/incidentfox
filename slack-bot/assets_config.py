@@ -21,7 +21,7 @@ INTEGRATION_LOGOS = {
     # Observability
     "coralogix": f"{ASSETS_BASE_URL}/integrations/coralogix.png",
     "datadog": f"{ASSETS_BASE_URL}/integrations/datadog.png",
-    "cloudwatch": f"{ASSETS_BASE_URL}/integrations/cloudwatch.png",
+    "cloudwatch": f"{ASSETS_BASE_URL}/integrations/cloudwatch.png?v=2",
     "prometheus": f"{ASSETS_BASE_URL}/integrations/prometheus.png",
     "grafana": f"{ASSETS_BASE_URL}/integrations/grafana.png",
     "splunk": f"{ASSETS_BASE_URL}/integrations/splunk.png",
@@ -36,16 +36,16 @@ INTEGRATION_LOGOS = {
     "kloudfuse": f"{ASSETS_BASE_URL}/integrations/kloudfuse.png",
     "sentry": f"{ASSETS_BASE_URL}/integrations/sentry.png",
     # Incident management
-    "incident_io": f"{ASSETS_BASE_URL}/integrations/incident_io.png",
+    "incident_io": f"{ASSETS_BASE_URL}/integrations/incident_io.png?v=2",
     "pagerduty": f"{ASSETS_BASE_URL}/integrations/pd.png",
     "pd": f"{ASSETS_BASE_URL}/integrations/pd.png",
-    "opsgenie": f"{ASSETS_BASE_URL}/integrations/opsgenie.png",
+    "opsgenie": f"{ASSETS_BASE_URL}/integrations/opsgenie.png?v=2",
     # Cloud providers
-    "aws": f"{ASSETS_BASE_URL}/integrations/aws.png",
+    "aws": f"{ASSETS_BASE_URL}/integrations/aws.png?v=2",
     "gcp": f"{ASSETS_BASE_URL}/integrations/gcp.png",
     "azure": f"{ASSETS_BASE_URL}/integrations/azure.png",
     # Source control & collaboration
-    "github": f"{ASSETS_BASE_URL}/integrations/github.png",
+    "github": f"{ASSETS_BASE_URL}/integrations/github.png?v=2",
     "jira": f"{ASSETS_BASE_URL}/integrations/jira.png",
     "linear": f"{ASSETS_BASE_URL}/integrations/linear.png",
     "notion": f"{ASSETS_BASE_URL}/integrations/notion.png",
