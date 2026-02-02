@@ -886,11 +886,18 @@ def build_integrations_page(
             name = integration["name"]
             icon = integration.get("icon_fallback", ":gear:")
             description = integration.get("description", "")
+            int_config = configured.get(int_id, {})
             is_configured = int_id in configured
+            is_enabled = int_config.get("enabled", True) if is_configured else False
             logo_url = get_integration_logo_url(int_id)
 
-            # Status indicator
-            status_indicator = ":white_check_mark: " if is_configured else ""
+            # Status indicator: configured + enabled, configured but disabled, or not configured
+            if is_configured and is_enabled:
+                status_indicator = ":white_check_mark: "
+            elif is_configured and not is_enabled:
+                status_indicator = ":white_circle: "  # Disabled but configured
+            else:
+                status_indicator = ""
 
             # Build section with logo image as accessory if available
             section_block = {
@@ -1317,6 +1324,44 @@ def build_integration_config_modal(
 
     blocks.append({"type": "divider"})
 
+    # Enabled toggle (checkbox)
+    is_enabled = existing_config.get("enabled", True)
+    enabled_initial_options = []
+    if is_enabled:
+        enabled_initial_options = [
+            {
+                "text": {"type": "mrkdwn", "text": "*Enable this integration*"},
+                "description": {"type": "mrkdwn", "text": "When enabled, IncidentFox can use this integration during investigations."},
+                "value": "enabled",
+            }
+        ]
+
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "field_enabled",
+            "optional": True,
+            "element": {
+                "type": "checkboxes",
+                "action_id": "input_enabled",
+                "options": [
+                    {
+                        "text": {"type": "mrkdwn", "text": "*Enable this integration*"},
+                        "description": {"type": "mrkdwn", "text": "When enabled, IncidentFox can use this integration during investigations."},
+                        "value": "enabled",
+                    }
+                ],
+                "initial_options": enabled_initial_options if enabled_initial_options else None,
+            },
+            "label": {"type": "plain_text", "text": "Status"},
+        }
+    )
+    # Remove None initial_options
+    if blocks[-1]["element"].get("initial_options") is None:
+        del blocks[-1]["element"]["initial_options"]
+
+    blocks.append({"type": "divider"})
+
     # Video tutorial section (using Slack's video block for embedded player)
     video_config = schema.get("video")
     if video_config:
@@ -1498,6 +1543,49 @@ def build_integration_config_modal(
 
             blocks.append(input_block)
 
+    # Context prompt field (free-form text for LLM context)
+    blocks.append({"type": "divider"})
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Custom Context (Optional)*\n"
+                    "Provide additional context about this integration that will help IncidentFox "
+                    "understand your setup better."
+                ),
+            },
+        }
+    )
+
+    context_prompt_value = existing_config.get("context_prompt", "")
+    context_element = {
+        "type": "plain_text_input",
+        "action_id": "input_context_prompt",
+        "multiline": True,
+        "placeholder": {
+            "type": "plain_text",
+            "text": "e.g., 'Our Coralogix logs use application=myapp for filtering. Production logs have env=prod tag.'",
+        },
+    }
+    if context_prompt_value:
+        context_element["initial_value"] = context_prompt_value
+
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "field_context_prompt",
+            "optional": True,
+            "element": context_element,
+            "label": {"type": "plain_text", "text": "Context for AI"},
+            "hint": {
+                "type": "plain_text",
+                "text": "This context will be provided to the AI during investigations to help it query this integration more effectively.",
+            },
+        }
+    )
+
     # Security note
     blocks.append({"type": "divider"})
     blocks.append(
@@ -1513,11 +1601,13 @@ def build_integration_config_modal(
     )
 
     # Store metadata for submission handler
+    # Include enabled and context_prompt as special fields
+    all_field_names = ["enabled"] + field_names + ["context_prompt"]
     private_metadata = json.dumps(
         {
             "team_id": team_id,
             "integration_id": int_id,
-            "field_names": field_names,
+            "field_names": all_field_names,
         }
     )
 

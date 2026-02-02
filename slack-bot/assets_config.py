@@ -18,17 +18,45 @@ ASSET_URLS = {
 
 # Integration logos
 INTEGRATION_LOGOS = {
+    # Observability
     "coralogix": f"{ASSETS_BASE_URL}/integrations/coralogix.png",
-    "incident_io": f"{ASSETS_BASE_URL}/integrations/incident_io.png",
     "datadog": f"{ASSETS_BASE_URL}/integrations/datadog.png",
     "cloudwatch": f"{ASSETS_BASE_URL}/integrations/cloudwatch.png",
-    "aws": f"{ASSETS_BASE_URL}/integrations/aws.png",
-    "github": f"{ASSETS_BASE_URL}/integrations/github.png",
     "prometheus": f"{ASSETS_BASE_URL}/integrations/prometheus.png",
     "grafana": f"{ASSETS_BASE_URL}/integrations/grafana.png",
+    "splunk": f"{ASSETS_BASE_URL}/integrations/splunk.png",
+    "elasticsearch": f"{ASSETS_BASE_URL}/integrations/elasticsearch.png",
+    "opensearch": f"{ASSETS_BASE_URL}/integrations/opensearch.png",
+    "newrelic": f"{ASSETS_BASE_URL}/integrations/new-relic.png",
+    "new_relic": f"{ASSETS_BASE_URL}/integrations/new-relic.png",
+    "honeycomb": f"{ASSETS_BASE_URL}/integrations/honeycomb.png",
+    "dynatrace": f"{ASSETS_BASE_URL}/integrations/dynatrace.png",
+    "chronosphere": f"{ASSETS_BASE_URL}/integrations/chronosphere.png",
+    "victoriametrics": f"{ASSETS_BASE_URL}/integrations/victoriametrics.png",
+    "kloudfuse": f"{ASSETS_BASE_URL}/integrations/kloudfuse.png",
+    "sentry": f"{ASSETS_BASE_URL}/integrations/sentry.png",
+    # Incident management
+    "incident_io": f"{ASSETS_BASE_URL}/integrations/incident_io.png",
+    "pagerduty": f"{ASSETS_BASE_URL}/integrations/pd.png",
+    "pd": f"{ASSETS_BASE_URL}/integrations/pd.png",
     "opsgenie": f"{ASSETS_BASE_URL}/integrations/opsgenie.png",
-    "pagerduty": f"{ASSETS_BASE_URL}/integrations/pagerduty.png",
-    "kubernetes": f"{ASSETS_BASE_URL}/integrations/kubernetes.png",
+    # Cloud providers
+    "aws": f"{ASSETS_BASE_URL}/integrations/aws.png",
+    "gcp": f"{ASSETS_BASE_URL}/integrations/gcp.png",
+    "azure": f"{ASSETS_BASE_URL}/integrations/azure.png",
+    # Source control & collaboration
+    "github": f"{ASSETS_BASE_URL}/integrations/github.png",
+    "jira": f"{ASSETS_BASE_URL}/integrations/jira.png",
+    "linear": f"{ASSETS_BASE_URL}/integrations/linear.png",
+    "notion": f"{ASSETS_BASE_URL}/integrations/notion.png",
+    "glean": f"{ASSETS_BASE_URL}/integrations/glean.png",
+    "servicenow": f"{ASSETS_BASE_URL}/integrations/servicenow.png",
+    # Infrastructure
+    "kubernetes": f"{ASSETS_BASE_URL}/integrations/k8s.png",
+    "k8s": f"{ASSETS_BASE_URL}/integrations/k8s.png",
+    "temporal": f"{ASSETS_BASE_URL}/integrations/temporal.png",
+    # Data
+    "snowflake": f"{ASSETS_BASE_URL}/integrations/snowflake.png",
 }
 
 
