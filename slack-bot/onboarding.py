@@ -11,6 +11,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from assets_config import get_integration_logo_url
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -878,38 +880,74 @@ def build_integrations_page(
             }
         )
 
-        # Create integration buttons (2 per row for better readability)
+        # Create integration cards with logos
         for integration in active_integrations:
             int_id = integration["id"]
             name = integration["name"]
             icon = integration.get("icon_fallback", ":gear:")
             description = integration.get("description", "")
             is_configured = int_id in configured
+            logo_url = get_integration_logo_url(int_id)
 
-            # Integration card with button
+            # Status indicator
             status_indicator = ":white_check_mark: " if is_configured else ""
-            blocks.append(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"{icon} *{status_indicator}{name}*\n{description}",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "action_id": f"configure_integration_{int_id}",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Configure" if not is_configured else "Edit",
-                            "emoji": True,
-                        },
-                        "style": "primary" if not is_configured else None,
-                    },
+
+            # Build section with logo image as accessory if available
+            section_block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{status_indicator}{name}*\n{description}",
+                },
+            }
+
+            # Use logo image if available, otherwise use button as accessory
+            if logo_url:
+                # Add image accessory
+                section_block["accessory"] = {
+                    "type": "image",
+                    "image_url": logo_url,
+                    "alt_text": name,
                 }
-            )
-            # Remove None style
-            if blocks[-1]["accessory"].get("style") is None:
-                del blocks[-1]["accessory"]["style"]
+                blocks.append(section_block)
+                # Add button in separate actions block
+                blocks.append(
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "action_id": f"configure_integration_{int_id}",
+                                "text": {
+                                    "type": "plain_text",
+                                    "text": "Configure" if not is_configured else "Edit",
+                                    "emoji": True,
+                                },
+                                "style": "primary" if not is_configured else None,
+                            }
+                        ],
+                    }
+                )
+                # Remove None style from button
+                if blocks[-1]["elements"][0].get("style") is None:
+                    del blocks[-1]["elements"][0]["style"]
+            else:
+                # Fallback: use emoji icon and button accessory
+                section_block["text"]["text"] = f"{icon} *{status_indicator}{name}*\n{description}"
+                section_block["accessory"] = {
+                    "type": "button",
+                    "action_id": f"configure_integration_{int_id}",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Configure" if not is_configured else "Edit",
+                        "emoji": True,
+                    },
+                    "style": "primary" if not is_configured else None,
+                }
+                blocks.append(section_block)
+                # Remove None style
+                if blocks[-1]["accessory"].get("style") is None:
+                    del blocks[-1]["accessory"]["style"]
 
     # Coming soon integrations section
     if coming_soon_integrations:
@@ -1232,17 +1270,24 @@ def build_integration_config_modal(
 
     blocks = []
 
-    # Header with integration icon and name
+    # Header with integration logo and name
+    logo_url = get_integration_logo_url(int_id)
     icon = schema.get("icon_fallback", ":gear:")
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"{icon} *{integration_name}*\n{description}",
-            },
+
+    header_block = {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f"*{integration_name}*\n{description}" if logo_url else f"{icon} *{integration_name}*\n{description}",
+        },
+    }
+    if logo_url:
+        header_block["accessory"] = {
+            "type": "image",
+            "image_url": logo_url,
+            "alt_text": integration_name,
         }
-    )
+    blocks.append(header_block)
 
     # Coming soon message for inactive integrations
     if status == "coming_soon":

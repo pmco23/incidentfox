@@ -27,7 +27,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: incidentfox-secrets
-              key: anthropic-api-key
+              key: shared-anthropic-api-key
         - name: LMNR_PROJECT_API_KEY
           valueFrom:
             secretKeyRef:
