@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Categories for filtering
 CATEGORIES = {
-    "all": {"name": "All", "emoji": ":sparkles:"},
-    "observability": {"name": "Observability", "emoji": ":chart_with_upwards_trend:"},
-    "incident": {"name": "Incident Mgmt", "emoji": ":rotating_light:"},
-    "cloud": {"name": "Cloud", "emoji": ":cloud:"},
-    "scm": {"name": "Source Control", "emoji": ":octocat:"},
-    "infra": {"name": "Infrastructure", "emoji": ":gear:"},
+    "all": {"name": "All", "emoji": ""},
+    "observability": {"name": "Logs & Metrics", "emoji": ""},
+    "incident": {"name": "Incidents", "emoji": ""},
+    "cloud": {"name": "Cloud", "emoji": ""},
+    "scm": {"name": "Dev Tools", "emoji": ""},
+    "infra": {"name": "Infra", "emoji": ""},
 }
 
 # All supported integrations
@@ -843,12 +843,15 @@ def build_integrations_page(
     category_buttons = []
     for cat_id, cat_info in CATEGORIES.items():
         is_selected = cat_id == category_filter
+        emoji = cat_info.get('emoji', '')
+        name = cat_info['name']
+        button_text = f"{emoji} {name}".strip() if emoji else name
         button = {
             "type": "button",
             "action_id": f"filter_category_{cat_id}",
             "text": {
                 "type": "plain_text",
-                "text": f"{cat_info['emoji']} {cat_info['name']}",
+                "text": button_text,
                 "emoji": True,
             },
         }
@@ -966,29 +969,32 @@ def build_integrations_page(
             }
         )
 
-        # Show coming soon integrations in a more compact format
-        coming_soon_text = []
-        for integration in coming_soon_integrations:
-            icon = integration.get("icon_fallback", ":gear:")
-            name = integration["name"]
-            coming_soon_text.append(f"{icon} {name}")
-
-        # Group into lines of 3
-        lines = []
-        for i in range(0, len(coming_soon_text), 3):
-            lines.append("  •  ".join(coming_soon_text[i : i + 3]))
-
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "\n".join(lines),
-                    }
-                ],
-            }
-        )
+        # Show coming soon integrations with logos in context blocks
+        # Context blocks can have up to 10 elements, use image + text pairs
+        # Group into rows of 4 integrations (8 elements: 4 images + 4 texts)
+        for i in range(0, len(coming_soon_integrations), 4):
+            row_integrations = coming_soon_integrations[i : i + 4]
+            context_elements = []
+            for integration in row_integrations:
+                int_id = integration["id"]
+                name = integration["name"]
+                logo_url = get_integration_logo_url(int_id)
+                if logo_url:
+                    context_elements.append({
+                        "type": "image",
+                        "image_url": logo_url,
+                        "alt_text": name,
+                    })
+                context_elements.append({
+                    "type": "plain_text",
+                    "text": name,
+                    "emoji": True,
+                })
+            if context_elements:
+                blocks.append({
+                    "type": "context",
+                    "elements": context_elements,
+                })
 
     # No integrations message
     if not active_integrations and not coming_soon_integrations:
