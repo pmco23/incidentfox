@@ -588,7 +588,8 @@ def build_setup_wizard_page1(
     blocks.append({"type": "divider"})
 
     # Trial status / API key options
-    has_trial = trial_info and not trial_info.get("expired")
+    # Must be a boolean (not None) for Slack's "optional" field
+    has_trial = bool(trial_info and not trial_info.get("expired"))
 
     if has_trial:
         days = trial_info.get("days_remaining", 7)
