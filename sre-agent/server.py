@@ -423,8 +423,9 @@ async def investigate(request: InvestigateRequest):
         f"🔵 [INVESTIGATE] Request received: thread_id={request.thread_id}, prompt={request.prompt[:50]}..."
     )
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
+    # Note: ANTHROPIC_API_KEY check removed - in multi-tenant mode, credentials
+    # flow through credential-resolver → sandbox via Envoy sidecar.
+    # The server doesn't need the API key directly.
 
     # Generate thread_id if not provided
     thread_id = request.thread_id or f"thread-{uuid.uuid4().hex[:8]}"
@@ -545,9 +546,6 @@ async def interrupt(request: InterruptRequest):
     are queued separately.
     """
     print(f"🔴 [INTERRUPT] Request received: thread_id={request.thread_id}")
-
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
 
     # Check if sandbox exists
     sandbox_info = sandbox_manager.get_sandbox(request.thread_id)
