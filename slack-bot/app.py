@@ -2300,7 +2300,9 @@ def handle_message(event, client, context):
 
         # Check workspace setup (API key configured or active trial)
         if not check_workspace_setup(client, team_id, channel_id, user_id):
-            logger.info(f"Workspace {team_id} not set up (DM), prompted for configuration")
+            logger.info(
+                f"Workspace {team_id} not set up (DM), prompted for configuration"
+            )
             return
 
         # Continue to DM investigation below
@@ -2327,7 +2329,9 @@ def handle_message(event, client, context):
                 bot_user_id = None
 
         # Resolve mentions in DM text (if any)
-        resolved_text, id_to_name_mapping = _resolve_mentions(dm_text, client, bot_user_id)
+        resolved_text, id_to_name_mapping = _resolve_mentions(
+            dm_text, client, bot_user_id
+        )
 
         # Extract images from the event
         images = _extract_images_from_event(event, client)
@@ -2442,8 +2446,11 @@ def handle_message(event, client, context):
                 blocks=build_initial_blocks(use_slack_file=True),
             )
         except Exception as e:
-            logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
+            logger.warning(
+                f"Failed to post with slack_file, falling back to emoji: {e}"
+            )
             from asset_manager import clear_asset_cache
+
             clear_asset_cache(team_id)
             initial_response = client.chat_postMessage(
                 channel=channel_id,
@@ -2494,7 +2501,9 @@ def handle_message(event, client, context):
                     }
                     for att in file_attachments
                 ]
-                logger.info(f"Sending {len(file_attachments)} file attachment(s) to agent (DM)")
+                logger.info(
+                    f"Sending {len(file_attachments)} file attachment(s) to agent (DM)"
+                )
 
             # Call sre-agent with SSE streaming
             response = requests.post(
@@ -2522,6 +2531,7 @@ def handle_message(event, client, context):
 
             # Cache state for modal view
             import time
+
             _investigation_cache[thread_id] = state
             _cache_timestamps[thread_id] = time.time()
 
