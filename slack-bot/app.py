@@ -123,6 +123,10 @@ UPDATE_INTERVAL_SECONDS = 0.5
 # Deployment mode: "socket" for local dev, "http" for production
 SLACK_APP_MODE = os.environ.get("SLACK_APP_MODE", "socket")
 
+# Track channels where we've sent the welcome nudge (resets on restart, which is fine)
+# Key format: "{team_id}:{channel_id}"
+_nudge_sent_channels: set = set()
+
 
 @dataclass
 class ThoughtSection:
@@ -1540,10 +1544,9 @@ def handle_mention(event, say, client, context):
     channel_id = event["channel"]
     team_id = event.get("team") or context.get("team_id", "unknown")
 
-    # Check workspace setup (API key configured or active trial)
-    if not check_workspace_setup(client, team_id, channel_id, user_id):
-        logger.info(f"Workspace {team_id} not set up, prompted for API key")
-        return
+    # Send one-time welcome nudge if this is the first mention in this channel
+    # (never blocks - always proceeds to investigation)
+    send_welcome_nudge_if_needed(client, team_id, channel_id, user_id)
 
     # Thread context: use existing thread or create new one
     thread_ts = event.get("thread_ts") or event["ts"]
@@ -2296,13 +2299,6 @@ def handle_message(event, client, context):
 
         # If this is first-time and message is empty/short greeting, don't investigate
         if is_first_time and dm_text.lower() in ["hi", "hello", "hey", ""]:
-            return
-
-        # Check workspace setup (API key configured or active trial)
-        if not check_workspace_setup(client, team_id, channel_id, user_id):
-            logger.info(
-                f"Workspace {team_id} not set up (DM), prompted for configuration"
-            )
             return
 
         # Continue to DM investigation below
@@ -4707,76 +4703,164 @@ def handle_mention_setup_wizard(ack, body, client):
         )
 
 
-def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -> bool:
+def send_welcome_nudge_if_needed(
+    client, team_id: str, channel_id: str, user_id: str
+) -> bool:
     """
-    Check if workspace has access to the service.
+    Send a one-time welcome nudge to a channel (doesn't block usage).
 
-    Access is granted if:
-    1. Active free trial (not expired), OR
-    2. Active subscription (API key optional - can use shared key)
+    This sends a friendly message the first time IncidentFox is mentioned in a channel,
+    explaining what it can do and how to configure it. The nudge is sent once per
+    channel (tracked in memory, resets on bot restart which is acceptable).
 
-    If no access, posts setup prompt with button to open wizard and returns False.
-    Returns True if access is granted.
+    Always returns True - we never block users from using IncidentFox.
     """
+    # Check if we've already sent the nudge to this channel
+    channel_key = f"{team_id}:{channel_id}"
+    if channel_key in _nudge_sent_channels:
+        return True
+
     try:
         config_client = get_config_client()
         status = config_client.get_subscription_status(team_id)
 
-        # Has access - allow usage
-        if status.get("can_access"):
+        # If workspace is fully configured, no need to nudge
+        if status.get("can_access") and status.get("has_api_key"):
+            _nudge_sent_channels.add(channel_key)
             return True
 
-        # No access - prompt user to configure
+        # Mark as sent BEFORE sending to avoid race conditions
+        _nudge_sent_channels.add(channel_key)
+
+        # Build a friendly, non-blocking nudge message
         trial_info = status.get("trial_info")
 
-        # Build message with setup button
-        blocks = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": ":wave: Welcome to IncidentFox! Let's get you set up.",
-                },
-            },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        "You can use our trial key to get started immediately, "
-                        "or bring your own API key for full control."
-                    ),
-                },
-                "accessory": {
-                    "type": "button",
+        if trial_info and not trial_info.get("expired"):
+            # Active trial - let them know they're good to go
+            days = trial_info.get("days_remaining", 7)
+            blocks = [
+                {
+                    "type": "section",
                     "text": {
-                        "type": "plain_text",
-                        "text": "Configure IncidentFox",
-                        "emoji": True,
+                        "type": "mrkdwn",
+                        "text": (
+                            f":wave: *Hey there!* I'm IncidentFox, your AI incident investigator.\n\n"
+                            f"You're on a free trial ({days} days remaining). "
+                            f"Just `@mention` me with any question about your incidents, errors, or alerts "
+                            f"and I'll dig through your logs, metrics, and deployments to find answers."
+                        ),
                     },
-                    "action_id": "mention_open_setup_wizard",
-                    "style": "primary",
                 },
-            },
-        ]
-
-        if trial_info and trial_info.get("expired"):
-            blocks[0]["text"][
-                "text"
-            ] = ":warning: Your free trial has ended. Please configure IncidentFox to continue."
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "*Want to supercharge me?*\n"
+                            "• Connect your observability tools (Datadog, CloudWatch, Prometheus...)\n"
+                            "• Add your own LLM API key for unlimited usage\n"
+                            "• I'll auto-analyze alerts posted to channels I'm in"
+                        ),
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Configure Integrations",
+                            "emoji": True,
+                        },
+                        "action_id": "open_setup_wizard",
+                    },
+                },
+            ]
+        elif trial_info and trial_info.get("expired"):
+            # Expired trial - stronger nudge but still don't block
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            ":wave: *Hey there!* I'm IncidentFox, your AI incident investigator.\n\n"
+                            "Your free trial has ended, but you can still use me! "
+                            "Add your own API key to continue investigating incidents."
+                        ),
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "*Get started:*\n"
+                            "• Bring your own Anthropic API key (or use a proxy)\n"
+                            "• Connect your observability tools for deeper insights\n"
+                            "• I'll auto-analyze alerts posted to channels I'm in"
+                        ),
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Add API Key",
+                            "emoji": True,
+                        },
+                        "action_id": "open_setup_wizard",
+                        "style": "primary",
+                    },
+                },
+            ]
+        else:
+            # No trial info - new workspace, send welcoming nudge
+            blocks = [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            ":wave: *Hey there!* I'm IncidentFox, your AI incident investigator.\n\n"
+                            "Just `@mention` me with any question about your incidents, errors, or alerts "
+                            "and I'll dig through your logs, metrics, and deployments to find answers."
+                        ),
+                    },
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            "*Want to supercharge me?*\n"
+                            "• Connect your observability tools (Datadog, CloudWatch, Prometheus...)\n"
+                            "• Add your own LLM API key for unlimited usage\n"
+                            "• I'll auto-analyze alerts posted to channels I'm in"
+                        ),
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Configure Integrations",
+                            "emoji": True,
+                        },
+                        "action_id": "open_setup_wizard",
+                    },
+                },
+            ]
 
         client.chat_postMessage(
             channel=channel_id,
-            text="Welcome to IncidentFox! Please configure to get started.",
+            text="Hey there! I'm IncidentFox, your AI incident investigator.",
             blocks=blocks,
         )
-
-        return False
+        logger.info(f"Sent welcome nudge to channel {channel_id} for team {team_id}")
 
     except Exception as e:
-        logger.warning(f"Error checking workspace setup: {e}")
-        # On error, allow usage (fail open for better UX)
-        return True
+        logger.warning(f"Error sending welcome nudge: {e}")
+        # Still add to set to avoid retrying on every message
+        _nudge_sent_channels.add(channel_key)
+
+    # Always return True - we never block usage
+    return True
 
 
 if __name__ == "__main__":
