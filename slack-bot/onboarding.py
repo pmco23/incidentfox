@@ -3,14 +3,217 @@ Onboarding Flow for IncidentFox Slack Bot
 
 Handles:
 1. Workspace provisioning when OAuth completes
-2. API key setup modal
+2. Integration setup wizard
 3. Free trial management
 """
 
+import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# INTEGRATION DEFINITIONS
+# =============================================================================
+# Categories for filtering
+CATEGORIES = {
+    "all": {"name": "All", "emoji": ":sparkles:"},
+    "observability": {"name": "Observability", "emoji": ":chart_with_upwards_trend:"},
+    "incident": {"name": "Incident Mgmt", "emoji": ":rotating_light:"},
+    "cloud": {"name": "Cloud", "emoji": ":cloud:"},
+    "scm": {"name": "Source Control", "emoji": ":octocat:"},
+    "infra": {"name": "Infrastructure", "emoji": ":gear:"},
+}
+
+# All supported integrations
+# status: "active" = can configure now, "coming_soon" = show but not configurable
+INTEGRATIONS: List[Dict[str, Any]] = [
+    # ACTIVE INTEGRATIONS
+    {
+        "id": "coralogix",
+        "name": "Coralogix",
+        "category": "observability",
+        "status": "active",
+        "icon": ":coralogix:",  # Custom emoji or fallback
+        "icon_fallback": ":chart_with_upwards_trend:",
+        "description": "Query logs, metrics, and traces from Coralogix.",
+        # Video block metadata (Rick Roll placeholder - replace with real tutorial)
+        "video": {
+            "title": "How to Connect Coralogix to IncidentFox",
+            "title_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "video_url": "https://www.youtube.com/embed/dQw4w9WgXcQ?feature=oembed&autoplay=1",
+            "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "alt_text": "Coralogix setup tutorial",
+            "description": "Step-by-step guide to connecting your Coralogix account",
+        },
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your Coralogix dashboard\n"
+            "2. Go to *Data Flow* > *API Keys*\n"
+            "3. Create a new API key with *Logs Query* permissions\n"
+            "4. Copy the API key and your domain below"
+        ),
+        "docs_url": "https://coralogix.com/docs/api-keys/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "cxtp_...",
+                "hint": "Your Coralogix API key with query permissions",
+            },
+            {
+                "id": "domain",
+                "name": "Domain",
+                "type": "select",
+                "required": True,
+                "options": [
+                    "coralogix.com",
+                    "eu2.coralogix.com",
+                    "coralogix.in",
+                    "coralogix.us",
+                    "cx498.coralogix.com",
+                ],
+                "placeholder": "Select your Coralogix domain",
+                "hint": "The domain shown in your Coralogix URL",
+            },
+        ],
+    },
+    {
+        "id": "incident_io",
+        "name": "incident.io",
+        "category": "incident",
+        "status": "active",
+        "icon": ":incident_io:",
+        "icon_fallback": ":rotating_light:",
+        "description": "Sync incidents, pull context, and update status.",
+        # Video block metadata (Rick Roll placeholder - replace with real tutorial)
+        "video": {
+            "title": "How to Connect incident.io to IncidentFox",
+            "title_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "video_url": "https://www.youtube.com/embed/dQw4w9WgXcQ?feature=oembed&autoplay=1",
+            "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "alt_text": "incident.io setup tutorial",
+            "description": "Step-by-step guide to connecting your incident.io account",
+        },
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to incident.io Settings > API\n"
+            "2. Create a new API key\n"
+            "3. Copy the key below"
+        ),
+        "docs_url": "https://api-docs.incident.io/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "inc_live_...",
+                "hint": "Your incident.io API key",
+            },
+        ],
+    },
+    # COMING SOON INTEGRATIONS
+    {
+        "id": "datadog",
+        "name": "Datadog",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":datadog:",
+        "icon_fallback": ":dog:",
+        "description": "Query logs, metrics, and APM traces from Datadog.",
+    },
+    {
+        "id": "cloudwatch",
+        "name": "CloudWatch",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":cloudwatch:",
+        "icon_fallback": ":cloud:",
+        "description": "Query AWS CloudWatch logs and metrics.",
+    },
+    {
+        "id": "pagerduty",
+        "name": "PagerDuty",
+        "category": "incident",
+        "status": "coming_soon",
+        "icon": ":pagerduty:",
+        "icon_fallback": ":bell:",
+        "description": "Acknowledge alerts and pull incident context.",
+    },
+    {
+        "id": "opsgenie",
+        "name": "Opsgenie",
+        "category": "incident",
+        "status": "coming_soon",
+        "icon": ":opsgenie:",
+        "icon_fallback": ":bell:",
+        "description": "Manage alerts and on-call schedules.",
+    },
+    {
+        "id": "aws",
+        "name": "AWS",
+        "category": "cloud",
+        "status": "coming_soon",
+        "icon": ":aws:",
+        "icon_fallback": ":cloud:",
+        "description": "Query EC2, ECS, Lambda, and other AWS services.",
+    },
+    {
+        "id": "github",
+        "name": "GitHub",
+        "category": "scm",
+        "status": "coming_soon",
+        "icon": ":github:",
+        "icon_fallback": ":octocat:",
+        "description": "Search code, PRs, and recent deployments.",
+    },
+    {
+        "id": "kubernetes",
+        "name": "Kubernetes",
+        "category": "infra",
+        "status": "coming_soon",
+        "icon": ":kubernetes:",
+        "icon_fallback": ":wheel_of_dharma:",
+        "description": "Query pods, deployments, and cluster state.",
+    },
+    {
+        "id": "prometheus",
+        "name": "Prometheus",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":prometheus:",
+        "icon_fallback": ":fire:",
+        "description": "Query metrics and alerts from Prometheus.",
+    },
+    {
+        "id": "grafana",
+        "name": "Grafana",
+        "category": "observability",
+        "status": "coming_soon",
+        "icon": ":grafana:",
+        "icon_fallback": ":bar_chart:",
+        "description": "Query dashboards and annotations.",
+    },
+]
+
+
+def get_integration_by_id(integration_id: str) -> Optional[Dict[str, Any]]:
+    """Get integration definition by ID."""
+    for integration in INTEGRATIONS:
+        if integration["id"] == integration_id:
+            return integration
+    return None
+
+
+def get_integrations_by_category(category: str) -> List[Dict[str, Any]]:
+    """Get integrations filtered by category."""
+    if category == "all":
+        return INTEGRATIONS
+    return [i for i in INTEGRATIONS if i.get("category") == category]
 
 
 def build_api_key_modal(
@@ -555,43 +758,56 @@ def build_help_message() -> list:
     ]
 
 
+# =============================================================================
+# NEW INTEGRATION-FIRST SETUP WIZARD
+# =============================================================================
+
+
 def build_setup_wizard_page1(
     team_id: str, trial_info: Optional[Dict] = None
 ) -> Dict[str, Any]:
     """
-    Build page 1 of the setup wizard modal - API key configuration.
+    Build the setup wizard - now goes directly to integrations page.
+
+    This is the main entry point for the setup wizard. We skip the API key
+    page since:
+    1. Trial users get our shared key automatically
+    2. BYOK is niche and can be done later in settings
 
     Args:
         team_id: Slack team ID
+        trial_info: Trial status info (used for welcome message)
+
+    Returns:
+        Slack modal view object
+    """
+    # Go directly to integrations page
+    return build_integrations_page(team_id, trial_info=trial_info)
+
+
+def build_integrations_page(
+    team_id: str,
+    category_filter: str = "all",
+    configured: Optional[Dict] = None,
+    trial_info: Optional[Dict] = None,
+) -> Dict[str, Any]:
+    """
+    Build the integrations page with category filters and integration cards.
+
+    Args:
+        team_id: Slack team ID
+        category_filter: Category to filter by (default: "all")
+        configured: Dict of already configured integrations {id: config}
         trial_info: Trial status info
 
     Returns:
         Slack modal view object
     """
-    import json
-
+    configured = configured or {}
     blocks = []
 
-    # Progress indicator
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":one: *API Key*  →  :two: Integrations",
-                }
-            ],
-        }
-    )
-
-    blocks.append({"type": "divider"})
-
-    # Trial status / API key options
-    # Must be a boolean (not None) for Slack's "optional" field
-    has_trial = bool(trial_info and not trial_info.get("expired"))
-
-    if has_trial:
+    # Welcome header with trial status
+    if trial_info and not trial_info.get("expired"):
         days = trial_info.get("days_remaining", 7)
         blocks.append(
             {
@@ -599,46 +815,10 @@ def build_setup_wizard_page1(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        f":gift: *You have {days} days left on your free trial.*\n\n"
-                        "You can use the trial API or add your own Anthropic API key."
+                        f":gift: *Your {days}-day free trial is active!*\n"
+                        "Connect your tools to supercharge investigations."
                     ),
                 },
-            }
-        )
-
-        # Radio buttons for API key choice
-        blocks.append(
-            {
-                "type": "input",
-                "block_id": "api_choice_block",
-                "element": {
-                    "type": "radio_buttons",
-                    "action_id": "api_choice_input",
-                    "initial_option": {
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Use Trial API (recommended)",
-                        },
-                        "value": "trial",
-                    },
-                    "options": [
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Use Trial API (recommended)",
-                            },
-                            "value": "trial",
-                        },
-                        {
-                            "text": {
-                                "type": "plain_text",
-                                "text": "Use My Own API Key",
-                            },
-                            "value": "byok",
-                        },
-                    ],
-                },
-                "label": {"type": "plain_text", "text": "API Key"},
             }
         )
     else:
@@ -648,20 +828,269 @@ def build_setup_wizard_page1(
                 "text": {
                     "type": "mrkdwn",
                     "text": (
-                        ":key: *Set up your Anthropic API key*\n\n"
-                        "IncidentFox uses Claude to investigate incidents. "
-                        "Enter your API key below."
+                        ":link: *Connect Your Tools*\n"
+                        "Add integrations so I can pull logs, metrics, and context during investigations."
                     ),
                 },
             }
         )
 
-    # API Key input (optional if trial, required otherwise)
+    blocks.append({"type": "divider"})
+
+    # Category filter buttons
+    category_buttons = []
+    for cat_id, cat_info in CATEGORIES.items():
+        is_selected = cat_id == category_filter
+        button = {
+            "type": "button",
+            "action_id": f"filter_category_{cat_id}",
+            "text": {
+                "type": "plain_text",
+                "text": f"{cat_info['emoji']} {cat_info['name']}",
+                "emoji": True,
+            },
+        }
+        if is_selected:
+            button["style"] = "primary"
+        category_buttons.append(button)
+
+    # Split into rows of 5 (Slack limit)
+    for i in range(0, len(category_buttons), 5):
+        blocks.append({"type": "actions", "elements": category_buttons[i : i + 5]})
+
+    blocks.append({"type": "divider"})
+
+    # Get integrations for selected category
+    integrations = get_integrations_by_category(category_filter)
+
+    # Group by status: active first, then coming soon
+    active_integrations = [i for i in integrations if i.get("status") == "active"]
+    coming_soon_integrations = [
+        i for i in integrations if i.get("status") == "coming_soon"
+    ]
+
+    # Active integrations section
+    if active_integrations:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Available Now*"},
+            }
+        )
+
+        # Create integration buttons (2 per row for better readability)
+        for integration in active_integrations:
+            int_id = integration["id"]
+            name = integration["name"]
+            icon = integration.get("icon_fallback", ":gear:")
+            description = integration.get("description", "")
+            is_configured = int_id in configured
+
+            # Integration card with button
+            status_indicator = ":white_check_mark: " if is_configured else ""
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"{icon} *{status_indicator}{name}*\n{description}",
+                    },
+                    "accessory": {
+                        "type": "button",
+                        "action_id": f"configure_integration_{int_id}",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Configure" if not is_configured else "Edit",
+                            "emoji": True,
+                        },
+                        "style": "primary" if not is_configured else None,
+                    },
+                }
+            )
+            # Remove None style
+            if blocks[-1]["accessory"].get("style") is None:
+                del blocks[-1]["accessory"]["style"]
+
+    # Coming soon integrations section
+    if coming_soon_integrations:
+        blocks.append({"type": "divider"})
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Coming Soon*"},
+            }
+        )
+
+        # Show coming soon integrations in a more compact format
+        coming_soon_text = []
+        for integration in coming_soon_integrations:
+            icon = integration.get("icon_fallback", ":gear:")
+            name = integration["name"]
+            coming_soon_text.append(f"{icon} {name}")
+
+        # Group into lines of 3
+        lines = []
+        for i in range(0, len(coming_soon_text), 3):
+            lines.append("  •  ".join(coming_soon_text[i : i + 3]))
+
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "\n".join(lines),
+                    }
+                ],
+            }
+        )
+
+    # No integrations message
+    if not active_integrations and not coming_soon_integrations:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_No integrations in this category yet._",
+                },
+            }
+        )
+
+    # Footer with Advanced Settings option
+    blocks.append({"type": "divider"})
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": (
+                        ":bulb: You can add more integrations anytime from the *Home* tab.\n"
+                        ":lock: All credentials are encrypted and stored securely."
+                    ),
+                }
+            ],
+        }
+    )
+
+    # Advanced Settings button (BYOK, HTTP proxy)
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": "open_advanced_settings",
+                    "text": {
+                        "type": "plain_text",
+                        "text": ":gear: Advanced Settings",
+                        "emoji": True,
+                    },
+                }
+            ],
+        }
+    )
+
+    # Store metadata for the handlers
+    private_metadata = json.dumps(
+        {
+            "team_id": team_id,
+            "category_filter": category_filter,
+        }
+    )
+
+    return {
+        "type": "modal",
+        "callback_id": "integrations_page",
+        "private_metadata": private_metadata,
+        "title": {"type": "plain_text", "text": "Set Up Integrations"},
+        "submit": {"type": "plain_text", "text": "Done"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks,
+    }
+
+
+# Keep old function name for backward compatibility
+def build_setup_wizard_page2(
+    team_id: str,
+    schemas: list = None,
+    configured: dict = None,
+) -> Dict[str, Any]:
+    """Backward compatible alias - now uses build_integrations_page."""
+    return build_integrations_page(team_id, configured=configured or {})
+
+
+def build_advanced_settings_modal(
+    team_id: str,
+    existing_api_key: bool = False,
+    existing_endpoint: str = None,
+) -> Dict[str, Any]:
+    """
+    Build Advanced Settings modal for BYOK API key and HTTP proxy settings.
+
+    Args:
+        team_id: Slack team ID
+        existing_api_key: Whether an API key is already configured
+        existing_endpoint: Existing API endpoint if configured
+
+    Returns:
+        Slack modal view object
+    """
+    blocks = []
+
+    # Header
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    ":gear: *Advanced Settings*\n"
+                    "Configure your own Anthropic API key or custom API endpoint."
+                ),
+            },
+        }
+    )
+
+    blocks.append({"type": "divider"})
+
+    # BYOK Section
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Bring Your Own Key (BYOK)*\n"
+                    "By default, IncidentFox uses our shared API key during your trial. "
+                    "You can optionally provide your own Anthropic API key for higher rate limits "
+                    "or to continue after trial expiration."
+                ),
+            },
+        }
+    )
+
+    # Status indicator
+    if existing_api_key:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": ":white_check_mark: You have a custom API key configured.",
+                    }
+                ],
+            }
+        )
+
+    # API Key input
     blocks.append(
         {
             "type": "input",
             "block_id": "api_key_block",
-            "optional": has_trial,
+            "optional": True,
             "element": {
                 "type": "plain_text_input",
                 "action_id": "api_key_input",
@@ -670,34 +1099,56 @@ def build_setup_wizard_page1(
             "label": {"type": "plain_text", "text": "Anthropic API Key"},
             "hint": {
                 "type": "plain_text",
-                "text": "Get your API key from console.anthropic.com",
+                "text": "Leave blank to use our shared key. Get yours at console.anthropic.com",
             },
         }
     )
 
-    # Optional API endpoint
+    blocks.append({"type": "divider"})
+
+    # HTTP Proxy / ML Gateway Section
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Custom API Endpoint*\n"
+                    "If your company uses an internal ML gateway or HTTP proxy for API calls, "
+                    "you can configure a custom endpoint here."
+                ),
+            },
+        }
+    )
+
+    # API Endpoint input
+    endpoint_element = {
+        "type": "plain_text_input",
+        "action_id": "api_endpoint_input",
+        "placeholder": {
+            "type": "plain_text",
+            "text": "https://api.anthropic.com (default)",
+        },
+    }
+    if existing_endpoint:
+        endpoint_element["initial_value"] = existing_endpoint
+
     blocks.append(
         {
             "type": "input",
             "block_id": "api_endpoint_block",
             "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "api_endpoint_input",
-                "placeholder": {
-                    "type": "plain_text",
-                    "text": "https://api.anthropic.com (default)",
-                },
-            },
+            "element": endpoint_element,
             "label": {"type": "plain_text", "text": "API Endpoint (Optional)"},
             "hint": {
                 "type": "plain_text",
-                "text": "Leave blank to use default. Set if using an internal ML gateway.",
+                "text": "Leave blank to use the default Anthropic API endpoint.",
             },
         }
     )
 
-    # Help text
+    # Security note
+    blocks.append({"type": "divider"})
     blocks.append(
         {
             "type": "context",
@@ -710,163 +1161,15 @@ def build_setup_wizard_page1(
         }
     )
 
-    # Store metadata for the submission handler
-    private_metadata = json.dumps(
-        {
-            "team_id": team_id,
-            "has_trial": has_trial,
-        }
-    )
-
-    return {
-        "type": "modal",
-        "callback_id": "setup_wizard_page1",
-        "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": "IncidentFox Setup"},
-        "submit": {"type": "plain_text", "text": "Next"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": blocks,
-    }
-
-
-def build_setup_wizard_page2(
-    team_id: str,
-    schemas: list,
-    configured: dict,
-) -> Dict[str, Any]:
-    """
-    Build page 2 of the setup wizard modal - Integration selection.
-
-    Args:
-        team_id: Slack team ID
-        schemas: List of integration schemas from config-service
-        configured: Dict of already configured integrations
-
-    Returns:
-        Slack modal view object
-    """
-    import json
-
-    blocks = []
-
-    # Progress indicator (step 1 complete)
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":white_check_mark: API Key  →  :two: *Integrations*",
-                }
-            ],
-        }
-    )
-
-    blocks.append({"type": "divider"})
-
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Connect your tools* (optional)\n\n"
-                    "Add integrations so I can pull logs, metrics, and deployment data "
-                    "during investigations."
-                ),
-            },
-        }
-    )
-
-    # Group integrations by category
-    categories = {}
-    for schema in schemas:
-        cat = schema.get("category", "other")
-        if cat not in categories:
-            categories[cat] = []
-        categories[cat].append(schema)
-
-    # Display order for categories
-    category_order = ["observability", "cloud", "scm", "incident", "other"]
-    category_labels = {
-        "observability": ":chart_with_upwards_trend: Observability",
-        "cloud": ":cloud: Cloud",
-        "scm": ":octocat: Source Control",
-        "incident": ":rotating_light: Incident Management",
-        "other": ":toolbox: Other",
-    }
-
-    for cat in category_order:
-        if cat not in categories:
-            continue
-
-        cat_schemas = categories[cat]
-        if not cat_schemas:
-            continue
-
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{category_labels.get(cat, cat.title())}*",
-                },
-            }
-        )
-
-        # Create buttons for each integration in this category (max 5 per row)
-        button_elements = []
-        for schema in cat_schemas[:8]:  # Limit to 8 per category
-            int_id = schema.get("id")
-            name = schema.get("name", int_id)
-            is_configured = int_id in configured
-
-            button = {
-                "type": "button",
-                "action_id": f"configure_integration_{int_id}",
-                "text": {
-                    "type": "plain_text",
-                    "text": f"{'✓ ' if is_configured else ''}{name}",
-                    "emoji": True,
-                },
-            }
-
-            if is_configured:
-                button["style"] = "primary"
-
-            button_elements.append(button)
-
-            # Slack allows max 5 buttons per actions block
-            if len(button_elements) == 5:
-                blocks.append({"type": "actions", "elements": button_elements})
-                button_elements = []
-
-        if button_elements:
-            blocks.append({"type": "actions", "elements": button_elements})
-
-    # Help text
-    blocks.append({"type": "divider"})
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":bulb: You can always add more integrations later from the Home tab.",
-                }
-            ],
-        }
-    )
-
     # Store metadata
     private_metadata = json.dumps({"team_id": team_id})
 
     return {
         "type": "modal",
-        "callback_id": "setup_wizard_page2",
+        "callback_id": "advanced_settings_submission",
         "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": "IncidentFox Setup"},
-        "submit": {"type": "plain_text", "text": "Done"},
+        "title": {"type": "plain_text", "text": "Advanced Settings"},
+        "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Back"},
         "blocks": blocks,
     }
@@ -874,55 +1177,152 @@ def build_setup_wizard_page2(
 
 def build_integration_config_modal(
     team_id: str,
-    schema: Dict[str, Any],
+    schema: Dict[str, Any] = None,
     existing_config: Optional[Dict] = None,
+    integration_id: str = None,
 ) -> Dict[str, Any]:
     """
-    Build a dynamic integration configuration modal based on schema.
+    Build integration configuration modal with video tutorial, instructions, and form fields.
+
+    Can accept either:
+    - schema: Full integration schema dict (backward compatible)
+    - integration_id: ID to look up from INTEGRATIONS constant
 
     Args:
         team_id: Slack team ID
-        schema: Integration schema with fields definition
+        schema: Integration schema with fields definition (optional if integration_id provided)
         existing_config: Existing config values to pre-fill
+        integration_id: Integration ID to look up from INTEGRATIONS
 
     Returns:
         Slack modal view object
     """
-    import json
-
-    blocks = []
     existing_config = existing_config or {}
 
-    integration_id = schema.get("id", "unknown")
-    integration_name = schema.get("name", integration_id.title())
+    # Get integration definition
+    if integration_id and not schema:
+        schema = get_integration_by_id(integration_id)
+        if not schema:
+            # Return error modal for unknown integration
+            return {
+                "type": "modal",
+                "callback_id": "integration_config_error",
+                "title": {"type": "plain_text", "text": "Error"},
+                "close": {"type": "plain_text", "text": "Close"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":warning: Integration `{integration_id}` not found.",
+                        },
+                    }
+                ],
+            }
+    elif not schema:
+        raise ValueError("Either schema or integration_id must be provided")
+
+    int_id = schema.get("id", integration_id or "unknown")
+    integration_name = schema.get("name", int_id.title())
     description = schema.get("description", "")
     docs_url = schema.get("docs_url")
+    video_url = schema.get("video_url")
+    setup_instructions = schema.get("setup_instructions", "")
+    status = schema.get("status", "active")
 
-    # Header with integration name
+    blocks = []
+
+    # Header with integration icon and name
+    icon = schema.get("icon_fallback", ":gear:")
     blocks.append(
         {
-            "type": "header",
+            "type": "section",
             "text": {
-                "type": "plain_text",
-                "text": f"Configure {integration_name}",
-                "emoji": True,
+                "type": "mrkdwn",
+                "text": f"{icon} *{integration_name}*\n{description}",
             },
         }
     )
 
-    # Description
-    if description:
-        desc_text = description
-        if docs_url:
-            desc_text += f"\n\n<{docs_url}|View documentation>"
+    # Coming soon message for inactive integrations
+    if status == "coming_soon":
+        blocks.append({"type": "divider"})
         blocks.append(
             {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": desc_text},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        ":construction: *Coming Soon!*\n\n"
+                        "This integration is under development. "
+                        "Want it sooner? Let us know at support@incidentfox.ai"
+                    ),
+                },
             }
         )
 
+        return {
+            "type": "modal",
+            "callback_id": "integration_coming_soon",
+            "private_metadata": json.dumps({"team_id": team_id, "integration_id": int_id}),
+            "title": {"type": "plain_text", "text": integration_name[:24]},
+            "close": {"type": "plain_text", "text": "Close"},
+            "blocks": blocks,
+        }
+
     blocks.append({"type": "divider"})
+
+    # Video tutorial section (using Slack's video block for embedded player)
+    video_config = schema.get("video")
+    if video_config:
+        blocks.append(
+            {
+                "type": "video",
+                "title": {
+                    "type": "plain_text",
+                    "text": video_config.get("title", f"How to set up {integration_name}"),
+                    "emoji": True,
+                },
+                "title_url": video_config.get("title_url"),
+                "description": {
+                    "type": "plain_text",
+                    "text": video_config.get("description", "Setup tutorial")[:200],
+                    "emoji": True,
+                },
+                "video_url": video_config.get("video_url"),
+                "thumbnail_url": video_config.get("thumbnail_url"),
+                "alt_text": video_config.get("alt_text", f"{integration_name} setup tutorial"),
+                "author_name": "IncidentFox",
+                "provider_name": "YouTube",
+                "provider_icon_url": "https://www.youtube.com/s/desktop/b3c2a2a0/img/favicon_144x144.png",
+            }
+        )
+        blocks.append({"type": "divider"})
+
+    # Setup instructions
+    if setup_instructions:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": setup_instructions},
+            }
+        )
+
+        # Add docs link if available
+        if docs_url:
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f":book: <{docs_url}|View full documentation>",
+                        }
+                    ],
+                }
+            )
+
+        blocks.append({"type": "divider"})
 
     # Track field names for submission handler
     field_names = []
@@ -941,30 +1341,23 @@ def build_integration_config_modal(
 
         if field_type == "secret":
             # Secret fields: plain text input, don't pre-fill
-            blocks.append(
-                {
-                    "type": "input",
-                    "block_id": f"field_{field_id}",
-                    "optional": not field_required,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": f"input_{field_id}",
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": field_placeholder or "Enter value...",
-                        },
+            input_block = {
+                "type": "input",
+                "block_id": f"field_{field_id}",
+                "optional": not field_required,
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": f"input_{field_id}",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": field_placeholder or "Enter value...",
                     },
-                    "label": {"type": "plain_text", "text": field_name},
-                    "hint": (
-                        {"type": "plain_text", "text": field_hint}
-                        if field_hint
-                        else None
-                    ),
-                }
-            )
-            # Remove hint if None
-            if not field_hint:
-                del blocks[-1]["hint"]
+                },
+                "label": {"type": "plain_text", "text": field_name},
+            }
+            if field_hint:
+                input_block["hint"] = {"type": "plain_text", "text": field_hint}
+            blocks.append(input_block)
 
         elif field_type == "boolean":
             # Boolean fields: checkboxes
@@ -977,28 +1370,28 @@ def build_integration_config_modal(
                     }
                 ]
 
+            element = {
+                "type": "checkboxes",
+                "action_id": f"input_{field_id}",
+                "options": [
+                    {
+                        "text": {"type": "plain_text", "text": field_name},
+                        "value": "true",
+                    }
+                ],
+            }
+            if initial_options:
+                element["initial_options"] = initial_options
+
             blocks.append(
                 {
                     "type": "input",
                     "block_id": f"field_{field_id}",
                     "optional": True,
-                    "element": {
-                        "type": "checkboxes",
-                        "action_id": f"input_{field_id}",
-                        "options": [
-                            {
-                                "text": {"type": "plain_text", "text": field_name},
-                                "value": "true",
-                            }
-                        ],
-                        "initial_options": initial_options if initial_options else None,
-                    },
+                    "element": element,
                     "label": {"type": "plain_text", "text": field_name},
                 }
             )
-            # Clean up None initial_options
-            if not initial_options:
-                del blocks[-1]["element"]["initial_options"]
 
         elif field_type == "select" and field.get("options"):
             # Select fields with predefined options
@@ -1007,12 +1400,6 @@ def build_integration_config_modal(
                 for opt in field.get("options", [])
             ]
             existing_value = existing_config.get(field_id)
-            initial_option = None
-            if existing_value:
-                initial_option = {
-                    "text": {"type": "plain_text", "text": existing_value},
-                    "value": existing_value,
-                }
 
             element = {
                 "type": "static_select",
@@ -1023,18 +1410,22 @@ def build_integration_config_modal(
                 },
                 "options": options,
             }
-            if initial_option:
-                element["initial_option"] = initial_option
-
-            blocks.append(
-                {
-                    "type": "input",
-                    "block_id": f"field_{field_id}",
-                    "optional": not field_required,
-                    "element": element,
-                    "label": {"type": "plain_text", "text": field_name},
+            if existing_value:
+                element["initial_option"] = {
+                    "text": {"type": "plain_text", "text": existing_value},
+                    "value": existing_value,
                 }
-            )
+
+            input_block = {
+                "type": "input",
+                "block_id": f"field_{field_id}",
+                "optional": not field_required,
+                "element": element,
+                "label": {"type": "plain_text", "text": field_name},
+            }
+            if field_hint:
+                input_block["hint"] = {"type": "plain_text", "text": field_hint}
+            blocks.append(input_block)
 
         else:
             # Default: string field (plain text input, can pre-fill)
@@ -1080,7 +1471,7 @@ def build_integration_config_modal(
     private_metadata = json.dumps(
         {
             "team_id": team_id,
-            "integration_id": integration_id,
+            "integration_id": int_id,
             "field_names": field_names,
         }
     )
@@ -1091,6 +1482,6 @@ def build_integration_config_modal(
         "private_metadata": private_metadata,
         "title": {"type": "plain_text", "text": integration_name[:24]},  # Max 24 chars
         "submit": {"type": "plain_text", "text": "Save"},
-        "close": {"type": "plain_text", "text": "Cancel"},
+        "close": {"type": "plain_text", "text": "Back"},
         "blocks": blocks,
     }

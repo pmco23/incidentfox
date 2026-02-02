@@ -98,11 +98,11 @@ def _process_text_with_images(text: str, images: Optional[List[dict]] = None) ->
     return segments
 
 
-def _render_image_block(file_id: str, alt: str) -> dict:
-    """Create a Slack image block using slack_file."""
+def _render_image_block(image_url: str, alt: str) -> dict:
+    """Create a Slack image block using image_url (S3-hosted)."""
     return {
         "type": "image",
-        "slack_file": {"id": file_id},
+        "image_url": image_url,
         "alt_text": alt[:2000],  # Slack limit
     }
 
@@ -136,11 +136,14 @@ def build_session_modal(
     thread_id: str,
     thoughts: List[Any],  # List of ThoughtSection objects
     result: Optional[str] = None,
-    loading_file_id: Optional[str] = None,
-    done_file_id: Optional[str] = None,
+    loading_url: Optional[str] = None,
+    done_url: Optional[str] = None,
     page: int = 1,
     result_images: Optional[List[dict]] = None,
     result_files: Optional[List[dict]] = None,
+    # Backward compatibility aliases (deprecated)
+    loading_file_id: Optional[str] = None,
+    done_file_id: Optional[str] = None,
 ) -> dict:
     """
     Build a modal showing the full investigation session.
@@ -154,16 +157,20 @@ def build_session_modal(
         thread_id: Investigation thread ID
         thoughts: List of ThoughtSection objects (hierarchical: thoughts with nested tools)
         result: Final result text
-        loading_file_id: Slack file ID for loading.gif
-        done_file_id: Slack file ID for done.png
+        loading_url: URL for loading.gif (S3-hosted)
+        done_url: URL for done.png (S3-hosted)
         page: Page number (1-indexed, default 1)
-        result_images: List of image dicts with {path, file_id, alt, media_type}
-        result_files: List of file dicts with {path, filename, description, file_id}
+        result_images: List of image dicts with {path, image_url, alt, media_type}
+        result_files: List of file dicts with {path, filename, description}
     """
     import json
     import logging
 
     logger = logging.getLogger(__name__)
+
+    # Use URL parameters (ignore deprecated file_id params)
+    loading_icon = loading_url
+    done_icon = done_url
 
     blocks = []
 
@@ -194,19 +201,19 @@ def build_session_modal(
 
         # Build thought block with icon
         thought_elements = []
-        if is_completed and done_file_id:
+        if is_completed and done_icon:
             thought_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": done_file_id},
+                    "image_url": done_icon,
                     "alt_text": "Done",
                 }
             )
-        elif not is_completed and loading_file_id:
+        elif not is_completed and loading_icon:
             thought_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": loading_file_id},
+                    "image_url": loading_icon,
                     "alt_text": "Loading",
                 }
             )
@@ -285,19 +292,19 @@ def build_session_modal(
                 )
                 tool_elements = [{"type": "mrkdwn", "text": arrow}]
 
-                if is_running and loading_file_id:
+                if is_running and loading_icon:
                     tool_elements.append(
                         {
                             "type": "image",
-                            "slack_file": {"id": loading_file_id},
+                            "image_url": loading_icon,
                             "alt_text": "Loading",
                         }
                     )
-                elif tool_success and done_file_id:
+                elif tool_success and done_icon:
                     tool_elements.append(
                         {
                             "type": "image",
-                            "slack_file": {"id": done_file_id},
+                            "image_url": done_icon,
                             "alt_text": "Done",
                         }
                     )
@@ -504,19 +511,19 @@ def build_session_modal(
                     header_elements = [{"type": "mrkdwn", "text": arrow}]
 
                     # Add status image
-                    if is_running and loading_file_id:
+                    if is_running and loading_icon:
                         header_elements.append(
                             {
                                 "type": "image",
-                                "slack_file": {"id": loading_file_id},
+                                "image_url": loading_icon,
                                 "alt_text": "Running",
                             }
                         )
-                    elif task_success and done_file_id:
+                    elif task_success and done_icon:
                         header_elements.append(
                             {
                                 "type": "image",
-                                "slack_file": {"id": done_file_id},
+                                "image_url": done_icon,
                                 "alt_text": "Done",
                             }
                         )
@@ -2507,10 +2514,13 @@ def build_subagent_detail_modal(
     thread_id: str,
     task_tool: dict,
     children: list,
-    loading_file_id: str = None,
-    done_file_id: str = None,
+    loading_url: str = None,
+    done_url: str = None,
     thought_idx: int = 0,
     page: int = 1,
+    # Backward compatibility aliases (deprecated)
+    loading_file_id: str = None,
+    done_file_id: str = None,
 ) -> dict:
     """
     Build a modal showing detailed view of a subagent's tool calls.
@@ -2519,8 +2529,8 @@ def build_subagent_detail_modal(
         thread_id: Thread ID for button values
         task_tool: The Task tool dict
         children: List of (idx, tool) tuples for child tools
-        loading_file_id: Optional Slack file ID for loading animation
-        done_file_id: Optional Slack file ID for done checkmark
+        loading_url: URL for loading animation (S3-hosted)
+        done_url: URL for done checkmark (S3-hosted)
         thought_idx: Index of the thought containing this subagent (for button values)
         page: Page number for pagination (1-indexed)
 
@@ -2530,6 +2540,10 @@ def build_subagent_detail_modal(
     import json
 
     from markdown_utils import slack_mrkdwn
+
+    # Use URL parameters (ignore deprecated file_id params)
+    loading_icon = loading_url
+    done_icon = done_url
 
     blocks = []
 
@@ -2633,19 +2647,19 @@ def build_subagent_detail_modal(
 
         tool_elements = [{"type": "mrkdwn", "text": f"{EM_SPACE}{EM_SPACE}{EM_SPACE}↳"}]
 
-        if is_running and loading_file_id:
+        if is_running and loading_icon:
             tool_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": loading_file_id},
+                    "image_url": loading_icon,
                     "alt_text": "Loading",
                 }
             )
-        elif tool_success and done_file_id:
+        elif tool_success and done_icon:
             tool_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": done_file_id},
+                    "image_url": done_icon,
                     "alt_text": "Done",
                 }
             )

@@ -38,6 +38,7 @@
                 "im:write",
                 "links:read",
                 "links:write",
+                "links.embed:write",
                 "metadata.message:read",
                 "mpim:history",
                 "mpim:read",
@@ -64,6 +65,11 @@
         },
         "org_deploy_enabled": false,
         "socket_mode_enabled": false,
-        "token_rotation_enabled": false
+        "token_rotation_enabled": false,
+        "unfurl_domains": [
+            "www.youtube.com",
+            "youtube.com",
+            "youtu.be"
+        ]
     }
 }

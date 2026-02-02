@@ -291,27 +291,18 @@ def parse_sse_event(line: str) -> Optional[dict]:
 
 def build_progress_blocks(state: MessageState, client, team_id: str) -> list:
     """Build Block Kit blocks for in-progress state."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
     from message_builder import build_progress_message
 
-    # Get Slack-hosted assets (uploads on first use)
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        done_file_id = None
+    # Get S3-hosted asset URLs (no per-workspace uploads needed)
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     return build_progress_message(
         thoughts=state.thoughts,
         current_tool=state.current_tool,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         thread_id=state.thread_id,
         trigger_user_id=state.trigger_user_id,
         trigger_text=state.trigger_text,
@@ -320,22 +311,18 @@ def build_progress_blocks(state: MessageState, client, team_id: str) -> list:
 
 def build_final_blocks(state: MessageState, client, team_id: str) -> list:
     """Build Block Kit blocks for final state."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
     from message_builder import build_final_message
 
-    # Get Slack-hosted done icon
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        done_file_id = None
+    # Get S3-hosted done icon URL
+    done_url = get_asset_url("done")
 
     return build_final_message(
         result_text=state.final_result or state.current_thought,
         thoughts=state.thoughts,
         success=state.error is None,
         error=state.error,
-        done_file_id=done_file_id,
+        done_url=done_url,
         thread_id=state.thread_id,
         result_images=state.result_images,
         result_files=state.result_files,
@@ -386,7 +373,7 @@ def update_slack_message(
     if final and state.result_images:
         _update_with_progressive_images(client, state, team_id, text)
     else:
-        # Regular update without images
+        # Regular update (using S3-hosted URLs - no caching issues)
         try:
             if final:
                 blocks = build_final_blocks(state, client, team_id)
@@ -1700,56 +1687,36 @@ def handle_mention(event, say, client, context):
 
     # Post minimal initial message with loading indicator
     # Will be updated immediately with first event
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to get loading asset: {e}")
+    loading_url = get_asset_url("loading")
 
-    # Build initial blocks - try with slack_file, fall back to emoji
-    def build_initial_blocks(use_slack_file: bool):
-        if use_slack_file and loading_file_id:
-            return [
+    # Build initial blocks with S3-hosted loading GIF
+    initial_blocks = [
+        {
+            "type": "context",
+            "elements": [
                 {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "image",
-                            "slack_file": {"id": loading_file_id},
-                            "alt_text": "Loading",
-                        },
-                        {"type": "mrkdwn", "text": "Investigating..."},
-                    ],
-                }
-            ]
-        else:
-            return [
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-                }
-            ]
+                    "type": "image",
+                    "image_url": loading_url,
+                    "alt_text": "Loading",
+                },
+                {"type": "mrkdwn", "text": "Investigating..."},
+            ],
+        }
+    ] if loading_url else [
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+        }
+    ]
 
-    # Try with slack_file first, fall back to emoji if it fails
-    try:
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating...",
-            blocks=build_initial_blocks(use_slack_file=True),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
-        # Clear cached asset (might be invalid)
-        clear_asset_cache(team_id)
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating...",
-            blocks=build_initial_blocks(use_slack_file=False),
-        )
+    initial_response = client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text="Investigating...",
+        blocks=initial_blocks,
+    )
 
     message_ts = initial_response["ts"]
 
@@ -2091,57 +2058,38 @@ Use all available tools to gather context about this issue."""
     thread_id = f"slack-{sanitized_channel}-{sanitized_thread_ts}"
 
     # Post initial investigation message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to get loading asset: {e}")
+    loading_url = get_asset_url("loading")
 
-    # Build initial blocks
-    def build_initial_blocks(use_slack_file: bool):
-        if use_slack_file and loading_file_id:
-            return [
+    # Build initial blocks with S3-hosted loading GIF
+    initial_blocks = [
+        {
+            "type": "context",
+            "elements": [
                 {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "image",
-                            "slack_file": {"id": loading_file_id},
-                            "alt_text": "Loading",
-                        },
-                        {"type": "mrkdwn", "text": "Investigating alert..."},
-                    ],
-                }
-            ]
-        else:
-            return [
-                {
-                    "type": "context",
-                    "elements": [
-                        {"type": "mrkdwn", "text": "⏳ Investigating alert..."}
-                    ],
-                }
-            ]
+                    "type": "image",
+                    "image_url": loading_url,
+                    "alt_text": "Loading",
+                },
+                {"type": "mrkdwn", "text": "Investigating alert..."},
+            ],
+        }
+    ] if loading_url else [
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": "⏳ Investigating alert..."}
+            ],
+        }
+    ]
 
-    # Try to post initial message
-    try:
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating alert...",
-            blocks=build_initial_blocks(use_slack_file=True),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
-        clear_asset_cache(team_id)
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating alert...",
-            blocks=build_initial_blocks(use_slack_file=False),
-        )
+    initial_response = client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text="Investigating alert...",
+        blocks=initial_blocks,
+    )
 
     response_message_ts = initial_response["ts"]
 
@@ -2403,57 +2351,35 @@ def handle_message(event, client, context):
         enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
 
         # Post initial message
-        from asset_manager import get_asset_file_id
+        from assets_config import get_asset_url
 
-        loading_file_id = None
-        try:
-            loading_file_id = get_asset_file_id(client, team_id, "loading")
-        except Exception as e:
-            logger.warning(f"Failed to get loading asset: {e}")
+        loading_url = get_asset_url("loading")
 
-        def build_initial_blocks(use_slack_file: bool):
-            if use_slack_file and loading_file_id:
-                return [
+        initial_blocks = [
+            {
+                "type": "context",
+                "elements": [
                     {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "image",
-                                "slack_file": {"id": loading_file_id},
-                                "alt_text": "Loading",
-                            },
-                            {"type": "mrkdwn", "text": "Investigating..."},
-                        ],
-                    }
-                ]
-            else:
-                return [
-                    {
-                        "type": "context",
-                        "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-                    }
-                ]
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating..."},
+                ],
+            }
+        ] if loading_url else [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+            }
+        ]
 
-        try:
-            initial_response = client.chat_postMessage(
-                channel=channel_id,
-                thread_ts=thread_ts,
-                text="Investigating...",
-                blocks=build_initial_blocks(use_slack_file=True),
-            )
-        except Exception as e:
-            logger.warning(
-                f"Failed to post with slack_file, falling back to emoji: {e}"
-            )
-            from asset_manager import clear_asset_cache
-
-            clear_asset_cache(team_id)
-            initial_response = client.chat_postMessage(
-                channel=channel_id,
-                thread_ts=thread_ts,
-                text="Investigating...",
-                blocks=build_initial_blocks(use_slack_file=False),
-            )
+        initial_response = client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text="Investigating...",
+            blocks=initial_blocks,
+        )
 
         response_message_ts = initial_response["ts"]
 
@@ -2887,13 +2813,9 @@ def handle_nudge_invoke(ack, body, client, context, respond):
     enriched_prompt = text + "\n" + "\n".join(context_lines)
 
     # Post initial "Investigating..." message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        pass
+    loading_url = get_asset_url("loading")
 
     # Truncate text for display
     display_text = text[:80] + "..." if len(text) > 80 else text
@@ -2906,7 +2828,7 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         ],
     }
 
-    if loading_file_id:
+    if loading_url:
         initial_blocks = [
             trigger_context,
             {
@@ -2914,7 +2836,7 @@ def handle_nudge_invoke(ack, body, client, context, respond):
                 "elements": [
                     {
                         "type": "image",
-                        "slack_file": {"id": loading_file_id},
+                        "image_url": loading_url,
                         "alt_text": "Loading",
                     },
                     {"type": "mrkdwn", "text": "Investigating..."},
@@ -3071,13 +2993,9 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
     logger.info("Triggering Coralogix investigation with prompt")
 
     # Post initial "Investigating..." message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        pass
+    loading_url = get_asset_url("loading")
 
     # Build initial blocks with context
     trigger_context = {
@@ -3090,7 +3008,7 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         ],
     }
 
-    if loading_file_id:
+    if loading_url:
         initial_blocks = [
             trigger_context,
             {
@@ -3098,7 +3016,7 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
                 "elements": [
                     {
                         "type": "image",
-                        "slack_file": {"id": loading_file_id},
+                        "image_url": loading_url,
                         "alt_text": "Loading",
                     },
                     {"type": "mrkdwn", "text": "Investigating..."},
@@ -3269,22 +3187,11 @@ def handle_view_session(ack, body, client):
         )
         return
 
-    # Get Slack-hosted assets for modal
-    from asset_manager import get_asset_file_id
+    # Get S3-hosted asset URLs for modal
+    from assets_config import get_asset_url
 
-    team_id = body.get("team", {}).get("id") or body.get("user", {}).get("team_id")
-
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to load loading asset: {e}")
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load done asset: {e}")
-        done_file_id = None
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     # Build modal with hierarchical thoughts (same formatting as main message)
     from modal_builder import build_session_modal
@@ -3293,8 +3200,8 @@ def handle_view_session(ack, body, client):
         thread_id=thread_id,
         thoughts=state.thoughts,
         result=state.final_result,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         result_images=state.result_images,
         result_files=state.result_files,
     )
@@ -3337,20 +3244,11 @@ def handle_modal_pagination(ack, body, client):
         logger.warning(f"No cached state for pagination: {thread_id}")
         return
 
-    # Get Slack-hosted assets for modal
-    from asset_manager import get_asset_file_id
+    # Get S3-hosted asset URLs for modal
+    from assets_config import get_asset_url
 
-    team_id = body.get("team", {}).get("id") or body.get("user", {}).get("team_id")
-
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception:
-        done_file_id = None
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     # Build modal for requested page
     from modal_builder import build_session_modal
@@ -3359,8 +3257,8 @@ def handle_modal_pagination(ack, body, client):
         thread_id=thread_id,
         thoughts=state.thoughts,
         result=state.final_result,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         page=page,
         result_images=state.result_images,
         result_files=state.result_files,
@@ -3938,17 +3836,10 @@ def _build_submitted_answer_blocks(
     questions: list, answers: dict, client, body, user_id: str = None
 ) -> list:
     """Build blocks showing the submitted Q&A summary with checkmark image and user mention."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
 
-    # Get team ID for asset loading
-    team_id = body.get("team", {}).get("id")
-
-    # Try to get checkmark image
-    done_file_id = None
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load done asset: {e}")
+    # Get S3-hosted checkmark image URL
+    done_url = get_asset_url("done")
 
     blocks = []
 
@@ -3959,9 +3850,9 @@ def _build_submitted_answer_blocks(
         header_text = "*Answer submitted!* Processing your response..."
 
     header_elements = []
-    if done_file_id:
+    if done_url:
         header_elements.append(
-            {"type": "image", "slack_file": {"id": done_file_id}, "alt_text": "Done"}
+            {"type": "image", "image_url": done_url, "alt_text": "Done"}
         )
     header_elements.append({"type": "mrkdwn", "text": header_text})
 
@@ -4260,7 +4151,7 @@ def handle_api_key_submission(ack, body, client, view):
 
 @app.action("open_setup_wizard")
 def handle_open_setup_wizard(ack, body, client):
-    """Open the setup wizard modal (from welcome message)."""
+    """Open the setup wizard modal (now goes directly to integrations page)."""
     ack()
 
     team_id = body.get("team", {}).get("id")
@@ -4271,16 +4162,23 @@ def handle_open_setup_wizard(ack, body, client):
     try:
         config_client = get_config_client()
         trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
 
         onboarding = get_onboarding_modules()
-        # Use setup wizard if available, otherwise fall back to API key modal
-        if hasattr(onboarding, "build_setup_wizard_page1"):
+        # Go directly to integrations page (skip API key page - users get shared key)
+        if hasattr(onboarding, "build_integrations_page"):
+            modal = onboarding.build_integrations_page(
+                team_id=team_id,
+                configured=configured,
+                trial_info=trial_info,
+            )
+        elif hasattr(onboarding, "build_setup_wizard_page1"):
             modal = onboarding.build_setup_wizard_page1(team_id, trial_info)
         else:
             modal = onboarding.build_api_key_modal(team_id, trial_info=trial_info)
 
         client.views_open(trigger_id=body["trigger_id"], view=modal)
-        logger.info(f"Opened setup wizard for team {team_id}")
+        logger.info(f"Opened setup wizard (integrations page) for team {team_id}")
     except Exception as e:
         logger.error(f"Failed to open setup wizard: {e}", exc_info=True)
 
@@ -4327,25 +4225,19 @@ def handle_dismiss_welcome(ack, body, client):
 
 @app.view("setup_wizard_page1")
 def handle_setup_wizard_page1(ack, body, client, view):
-    """Handle page 1 of setup wizard submission."""
+    """
+    Handle page 1 of setup wizard submission.
+
+    NOTE: This is now a legacy handler. The new flow goes directly to integrations.
+    This handler exists for backward compatibility with any stale modals.
+    """
     import json
 
     private_metadata = json.loads(view.get("private_metadata", "{}"))
     team_id = private_metadata.get("team_id")
-    has_trial = private_metadata.get("has_trial", False)
     values = view.get("state", {}).get("values", {})
 
-    # Get API key choice (if trial available)
-    api_choice = "byok"  # Default to BYOK
-    if has_trial:
-        api_choice = (
-            values.get("api_choice_block", {})
-            .get("api_choice_input", {})
-            .get("selected_option", {})
-            .get("value", "trial")
-        )
-
-    # Get API key value
+    # Get API key value if provided (now optional)
     api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
     if api_key:
         api_key = api_key.strip()
@@ -4359,24 +4251,8 @@ def handle_setup_wizard_page1(ack, body, client, view):
     if api_endpoint:
         api_endpoint = api_endpoint.strip()
 
-    # Validate: if BYOK selected, API key is required
-    if api_choice == "byok" and not api_key:
-        ack(
-            response_action="errors",
-            errors={"api_key_block": "API key is required when using your own key"},
-        )
-        return
-
-    # Validate API key format if provided
+    # Save API key if provided (BYOK is optional)
     if api_key:
-        onboarding = get_onboarding_modules()
-        is_valid, error_message = onboarding.validate_api_key(api_key)
-        if not is_valid:
-            ack(response_action="errors", errors={"api_key_block": error_message})
-            return
-
-    # Save API key if BYOK
-    if api_choice == "byok" and api_key:
         config_client = get_config_client()
         config_client.save_api_key(
             slack_team_id=team_id,
@@ -4385,17 +4261,24 @@ def handle_setup_wizard_page1(ack, body, client, view):
         )
         logger.info(f"Saved API key from wizard for team {team_id}")
 
-    # Fetch schemas and configured integrations for page 2
+    # Fetch configured integrations for integrations page
     config_client = get_config_client()
-    schemas = config_client.get_integration_schemas()
     configured = config_client.get_configured_integrations(team_id)
+    trial_info = config_client.get_trial_status(team_id)
 
-    # Build page 2 and update the modal
+    # Build integrations page
     onboarding = get_onboarding_modules()
-    page2 = onboarding.build_setup_wizard_page2(team_id, schemas, configured)
+    if hasattr(onboarding, "build_integrations_page"):
+        page2 = onboarding.build_integrations_page(
+            team_id=team_id,
+            configured=configured,
+            trial_info=trial_info,
+        )
+    else:
+        page2 = onboarding.build_setup_wizard_page2(team_id, [], configured)
 
     ack(response_action="update", view=page2)
-    logger.info(f"Advanced to wizard page 2 for team {team_id}")
+    logger.info(f"Advanced to integrations page for team {team_id}")
 
 
 @app.view("setup_wizard_page2")
@@ -4442,7 +4325,7 @@ def handle_setup_wizard_page2(ack, body, client, view):
 
 @app.action(re.compile(r"^configure_integration_.*"))
 def handle_configure_integration(ack, body, client):
-    """Handle integration configuration button click from wizard page 2."""
+    """Handle integration configuration button click."""
     ack()
 
     action = body.get("actions", [{}])[0]
@@ -4457,33 +4340,180 @@ def handle_configure_integration(ack, body, client):
         return
 
     try:
+        # Get existing config if any (from config-service)
         config_client = get_config_client()
-        schemas = config_client.get_integration_schemas()
-        schema = next((s for s in schemas if s.get("id") == integration_id), None)
-
-        if not schema:
-            logger.error(f"Schema not found for integration {integration_id}")
-            return
-
-        # Get existing config if any
         configured = config_client.get_configured_integrations(team_id)
         existing_config = configured.get(integration_id, {})
 
         # Build and push the integration config modal
+        # Uses local INTEGRATIONS definition from onboarding.py
         onboarding = get_onboarding_modules()
-        if hasattr(onboarding, "build_integration_config_modal"):
-            modal = onboarding.build_integration_config_modal(
-                team_id=team_id,
-                schema=schema,
-                existing_config=existing_config,
-            )
-            client.views_push(trigger_id=body["trigger_id"], view=modal)
-            logger.info(f"Pushed config modal for {integration_id}")
-        else:
-            logger.warning("build_integration_config_modal not yet implemented")
+        modal = onboarding.build_integration_config_modal(
+            team_id=team_id,
+            integration_id=integration_id,
+            existing_config=existing_config,
+        )
+        client.views_push(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Pushed config modal for {integration_id}")
 
     except Exception as e:
         logger.error(f"Failed to open integration config modal: {e}", exc_info=True)
+
+
+@app.action(re.compile(r"^filter_category_.*"))
+def handle_filter_category(ack, body, client):
+    """Handle category filter button click on integrations page."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Extract category from action_id (e.g., "filter_category_observability")
+    category = action_id.replace("filter_category_", "")
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id for filter_category action")
+        return
+
+    try:
+        # Get configured integrations to show checkmarks
+        config_client = get_config_client()
+        configured = config_client.get_configured_integrations(team_id)
+        trial_info = config_client.get_trial_status(team_id)
+
+        # Rebuild the integrations page with new category filter
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_integrations_page(
+            team_id=team_id,
+            category_filter=category,
+            configured=configured,
+            trial_info=trial_info,
+        )
+
+        # Update the current modal view
+        client.views_update(
+            view_id=body.get("view", {}).get("id"),
+            view=modal,
+        )
+        logger.info(f"Filtered integrations to category: {category}")
+
+    except Exception as e:
+        logger.error(f"Failed to filter integrations: {e}", exc_info=True)
+
+
+@app.view("integrations_page")
+def handle_integrations_page_done(ack, body, client, view):
+    """Handle Done button on integrations page."""
+    import json
+
+    ack()
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+
+    # Send completion message to user
+    user_id = body.get("user", {}).get("id")
+    if user_id:
+        try:
+            dm_response = client.conversations_open(users=[user_id])
+            dm_channel = dm_response.get("channel", {}).get("id")
+
+            if dm_channel:
+                client.chat_postMessage(
+                    channel=dm_channel,
+                    text="Setup complete!",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    ":white_check_mark: *Setup complete!*\n\n"
+                                    "You're all set. Mention `@IncidentFox` in any channel "
+                                    "to start investigating incidents.\n\n"
+                                    "You can manage integrations anytime from the *Home* tab."
+                                ),
+                            },
+                        },
+                    ],
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send completion DM: {e}")
+
+    logger.info(f"Completed setup wizard for team {team_id}")
+
+
+@app.action("open_advanced_settings")
+def handle_open_advanced_settings(ack, body, client):
+    """Open Advanced Settings modal (BYOK, HTTP proxy)."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in open_advanced_settings")
+        return
+
+    try:
+        # Check if user already has an API key configured
+        config_client = get_config_client()
+        anthropic_config = config_client.get_integration_config(team_id, "anthropic")
+        existing_api_key = bool(anthropic_config and anthropic_config.get("api_key"))
+        existing_endpoint = anthropic_config.get("api_endpoint") if anthropic_config else None
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_advanced_settings_modal(
+            team_id=team_id,
+            existing_api_key=existing_api_key,
+            existing_endpoint=existing_endpoint,
+        )
+
+        client.views_push(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened Advanced Settings modal for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open Advanced Settings modal: {e}", exc_info=True)
+
+
+@app.view("advanced_settings_submission")
+def handle_advanced_settings_submission(ack, body, client, view):
+    """Handle Advanced Settings form submission."""
+    import json
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    values = view.get("state", {}).get("values", {})
+
+    # Get API key value
+    api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
+    if api_key:
+        api_key = api_key.strip()
+
+    # Get API endpoint value
+    api_endpoint = (
+        values.get("api_endpoint_block", {})
+        .get("api_endpoint_input", {})
+        .get("value", "")
+    )
+    if api_endpoint:
+        api_endpoint = api_endpoint.strip()
+
+    # Save if any values provided
+    if team_id and (api_key or api_endpoint):
+        try:
+            config_client = get_config_client()
+            config_client.save_api_key(
+                slack_team_id=team_id,
+                api_key=api_key if api_key else None,
+                api_endpoint=api_endpoint if api_endpoint else None,
+            )
+            logger.info(f"Saved advanced settings for team {team_id}")
+        except Exception as e:
+            logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
+
+    # Close the modal (go back to integrations page)
+    ack()
+    logger.info(f"Advanced settings submission completed for team {team_id}")
 
 
 @app.view("integration_config_submission")
@@ -4688,11 +4718,20 @@ def handle_mention_setup_wizard(ack, body, client):
     try:
         config_client = get_config_client()
         trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
 
         onboarding = get_onboarding_modules()
-        wizard_view = onboarding.build_setup_wizard_page1(
-            team_id=team_id, trial_info=trial_info
-        )
+        # Go directly to integrations page
+        if hasattr(onboarding, "build_integrations_page"):
+            wizard_view = onboarding.build_integrations_page(
+                team_id=team_id,
+                configured=configured,
+                trial_info=trial_info,
+            )
+        else:
+            wizard_view = onboarding.build_setup_wizard_page1(
+                team_id=team_id, trial_info=trial_info
+            )
 
         client.views_open(trigger_id=body["trigger_id"], view=wizard_view)
         logger.info(f"Opened setup wizard from channel mention for team {team_id}")
