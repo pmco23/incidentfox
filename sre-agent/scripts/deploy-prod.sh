@@ -65,12 +65,13 @@ JWT_SECRET="${JWT_SECRET:-$(openssl rand -hex 32)}"
 # Multi-tenant architecture:
 # - jwt-secret: Required for sre-agent <-> credential-resolver auth
 # - laminar-api-key: OUR observability tracing (not customer's)
+# - shared-anthropic-api-key: Free trial key (simplest option - no IRSA needed)
 # - Customer API keys (Anthropic BYOK, Coralogix, Datadog): stored in config-service RDS
-# - Shared Anthropic key (free trials): fetched from AWS Secrets Manager via IRSA
 kubectl create secret generic incidentfox-secrets \
     --namespace=incidentfox-prod \
     --from-literal=jwt-secret="${JWT_SECRET}" \
     --from-literal=laminar-api-key="${LMNR_PROJECT_API_KEY:-}" \
+    --from-literal=shared-anthropic-api-key="${SHARED_ANTHROPIC_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f -
 
 # Update ECR pull secret
