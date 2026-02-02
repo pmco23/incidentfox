@@ -4,7 +4,7 @@ apiVersion: extensions.agents.x-k8s.io/v1alpha1
 kind: SandboxTemplate
 metadata:
   name: incidentfox-agent-template
-  # namespace not specified - uses namespace from kubectl context
+  namespace: incidentfox-prod
 spec:
   podTemplate:
     metadata:
