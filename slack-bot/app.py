@@ -2240,21 +2240,21 @@ def handle_message(event, client, context):
     logger.info("=" * 60)
 
     # ============================================================================
-    # DM HANDLING - First-time welcome and help command (Slack review requirement)
+    # DM HANDLING - First-time welcome, help command, and investigations
     # ============================================================================
     channel_type = event.get("channel_type")
     if channel_type == "im":
         user_id = event.get("user")
         team_id = context.get("team_id")
         channel_id = event.get("channel")
-        dm_text = event.get("text", "").strip().lower()
+        dm_text = event.get("text", "").strip()
 
         # Skip bot's own messages
         if event.get("bot_id"):
             return
 
         # Handle help command first
-        if dm_text == "help":
+        if dm_text.lower() == "help":
             try:
                 onboarding = get_onboarding_modules()
                 help_blocks = onboarding.build_help_message()
@@ -2269,6 +2269,7 @@ def handle_message(event, client, context):
             return  # Don't process further
 
         # Check if this is first-time DM (no previous bot messages in this channel)
+        is_first_time = False
         try:
             history = client.conversations_history(channel=channel_id, limit=10)
             bot_has_messaged = any(
@@ -2277,6 +2278,7 @@ def handle_message(event, client, context):
 
             if not bot_has_messaged:
                 # First interaction! Send welcome message
+                is_first_time = True
                 onboarding = get_onboarding_modules()
                 config_client = get_config_client()
                 trial_info = (
@@ -2292,8 +2294,263 @@ def handle_message(event, client, context):
         except Exception as e:
             logger.warning(f"Failed to check/send DM welcome: {e}")
 
-        # DMs don't need further processing (alerts, Coralogix links, etc.)
-        return
+        # If this is first-time and message is empty/short greeting, don't investigate
+        if is_first_time and dm_text.lower() in ["hi", "hello", "hey", ""]:
+            return
+
+        # Check workspace setup (API key configured or active trial)
+        if not check_workspace_setup(client, team_id, channel_id, user_id):
+            logger.info(f"Workspace {team_id} not set up (DM), prompted for configuration")
+            return
+
+        # Continue to DM investigation below
+        # (Extract images, build prompt, trigger investigation)
+        logger.info(f"🔵 DM INVESTIGATION: user={user_id}, text={dm_text[:100]}")
+
+        # Thread context: DMs use message timestamp as thread
+        thread_ts = event.get("thread_ts") or event["ts"]
+        message_ts = event["ts"]
+
+        # Generate thread_id for DM (use channel ID which is unique per DM)
+        sanitized_thread_ts = thread_ts.replace(".", "-")
+        sanitized_channel = channel_id.lower()
+        thread_id = f"slack-dm-{sanitized_channel}-{sanitized_thread_ts}"
+
+        # Get bot's own user ID
+        bot_user_id = context.get("bot_user_id")
+        if not bot_user_id:
+            try:
+                auth_response = client.auth_test()
+                bot_user_id = auth_response.get("user_id")
+            except Exception as e:
+                logger.warning(f"Failed to get bot user ID: {e}")
+                bot_user_id = None
+
+        # Resolve mentions in DM text (if any)
+        resolved_text, id_to_name_mapping = _resolve_mentions(dm_text, client, bot_user_id)
+
+        # Extract images from the event
+        images = _extract_images_from_event(event, client)
+
+        # Extract file attachments
+        file_attachments = _extract_file_attachments_from_event(event, client)
+
+        # Get sender's name
+        sender_name = "Unknown User"
+        try:
+            user_response = client.users_info(user=user_id)
+            if user_response["ok"]:
+                user = user_response["user"]
+                profile = user.get("profile", {})
+                sender_name = (
+                    profile.get("display_name")
+                    or profile.get("real_name")
+                    or user.get("name", "Unknown User")
+                )
+        except Exception as e:
+            logger.warning(f"Failed to get sender name for {user_id}: {e}")
+
+        prompt_text = resolved_text.strip()
+
+        if not prompt_text and not images and not file_attachments:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="What would you like me to help you investigate?",
+                thread_ts=thread_ts,
+            )
+            return
+
+        # Build enriched prompt with DM context
+        context_lines = ["\n### Slack Context"]
+        context_lines.append(f"**Requested by:** {sender_name} (User ID: {user_id})")
+        context_lines.append("**Channel:** Private DM with IncidentFox")
+        context_lines.append(
+            "\nThis is a private one-on-one conversation. The user is messaging you directly "
+            "in a DM rather than in a public channel."
+        )
+
+        if id_to_name_mapping:
+            context_lines.append("\n**User/Bot ID to Name Mapping:**")
+            for uid, name in id_to_name_mapping.items():
+                context_lines.append(f"- {name}: {uid}")
+
+        # Add file attachments context
+        if file_attachments:
+            context_lines.append("\n**File Attachments:**")
+            context_lines.append(
+                "The user attached the following files, which are being downloaded into your workspace:"
+            )
+            for att in file_attachments:
+                filename = att["filename"]
+                size_bytes = att["size"]
+                if size_bytes >= 1024 * 1024:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                else:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                context_lines.append(f"- `attachments/{filename}` ({size_str})")
+            context_lines.append("\nYou can read these files using the Read tool.")
+
+        # Add image/file sharing context
+        context_lines.append("\n**Including Images in Your Response:**")
+        context_lines.append(
+            "If you create images during analysis, include them using: `![description](./path/to/image.png)`"
+        )
+        context_lines.append("\n**Sharing Files with the User:**")
+        context_lines.append(
+            "If you generate files, share them using: `[description](./path/to/file.csv)`"
+        )
+
+        enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
+
+        # Post initial message
+        from asset_manager import get_asset_file_id
+
+        loading_file_id = None
+        try:
+            loading_file_id = get_asset_file_id(client, team_id, "loading")
+        except Exception as e:
+            logger.warning(f"Failed to get loading asset: {e}")
+
+        def build_initial_blocks(use_slack_file: bool):
+            if use_slack_file and loading_file_id:
+                return [
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "image",
+                                "slack_file": {"id": loading_file_id},
+                                "alt_text": "Loading",
+                            },
+                            {"type": "mrkdwn", "text": "Investigating..."},
+                        ],
+                    }
+                ]
+            else:
+                return [
+                    {
+                        "type": "context",
+                        "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+                    }
+                ]
+
+        try:
+            initial_response = client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text="Investigating...",
+                blocks=build_initial_blocks(use_slack_file=True),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
+            from asset_manager import clear_asset_cache
+            clear_asset_cache(team_id)
+            initial_response = client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=thread_ts,
+                text="Investigating...",
+                blocks=build_initial_blocks(use_slack_file=False),
+            )
+
+        response_message_ts = initial_response["ts"]
+
+        # Initialize state
+        state = MessageState(
+            channel_id=channel_id,
+            message_ts=response_message_ts,
+            thread_ts=thread_ts,
+            thread_id=thread_id,
+        )
+
+        try:
+            # Build request payload
+            request_payload = {
+                "prompt": enriched_prompt,
+                "thread_id": thread_id,
+            }
+
+            # Add images if present
+            if images:
+                request_payload["images"] = [
+                    {
+                        "type": "base64",
+                        "media_type": img["media_type"],
+                        "data": img["data"],
+                        "filename": img.get("filename", "image"),
+                    }
+                    for img in images
+                ]
+                logger.info(f"Sending {len(images)} image(s) to agent (DM)")
+
+            # Add file attachments if present
+            if file_attachments:
+                request_payload["file_attachments"] = [
+                    {
+                        "filename": att["filename"],
+                        "size": att["size"],
+                        "media_type": att["media_type"],
+                        "download_url": att["download_url"],
+                        "auth_header": att["auth_header"],
+                    }
+                    for att in file_attachments
+                ]
+                logger.info(f"Sending {len(file_attachments)} file attachment(s) to agent (DM)")
+
+            # Call sre-agent with SSE streaming
+            response = requests.post(
+                f"{SRE_AGENT_URL}/investigate",
+                json=request_payload,
+                stream=True,
+                timeout=300,  # 5 minutes
+                headers={"Accept": "text/event-stream"},
+            )
+
+            if response.status_code != 200:
+                error_detail = response.text[:200] if response.text else "Unknown error"
+                state.error = f"Server error ({response.status_code}): {error_detail}"
+                update_slack_message(client, state, team_id, final=True)
+                return
+
+            # Process SSE stream
+            event_count = 0
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    event = parse_sse_event(line)
+                    if event:
+                        event_count += 1
+                        handle_stream_event(state, event, client, team_id)
+
+            # Cache state for modal view
+            import time
+            _investigation_cache[thread_id] = state
+            _cache_timestamps[thread_id] = time.time()
+
+            logger.info(
+                f"✅ DM investigation completed (processed {event_count} events)"
+            )
+
+            # If no events received, something went wrong
+            if event_count == 0 and not state.error:
+                state.error = "No response received from agent"
+
+            # Final update with feedback buttons
+            update_slack_message(client, state, team_id, final=True)
+
+            # Save snapshot
+            save_investigation_snapshot(state)
+
+        except requests.exceptions.ConnectionError:
+            state.error = "Could not connect to investigation service. Is it running?"
+            update_slack_message(client, state, team_id, final=True)
+        except requests.exceptions.Timeout:
+            state.error = "Investigation timed out (5 min limit). Try a simpler query?"
+            update_slack_message(client, state, team_id, final=True)
+        except Exception as e:
+            logger.exception(f"Unexpected error during DM investigation: {e}")
+            state.error = f"Unexpected error: {str(e)}"
+            update_slack_message(client, state, team_id, final=True)
+
+        return  # DM handled, don't process further
 
     # ============================================================================
     # INCIDENT.IO ALERT DETECTION - Check for "New alert" messages from bots
