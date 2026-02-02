@@ -175,13 +175,25 @@ def build_home_tab_view(
                     },
                 }
             )
-    else:
+    elif available_schemas and len(configured_integrations) == len(available_schemas):
+        # Only show this if there are schemas AND all are connected
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
                     "text": "_All available integrations are connected!_",
+                },
+            }
+        )
+    else:
+        # No schemas available at all
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "_No integrations available at this time._",
                 },
             }
         )

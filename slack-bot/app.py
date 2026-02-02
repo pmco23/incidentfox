@@ -4412,6 +4412,30 @@ def handle_home_api_key_modal(ack, body, client):
         logger.error(f"Failed to open API key modal from Home Tab: {e}", exc_info=True)
 
 
+@app.action("mention_open_setup_wizard")
+def handle_mention_setup_wizard(ack, body, client):
+    """Open setup wizard when user clicks 'Configure IncidentFox' from channel mention."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in mention_open_setup_wizard")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+
+        onboarding = get_onboarding_modules()
+        wizard_view = onboarding.build_setup_wizard_page1(team_id=team_id, trial_info=trial_info)
+
+        client.views_open(trigger_id=body["trigger_id"], view=wizard_view)
+        logger.info(f"Opened setup wizard from channel mention for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open setup wizard from channel mention: {e}", exc_info=True)
+
+
 def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -> bool:
     """
     Check if workspace has access to the service.
@@ -4420,7 +4444,7 @@ def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -
     1. Active free trial (not expired), OR
     2. Active subscription (API key optional - can use shared key)
 
-    If no access, posts appropriate setup/upgrade prompt and returns False.
+    If no access, posts setup prompt with button to open wizard and returns False.
     Returns True if access is granted.
     """
     try:
@@ -4431,40 +4455,44 @@ def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -
         if status.get("can_access"):
             return True
 
-        # No access - determine why and show appropriate message
-        onboarding = get_onboarding_modules()
+        # No access - prompt user to configure
         trial_info = status.get("trial_info")
 
+        # Build message with setup button
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":wave: Welcome to IncidentFox! Let's get you set up.",
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "You can use our trial key to get started immediately, "
+                        "or bring your own API key for full control."
+                    ),
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Configure IncidentFox", "emoji": True},
+                    "action_id": "mention_open_setup_wizard",
+                    "style": "primary",
+                },
+            },
+        ]
+
         if trial_info and trial_info.get("expired"):
-            # Trial expired - need subscription + API key
-            if status.get("has_api_key"):
-                # Has API key but no subscription - need to upgrade
-                blocks = onboarding.build_upgrade_required_message(
-                    trial_info=trial_info
-                )
-                client.chat_postMessage(
-                    channel=channel_id,
-                    text="Your free trial has ended. Please upgrade to continue using IncidentFox.",
-                    blocks=blocks,
-                )
-            else:
-                # Trial expired, no API key - need both subscription and key
-                blocks = onboarding.build_setup_required_message(
-                    trial_info=trial_info, show_upgrade=True
-                )
-                client.chat_postMessage(
-                    channel=channel_id,
-                    text="Your free trial has ended. Please upgrade and set up your API key.",
-                    blocks=blocks,
-                )
-        else:
-            # No trial info or not on trial - just need setup
-            blocks = onboarding.build_setup_required_message(trial_info=trial_info)
-            client.chat_postMessage(
-                channel=channel_id,
-                text="Welcome to IncidentFox! Please set up your API key to get started.",
-                blocks=blocks,
-            )
+            blocks[0]["text"]["text"] = ":warning: Your free trial has ended. Please configure IncidentFox to continue."
+
+        client.chat_postMessage(
+            channel=channel_id,
+            text="Welcome to IncidentFox! Please configure to get started.",
+            blocks=blocks,
+        )
 
         return False
 
