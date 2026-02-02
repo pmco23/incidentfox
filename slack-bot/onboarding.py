@@ -1075,63 +1075,67 @@ def build_integrations_page(
             else:
                 status_indicator = ""
 
-            # Build section with logo image as accessory if available
-            section_block = {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*{status_indicator}{name}*\n{description}",
-                },
-            }
-
-            # Use logo image if available, otherwise use button as accessory
+            # Use context block with inline logo + name, then section with description + button
             if logo_url:
-                # Add image accessory
-                section_block["accessory"] = {
-                    "type": "image",
-                    "image_url": logo_url,
-                    "alt_text": name,
-                }
-                blocks.append(section_block)
-                # Add button in separate actions block
+                # Context block with small logo + integration name
                 blocks.append(
                     {
-                        "type": "actions",
+                        "type": "context",
                         "elements": [
                             {
-                                "type": "button",
-                                "action_id": f"configure_integration_{int_id}",
-                                "text": {
-                                    "type": "plain_text",
-                                    "text": (
-                                        "Configure" if not is_configured else "Edit"
-                                    ),
-                                    "emoji": True,
-                                },
-                                "style": "primary" if not is_configured else None,
-                            }
+                                "type": "image",
+                                "image_url": logo_url,
+                                "alt_text": name,
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*{status_indicator}{name}*",
+                            },
                         ],
                     }
                 )
-                # Remove None style from button
-                if blocks[-1]["elements"][0].get("style") is None:
-                    del blocks[-1]["elements"][0]["style"]
-            else:
-                # Fallback: use emoji icon and button accessory
-                section_block["text"][
-                    "text"
-                ] = f"{icon} *{status_indicator}{name}*\n{description}"
-                section_block["accessory"] = {
-                    "type": "button",
-                    "action_id": f"configure_integration_{int_id}",
+                # Section with description and configure button
+                button_style = "primary" if not is_configured else None
+                section_block = {
+                    "type": "section",
                     "text": {
-                        "type": "plain_text",
-                        "text": "Configure" if not is_configured else "Edit",
-                        "emoji": True,
+                        "type": "mrkdwn",
+                        "text": description,
                     },
-                    "style": "primary" if not is_configured else None,
+                    "accessory": {
+                        "type": "button",
+                        "action_id": f"configure_integration_{int_id}",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Configure" if not is_configured else "Edit",
+                            "emoji": True,
+                        },
+                    },
                 }
+                if button_style:
+                    section_block["accessory"]["style"] = button_style
                 blocks.append(section_block)
+            else:
+                # Fallback: emoji icon with button accessory
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"{icon} *{status_indicator}{name}*\n{description}",
+                        },
+                        "accessory": {
+                            "type": "button",
+                            "action_id": f"configure_integration_{int_id}",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Configure" if not is_configured else "Edit",
+                                "emoji": True,
+                            },
+                            "style": "primary" if not is_configured else None,
+                        },
+                    }
+                )
                 # Remove None style
                 if blocks[-1]["accessory"].get("style") is None:
                     del blocks[-1]["accessory"]["style"]
