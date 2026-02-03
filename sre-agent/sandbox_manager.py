@@ -637,6 +637,8 @@ static_resources:
                                     print(
                                         f"✅ Sandbox {sandbox_name} health check passed"
                                     )
+                                    # Small buffer to let server fully warm up
+                                    time.sleep(0.5)
                                     return True
                                 else:
                                     print(
