@@ -289,7 +289,18 @@ def build_home_tab_view(
 
         blocks.append({"type": "divider"})
 
-    # Advanced Settings button
+    # Advanced Settings section
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":gear: *Advanced Settings* — Configure LLM proxy or bring your own API key",
+                }
+            ],
+        }
+    )
     blocks.append(
         {
             "type": "actions",
@@ -298,7 +309,7 @@ def build_home_tab_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": ":gear: Advanced Settings",
+                        "text": "Advanced Settings",
                         "emoji": True,
                     },
                     "action_id": "open_advanced_settings",

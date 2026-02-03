@@ -1243,6 +1243,17 @@ def build_integrations_page(
     # Advanced Settings button (BYOK, HTTP proxy)
     blocks.append(
         {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":gear: *Advanced Settings* — Configure LLM proxy or bring your own API key",
+                }
+            ],
+        }
+    )
+    blocks.append(
+        {
             "type": "actions",
             "elements": [
                 {
@@ -1250,7 +1261,7 @@ def build_integrations_page(
                     "action_id": "open_advanced_settings",
                     "text": {
                         "type": "plain_text",
-                        "text": ":gear: Advanced Settings",
+                        "text": "Advanced Settings",
                         "emoji": True,
                     },
                 }
