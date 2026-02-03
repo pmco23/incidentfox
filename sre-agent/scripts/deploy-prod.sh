@@ -125,7 +125,7 @@ kubectl apply -f k8s/server-deployment.yaml -n incidentfox-prod
 echo ""
 echo "1️⃣2️⃣  Updating server to new image..."
 kubectl set image deployment/incidentfox-server \
-    incidentfox-server=103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
+    server=103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
     -n incidentfox-prod
 # Also update SANDBOX_IMAGE env var so sandboxes use the same version
 kubectl set env deployment/incidentfox-server \
