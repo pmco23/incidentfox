@@ -4292,7 +4292,7 @@ def handle_open_setup_wizard(ack, body, client):
                 client.chat_postEphemeral(
                     channel=channel_id,
                     user=user_id,
-                    text=f":warning: Failed to open setup wizard. Please try again. If the problem persists, contact support@incidentfox.ai",
+                    text=":warning: Failed to open setup wizard. Please try again. If the problem persists, contact support@incidentfox.ai",
                 )
             except Exception:
                 pass  # Best effort
@@ -4629,7 +4629,9 @@ def handle_integration_config_submission(ack, body, client, view):
                 # Special handling for Coralogix domain field
                 if integration_id == "coralogix" and field_id == "domain":
                     onboarding = get_onboarding_modules()
-                    is_valid, parsed_domain, error_msg = onboarding.extract_coralogix_domain(val)
+                    is_valid, parsed_domain, error_msg = (
+                        onboarding.extract_coralogix_domain(val)
+                    )
                     if not is_valid:
                         validation_errors.append(error_msg)
                     else:
@@ -4664,7 +4666,8 @@ def handle_integration_config_submission(ack, body, client, view):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f":warning: *Please fix the following:*\n\n" + "\n".join(f"• {err}" for err in validation_errors),
+                        "text": ":warning: *Please fix the following:*\n\n"
+                        + "\n".join(f"• {err}" for err in validation_errors),
                     },
                 },
             ],

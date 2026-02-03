@@ -512,7 +512,9 @@ def build_setup_required_message(
     if trial_info and trial_info.get("expired"):
         # Trial expired - users need to upgrade
         header_text = ":warning: *Your free trial has ended*"
-        body_text = "To continue using IncidentFox, please upgrade to a paid subscription."
+        body_text = (
+            "To continue using IncidentFox, please upgrade to a paid subscription."
+        )
     elif trial_info and trial_info.get("days_remaining", 0) <= 3:
         # Trial expiring soon - prompt to upgrade
         days = trial_info.get("days_remaining", 0)
@@ -539,7 +541,9 @@ def build_setup_required_message(
     action_elements = []
 
     # For expired/expiring trial, show upgrade button as primary action
-    if trial_info and (trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3):
+    if trial_info and (
+        trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3
+    ):
         action_elements.append(
             {
                 "type": "button",
@@ -585,7 +589,9 @@ def build_setup_required_message(
     blocks.append({"type": "actions", "elements": action_elements})
 
     # Help text based on trial status
-    if trial_info and (trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3):
+    if trial_info and (
+        trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3
+    ):
         help_text = ":bulb: Questions about pricing? Email us at support@incidentfox.ai"
     else:
         help_text = ":bulb: Need help? Visit <https://docs.incidentfox.ai|our docs> or contact support."
@@ -724,10 +730,10 @@ def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
     input_str = input_str.strip()
 
     # If it looks like a URL, parse it
-    if input_str.startswith(('http://', 'https://')):
+    if input_str.startswith(("http://", "https://")):
         try:
             parsed = urlparse(input_str)
-            hostname = parsed.hostname or parsed.netloc.split(':')[0]
+            hostname = parsed.hostname or parsed.netloc.split(":")[0]
         except Exception:
             return False, "", "Invalid URL format"
     else:
@@ -739,19 +745,23 @@ def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
     #                 *.app.coralogixsg.com, *.app.cx498.coralogix.com,
     #                 *.app.eu2.coralogix.com, *.app.ap3.coralogix.com
     valid_patterns = [
-        r'\.?coralogix\.com$',
-        r'\.?app\.coralogix\.us$',
-        r'\.?app\.coralogix\.in$',
-        r'\.?app\.coralogixsg\.com$',
-        r'\.?app\.cx498\.coralogix\.com$',
-        r'\.?app\.eu2\.coralogix\.com$',
-        r'\.?app\.ap3\.coralogix\.com$',
+        r"\.?coralogix\.com$",
+        r"\.?app\.coralogix\.us$",
+        r"\.?app\.coralogix\.in$",
+        r"\.?app\.coralogixsg\.com$",
+        r"\.?app\.cx498\.coralogix\.com$",
+        r"\.?app\.eu2\.coralogix\.com$",
+        r"\.?app\.ap3\.coralogix\.com$",
     ]
 
     is_valid = any(re.search(pattern, hostname) for pattern in valid_patterns)
 
     if not is_valid:
-        return False, "", f"Invalid Coralogix domain: {hostname}. Please use a domain like app.cx498.coralogix.com or coralogix.com"
+        return (
+            False,
+            "",
+            f"Invalid Coralogix domain: {hostname}. Please use a domain like app.cx498.coralogix.com or coralogix.com",
+        )
 
     return True, hostname, ""
 

@@ -17,10 +17,13 @@ logger = logging.getLogger(__name__)
 class ConfigServiceError(Exception):
     """Raised when config service operations fail."""
 
-    def __init__(self, message: str, status_code: int = None, response_text: str = None):
+    def __init__(
+        self, message: str, status_code: int = None, response_text: str = None
+    ):
         super().__init__(message)
         self.status_code = status_code
         self.response_text = response_text
+
 
 # Config service URL
 CONFIG_SERVICE_URL = os.environ.get(
