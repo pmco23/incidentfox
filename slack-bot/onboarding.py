@@ -128,7 +128,7 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             "*Setup Instructions:*\n"
             "1. Log into <https://id.atlassian.com/manage-profile/security/api-tokens|Atlassian API Tokens>\n"
             "2. Click *Create API token with scopes*\n"
-            "3. Enter a name (e.g., \"IncidentFox\") and set an expiration date\n"
+            '3. Enter a name (e.g., "IncidentFox") and set an expiration date\n'
             "4. Select *Confluence* as the app\n"
             "5. In the scope search box, paste: `search:confluence` and select it\n"
             "6. Repeat for these scopes: `read:content:confluence`, `read:content-details:confluence`, `read:space:confluence`, `read:attachment:confluence`\n"
