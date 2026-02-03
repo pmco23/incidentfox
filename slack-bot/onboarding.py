@@ -124,6 +124,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":confluence:",
         "icon_fallback": ":notebook:",
         "description": "Search runbooks, documentation, and knowledge base articles.",
+        "video": {
+            "title": "How to Connect Confluence to IncidentFox",
+            "title_url": "https://vimeo.com/1161614962?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161614962?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161614962.jpg",
+            "alt_text": "Confluence setup tutorial",
+            "description": "Step-by-step guide to connecting your Confluence account",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into <https://id.atlassian.com/manage-profile/security/api-tokens|Atlassian API Tokens>\n"
