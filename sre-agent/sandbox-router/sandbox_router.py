@@ -23,10 +23,14 @@ app = FastAPI()
 # Configuration
 DEFAULT_SANDBOX_PORT = 8888
 DEFAULT_NAMESPACE = "default"
-# For streaming SSE, use separate connect/read timeouts
-# connect_timeout: 30s to establish connection
-# read_timeout: None - no timeout between SSE events (agent may think for minutes)
-client = httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=None))
+# For streaming SSE, use separate connect/read/write/pool timeouts
+# connect: 30s to establish connection
+# read: None - no timeout between SSE events (agent may think for minutes)
+# write: None - no timeout for writing requests
+# pool: None - no timeout for acquiring connection from pool
+client = httpx.AsyncClient(
+    timeout=httpx.Timeout(connect=30.0, read=None, write=None, pool=None)
+)
 
 
 @app.get("/healthz")
