@@ -40,12 +40,12 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":coralogix:",  # Custom emoji or fallback
         "icon_fallback": ":chart_with_upwards_trend:",
         "description": "Query logs, metrics, and traces from Coralogix.",
-        # Video block metadata (Rick Roll placeholder - replace with real tutorial)
+        # Video block metadata
         "video": {
             "title": "How to Connect Coralogix to IncidentFox",
-            "title_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "video_url": "https://www.youtube.com/embed/dQw4w9WgXcQ?feature=oembed&autoplay=1",
-            "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+            "title_url": "https://youtu.be/he5QrFKymAg",
+            "video_url": "https://www.youtube.com/embed/he5QrFKymAg?feature=oembed&autoplay=1",
+            "thumbnail_url": "https://i.ytimg.com/vi/he5QrFKymAg/hqdefault.jpg",
             "alt_text": "Coralogix setup tutorial",
             "description": "Step-by-step guide to connecting your Coralogix account",
         },
