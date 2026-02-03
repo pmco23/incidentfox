@@ -43,9 +43,9 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         # Video block metadata
         "video": {
             "title": "How to Connect Coralogix to IncidentFox",
-            "title_url": "https://youtu.be/he5QrFKymAg",
-            "video_url": "https://www.youtube.com/embed/he5QrFKymAg?feature=oembed&autoplay=1",
-            "thumbnail_url": "https://i.ytimg.com/vi/he5QrFKymAg/hqdefault.jpg",
+            "title_url": "https://vimeo.com/1161578699?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161578699?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161578699.jpg",
             "alt_text": "Coralogix setup tutorial",
             "description": "Step-by-step guide to connecting your Coralogix account",
         },
