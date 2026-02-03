@@ -510,20 +510,14 @@ def build_setup_required_message(
 
     # Determine message based on trial status
     if trial_info and trial_info.get("expired"):
-        # Trial expired - users need to upgrade, not just add API key
+        # Trial expired - users need to upgrade
         header_text = ":warning: *Your free trial has ended*"
-        body_text = (
-            "To continue using IncidentFox, please upgrade to a paid subscription.\n\n"
-            "After upgrading, you can optionally bring your own Anthropic API key."
-        )
+        body_text = "To continue using IncidentFox, please upgrade to a paid subscription."
     elif trial_info and trial_info.get("days_remaining", 0) <= 3:
         # Trial expiring soon - prompt to upgrade
         days = trial_info.get("days_remaining", 0)
         header_text = f":hourglass: *Your free trial expires in {days} days*"
-        body_text = (
-            "To continue using IncidentFox after the trial, you'll need to upgrade to a paid subscription.\n\n"
-            "You can optionally bring your own Anthropic API key for privacy or compliance reasons."
-        )
+        body_text = "To continue using IncidentFox after the trial, you'll need to upgrade to a paid subscription."
     elif not trial_info:
         # No trial, needs setup
         header_text = ":wave: *Welcome to IncidentFox!*"
