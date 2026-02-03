@@ -730,12 +730,15 @@ static_resources:
             payload["file_downloads"] = file_downloads
 
         try:
+            # For streaming SSE, use tuple timeout: (connect_timeout, read_timeout)
+            # connect_timeout: 30s to establish connection
+            # read_timeout: None - no timeout between SSE events (agent may think for minutes)
             response = requests.post(
                 f"{router_url}/execute",
                 headers=headers,
                 json=payload,
                 stream=True,
-                timeout=300,  # 5 minute timeout
+                timeout=(30, None),  # (connect, read) - no read timeout for streaming
             )
             response.raise_for_status()
             return response
@@ -777,12 +780,13 @@ static_resources:
         payload = {"thread_id": sandbox_info.thread_id}
 
         try:
+            # Same streaming timeout pattern as execute_in_sandbox
             response = requests.post(
                 f"{router_url}/interrupt",
                 headers=headers,
                 json=payload,
                 stream=True,
-                timeout=300,  # 5 minute timeout
+                timeout=(30, None),  # (connect, read) - no read timeout for streaming
             )
             response.raise_for_status()
             return response
