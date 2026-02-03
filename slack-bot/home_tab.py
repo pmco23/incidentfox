@@ -176,7 +176,8 @@ def build_home_tab_view(
 
     # Get active integrations not yet configured
     active_integrations = [
-        i for i in INTEGRATIONS
+        i
+        for i in INTEGRATIONS
         if i.get("status") == "active" and i.get("id") not in configured_integrations
     ]
 
