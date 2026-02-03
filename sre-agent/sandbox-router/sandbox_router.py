@@ -14,7 +14,7 @@
 
 
 import httpx
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 # Initialize the FastAPI application
@@ -35,7 +35,7 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.api_route("/{full_path:path}", methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_request(request: Request, full_path: str):
     """
     Receives all incoming requests, determines the target sandbox from headers,
@@ -43,12 +43,11 @@ async def proxy_request(request: Request, full_path: str):
     """
     sandbox_id = request.headers.get("X-Sandbox-ID")
     if not sandbox_id:
-        raise HTTPException(
-            status_code=400, detail="X-Sandbox-ID header is required.")
+        raise HTTPException(status_code=400, detail="X-Sandbox-ID header is required.")
 
     # Dynamic discovery via headers
     namespace = request.headers.get("X-Sandbox-Namespace", DEFAULT_NAMESPACE)
-    
+
     # Sanitize namespace to prevent DNS injection
     if not namespace.replace("-", "").isalnum():
         raise HTTPException(status_code=400, detail="Invalid namespace format.")
@@ -65,14 +64,17 @@ async def proxy_request(request: Request, full_path: str):
     print(f"Proxying request for sandbox '{sandbox_id}' to URL: {target_url}")
 
     try:
-        headers = {key: value for (
-            key, value) in request.headers.items() if key.lower() != 'host'}
+        headers = {
+            key: value
+            for (key, value) in request.headers.items()
+            if key.lower() != "host"
+        }
 
         req = client.build_request(
             method=request.method,
             url=target_url,
             headers=headers,
-            content=await request.body()
+            content=await request.body(),
         )
 
         resp = await client.send(req, stream=True)
@@ -80,14 +82,16 @@ async def proxy_request(request: Request, full_path: str):
         return StreamingResponse(
             content=resp.aiter_bytes(),
             status_code=resp.status_code,
-            headers=resp.headers
+            headers=resp.headers,
         )
     except httpx.ConnectError as e:
-        print(
-            f"ERROR: Connection to sandbox at {target_url} failed. Error: {e}")
+        print(f"ERROR: Connection to sandbox at {target_url} failed. Error: {e}")
         raise HTTPException(
-            status_code=502, detail=f"Could not connect to the backend sandbox: {sandbox_id}")
+            status_code=502,
+            detail=f"Could not connect to the backend sandbox: {sandbox_id}",
+        )
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         raise HTTPException(
-            status_code=500, detail="An internal error occurred in the proxy.")
+            status_code=500, detail="An internal error occurred in the proxy."
+        )
