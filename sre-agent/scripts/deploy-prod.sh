@@ -90,6 +90,8 @@ echo "7️⃣  Deploying credential-resolver..."
 kubectl apply -f credential-proxy/k8s/serviceaccount.yaml
 kubectl apply -f credential-proxy/k8s/deployment.yaml
 kubectl apply -f credential-proxy/k8s/service.yaml
+# Force restart to pick up new :latest image (like we do for incidentfox-server)
+kubectl rollout restart deployment/credential-resolver -n incidentfox-prod
 kubectl rollout status deployment/credential-resolver -n incidentfox-prod --timeout=2m
 
 # Deploy envoy proxy config (in incidentfox-prod namespace for sandbox pods)
