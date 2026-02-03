@@ -2288,7 +2288,9 @@ def handle_message(event, client, context):
                         "Click on my avatar and select *Open App* to configure."
                     ),
                 )
-                logger.info(f"Trial expired for team {team_id}, skipping DM investigation")
+                logger.info(
+                    f"Trial expired for team {team_id}, skipping DM investigation"
+                )
                 return
         except Exception as e:
             logger.warning(f"Failed to check trial status for DM: {e}")
@@ -2561,7 +2563,9 @@ def handle_message(event, client, context):
                 config_client = get_config_client()
                 trial_info = config_client.get_trial_status(team_id)
                 if trial_info and trial_info.get("expired"):
-                    logger.info(f"Trial expired for team {team_id}, skipping auto-investigation")
+                    logger.info(
+                        f"Trial expired for team {team_id}, skipping auto-investigation"
+                    )
                     return
             except Exception as e:
                 logger.warning(f"Failed to check trial status for alert: {e}")
