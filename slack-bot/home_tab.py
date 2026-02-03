@@ -110,6 +110,10 @@ def build_home_tab_view(
     )
 
     if configured_integrations:
+        from assets_config import get_asset_url
+
+        done_url = get_asset_url("done")
+
         for int_id, config in configured_integrations.items():
             # Get integration info from INTEGRATIONS
             integration = get_integration_by_id(int_id)
@@ -117,45 +121,54 @@ def build_home_tab_view(
             logo_url = get_integration_logo_url(int_id)
             is_enabled = config.get("enabled", True)
 
-            # Status indicator
-            if is_enabled:
-                status_text = f":white_check_mark: *{name}*"
-            else:
-                status_text = f":white_circle: *{name}* (disabled)"
-
-            section_block = {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": status_text},
-            }
-
-            # Add logo if available
-            if logo_url:
-                section_block["accessory"] = {
-                    "type": "image",
-                    "image_url": logo_url,
-                    "alt_text": name,
-                }
-                blocks.append(section_block)
-                # Add Edit button in separate actions block
+            # Status indicator with done.png image for enabled, emoji for disabled
+            if is_enabled and done_url:
+                # Use context block with done.png image + name
                 blocks.append(
                     {
-                        "type": "actions",
+                        "type": "context",
                         "elements": [
                             {
-                                "type": "button",
-                                "text": {"type": "plain_text", "text": "Edit"},
-                                "action_id": f"home_edit_integration_{int_id}",
-                            }
+                                "type": "image",
+                                "image_url": done_url,
+                                "alt_text": "configured",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": f"*{name}*",
+                            },
                         ],
                     }
                 )
             else:
-                section_block["accessory"] = {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": "Edit"},
-                    "action_id": f"home_edit_integration_{int_id}",
+                # Disabled or no done.png - use emoji fallback
+                status_emoji = ":white_circle:" if is_enabled else ":white_circle:"
+                suffix = "" if is_enabled else " (disabled)"
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"{status_emoji} *{name}*{suffix}",
+                            },
+                        ],
+                    }
+                )
+
+            # Add Edit button
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Edit"},
+                            "action_id": f"home_edit_integration_{int_id}",
+                        }
+                    ],
                 }
-                blocks.append(section_block)
+            )
     else:
         blocks.append(
             {

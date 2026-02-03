@@ -1069,6 +1069,11 @@ def build_integrations_page(
             }
         )
 
+        # Get done.png URL for status indicator
+        from assets_config import get_asset_url
+
+        done_url = get_asset_url("done")
+
         # Create integration cards with logos
         for idx, integration in enumerate(active_integrations):
             int_id = integration["id"]
@@ -1080,20 +1085,43 @@ def build_integrations_page(
             is_enabled = int_config.get("enabled", True) if is_configured else False
             logo_url = get_integration_logo_url(int_id)
 
-            # Status indicator: configured + enabled, configured but disabled, or not configured
-            if is_configured and is_enabled:
-                status_indicator = ":white_check_mark: "
+            # For configured integrations, show status with done.png image in context block
+            if is_configured and is_enabled and done_url:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "image",
+                                "image_url": done_url,
+                                "alt_text": "connected",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": "*Connected*",
+                            },
+                        ],
+                    }
+                )
             elif is_configured and not is_enabled:
-                status_indicator = ":white_circle: "  # Disabled but configured
-            else:
-                status_indicator = ""
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":white_circle: *Disabled*",
+                            },
+                        ],
+                    }
+                )
 
             # Build section with logo image as accessory if available
             section_block = {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{status_indicator}{name}*\n{description}",
+                    "text": f"*{name}*\n{description}",
                 },
             }
 
@@ -1131,9 +1159,7 @@ def build_integrations_page(
                     del blocks[-1]["elements"][0]["style"]
             else:
                 # Fallback: use emoji icon and button accessory
-                section_block["text"][
-                    "text"
-                ] = f"{icon} *{status_indicator}{name}*\n{description}"
+                section_block["text"]["text"] = f"{icon} *{name}*\n{description}"
                 section_block["accessory"] = {
                     "type": "button",
                     "action_id": f"configure_integration_{int_id}",
