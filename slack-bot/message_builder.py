@@ -179,6 +179,7 @@ def build_progress_message(
     loading_url: Optional[str] = None,
     done_url: Optional[str] = None,
     thread_id: Optional[str] = None,
+    message_ts: Optional[str] = None,
     trigger_user_id: Optional[str] = None,
     trigger_text: Optional[str] = None,
 ) -> list:
@@ -432,7 +433,7 @@ def build_progress_message(
         )
         logger.warning(f"Progress message truncated. Had {len(blocks)} blocks.")
 
-    # View Session button
+    # View Session button - use message_ts as unique key for each message
     blocks.append(
         {
             "type": "actions",
@@ -441,7 +442,7 @@ def build_progress_message(
                     "type": "button",
                     "text": {"type": "plain_text", "text": "View Session"},
                     "action_id": "view_investigation_session",
-                    "value": thread_id or "unknown",
+                    "value": message_ts or thread_id or "unknown",
                 }
             ],
         }
@@ -457,6 +458,7 @@ def build_final_message(
     error: Optional[str] = None,
     done_url: Optional[str] = None,
     thread_id: Optional[str] = None,
+    message_ts: Optional[str] = None,
     result_images: Optional[List[dict]] = None,
     result_files: Optional[List[dict]] = None,
     trigger_user_id: Optional[str] = None,
@@ -688,7 +690,7 @@ def build_final_message(
             }
         )
 
-    # View Session button
+    # View Session button - use message_ts as unique key for each message
     blocks.append(
         {
             "type": "actions",
@@ -697,7 +699,7 @@ def build_final_message(
                     "type": "button",
                     "text": {"type": "plain_text", "text": "View Session"},
                     "action_id": "view_investigation_session",
-                    "value": thread_id or "unknown",
+                    "value": message_ts or thread_id or "unknown",
                 }
             ],
         }

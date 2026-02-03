@@ -200,7 +200,8 @@ class MessageState:
 
 
 # In-memory cache for investigation state (for modal views)
-# In production: use Redis keyed by thread_id
+# Keyed by message_ts (unique per message, unlike thread_id which is shared)
+# In production: use Redis keyed by message_ts
 _investigation_cache: Dict[str, MessageState] = {}
 _cache_timestamps: Dict[str, float] = {}  # Track when entries were added
 CACHE_TTL_HOURS = 24  # Keep cache entries for 24 hours
@@ -304,6 +305,7 @@ def build_progress_blocks(state: MessageState, client, team_id: str) -> list:
         loading_url=loading_url,
         done_url=done_url,
         thread_id=state.thread_id,
+        message_ts=state.message_ts,
         trigger_user_id=state.trigger_user_id,
         trigger_text=state.trigger_text,
     )
@@ -324,6 +326,7 @@ def build_final_blocks(state: MessageState, client, team_id: str) -> list:
         error=state.error,
         done_url=done_url,
         thread_id=state.thread_id,
+        message_ts=state.message_ts,
         result_images=state.result_images,
         result_files=state.result_files,
         trigger_user_id=state.trigger_user_id,
@@ -338,10 +341,11 @@ def update_slack_message(
     import time
 
     # ALWAYS cache state for modal access (even if we skip the message update)
-    _investigation_cache[state.thread_id] = state
-    _cache_timestamps[state.thread_id] = time.time()
+    # Use message_ts as key (unique per message, unlike thread_id which is shared in threads)
+    _investigation_cache[state.message_ts] = state
+    _cache_timestamps[state.message_ts] = time.time()
     logger.info(
-        f"Cached investigation state for thread_id: {state.thread_id} (final={final}, thoughts={len(state.thoughts)})"
+        f"Cached investigation state for message_ts: {state.message_ts} (final={final}, thoughts={len(state.thoughts)})"
     )
 
     # Rate limit message updates (except for final)
@@ -1816,11 +1820,11 @@ def handle_mention(event, say, client, context):
                     event_count += 1
                     handle_stream_event(state, event, client, team_id)
 
-        # Cache state for modal view
+        # Cache state for modal view (keyed by message_ts for per-message uniqueness)
         import time
 
-        _investigation_cache[thread_id] = state
-        _cache_timestamps[thread_id] = time.time()
+        _investigation_cache[state.message_ts] = state
+        _cache_timestamps[state.message_ts] = time.time()
 
         logger.info(
             f"✅ Investigation stream completed (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -2162,11 +2166,11 @@ Use all available tools to gather context about this issue."""
                     event_count += 1
                     handle_stream_event(state, sse_event, client, team_id)
 
-        # Cache state for modal view
+        # Cache state for modal view (keyed by message_ts for per-message uniqueness)
         import time
 
-        _investigation_cache[thread_id] = state
-        _cache_timestamps[thread_id] = time.time()
+        _investigation_cache[state.message_ts] = state
+        _cache_timestamps[state.message_ts] = time.time()
 
         logger.info(
             f"✅ Auto-investigation completed for Incident.io alert (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -2513,11 +2517,11 @@ def handle_message(event, client, context):
                         event_count += 1
                         handle_stream_event(state, event, client, team_id)
 
-            # Cache state for modal view
+            # Cache state for modal view (keyed by message_ts for per-message uniqueness)
             import time
 
-            _investigation_cache[thread_id] = state
-            _cache_timestamps[thread_id] = time.time()
+            _investigation_cache[state.message_ts] = state
+            _cache_timestamps[state.message_ts] = time.time()
 
             logger.info(
                 f"✅ DM investigation completed (processed {event_count} events)"
@@ -2980,11 +2984,11 @@ def handle_nudge_invoke(ack, body, client, context, respond):
                 if event:
                     handle_stream_event(state, event, client, team_id)
 
-        # Cache state for modal
+        # Cache state for modal (keyed by message_ts for per-message uniqueness)
         import time
 
-        _investigation_cache[thread_id] = state
-        _cache_timestamps[thread_id] = time.time()
+        _investigation_cache[state.message_ts] = state
+        _cache_timestamps[state.message_ts] = time.time()
 
         # Final update
         update_slack_message(client, state, team_id, final=True)
@@ -3165,11 +3169,11 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
                     event_count += 1
                     handle_stream_event(state, sse_event, client, team_id)
 
-        # Cache state for modal view
+        # Cache state for modal view (keyed by message_ts for per-message uniqueness)
         import time
 
-        _investigation_cache[thread_id] = state
-        _cache_timestamps[thread_id] = time.time()
+        _investigation_cache[state.message_ts] = state
+        _cache_timestamps[state.message_ts] = time.time()
 
         logger.info(
             f"✅ Coralogix investigation completed (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -3238,15 +3242,15 @@ def handle_view_session(ack, body, client):
     """Handle "View Session" button - open modal with chronological timeline."""
     ack()
 
-    # Get thread_id from button value
-    thread_id = body["actions"][0].get("value", "unknown")
+    # Get message_ts from button value (unique per message, unlike thread_id)
+    message_ts = body["actions"][0].get("value", "unknown")
 
     # Lookup investigation state
-    logger.info(f"View Session clicked: thread_id={thread_id}")
+    logger.info(f"View Session clicked: message_ts={message_ts}")
     logger.info(f"Cache keys: {list(_investigation_cache.keys())}")
-    state = _investigation_cache.get(thread_id)
+    state = _investigation_cache.get(message_ts)
     if not state:
-        logger.warning(f"No cached state for thread_id: {thread_id}")
+        logger.warning(f"No cached state for message_ts: {message_ts}")
         # Show error modal
         client.views_open(
             trigger_id=body["trigger_id"],
@@ -3277,7 +3281,7 @@ def handle_view_session(ack, body, client):
     from modal_builder import build_session_modal
 
     modal = build_session_modal(
-        thread_id=thread_id,
+        thread_id=message_ts,  # Pass message_ts as cache key (named thread_id for modal builder compat)
         thoughts=state.thoughts,
         result=state.final_result,
         loading_url=loading_url,
