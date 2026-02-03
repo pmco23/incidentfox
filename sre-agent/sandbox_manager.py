@@ -601,6 +601,7 @@ static_resources:
             True if ready, False if timeout
         """
         start_time = time.time()
+        sandbox_name = f"investigation-{thread_id}"
 
         while time.time() - start_time < timeout:
             try:
@@ -619,12 +620,26 @@ static_resources:
                 if pod.status.phase == "Running":
                     for condition in pod.status.conditions or []:
                         if condition.type == "Ready" and condition.status == "True":
-                            # In local Kind clusters, give network routing a moment to settle
-                            # This prevents 502 errors when router tries to connect immediately
-                            # Production clusters don't need this delay
-                            if os.getenv("ROUTER_LOCAL_PORT"):
-                                time.sleep(3)
-                            return True
+                            # Pod is K8s Ready, now verify FastAPI server is responding
+                            # via the sandbox-router (same path as execute_in_sandbox)
+                            try:
+                                router_url = self.get_router_url()
+                                health_response = requests.get(
+                                    f"{router_url}/health",
+                                    headers={
+                                        "X-Sandbox-ID": sandbox_name,
+                                        "X-Sandbox-Port": "8888",
+                                        "X-Sandbox-Namespace": self.namespace,
+                                    },
+                                    timeout=5,
+                                )
+                                if health_response.status_code == 200:
+                                    print(f"✅ Sandbox {sandbox_name} health check passed")
+                                    return True
+                                else:
+                                    print(f"⏳ Sandbox health check returned {health_response.status_code}, retrying...")
+                            except requests.RequestException as e:
+                                print(f"⏳ Sandbox health check failed ({e}), retrying...")
 
             except ApiException:
                 pass
