@@ -61,6 +61,17 @@ docker buildx build \
     credential-proxy \
     --push
 
+# Build and push sandbox-router image
+echo ""
+echo "4️⃣a  Building sandbox-router image..."
+docker buildx build \
+    --platform linux/amd64 \
+    -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/sandbox-router:${IMAGE_TAG} \
+    -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/sandbox-router:latest \
+    -f sandbox-router/Dockerfile \
+    sandbox-router \
+    --push
+
 # Update secrets (platform secrets only - customer keys are in config-service)
 echo ""
 echo "5️⃣  Updating production secrets..."
@@ -110,6 +121,15 @@ kubectl apply -f credential-proxy/k8s/configmap-envoy.yaml
 echo ""
 echo "9️⃣  Deploying service patcher..."
 kubectl apply -f k8s/service-patcher.yaml
+
+# Deploy sandbox-router
+echo ""
+echo "9️⃣a  Deploying sandbox-router..."
+kubectl apply -f k8s/sandbox_router.yaml -n incidentfox-prod
+kubectl set image deployment/sandbox-router-deployment \
+    router=103002841599.dkr.ecr.us-west-2.amazonaws.com/sandbox-router:${IMAGE_TAG} \
+    -n incidentfox-prod
+kubectl rollout status deployment/sandbox-router-deployment -n incidentfox-prod --timeout=2m
 
 # Deploy sandbox template
 echo ""
