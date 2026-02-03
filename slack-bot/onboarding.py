@@ -1486,6 +1486,7 @@ def build_integration_config_modal(
     existing_config: Optional[Dict] = None,
     integration_id: str = None,
     category_filter: str = "all",
+    entry_point: str = "integrations",
 ) -> Dict[str, Any]:
     """
     Build integration configuration modal with video tutorial, instructions, and form fields.
@@ -1910,6 +1911,7 @@ def build_integration_config_modal(
             "integration_id": int_id,
             "field_names": all_field_names,
             "category_filter": category_filter,
+            "entry_point": entry_point,
         }
     )
 

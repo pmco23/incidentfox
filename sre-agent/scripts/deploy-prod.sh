@@ -39,9 +39,13 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 # Build and push multi-platform sre-agent image
 echo ""
 echo "3️⃣  Building multi-platform sre-agent image..."
+# Generate immutable tag from git SHA
+IMAGE_TAG=$(git rev-parse --short HEAD)
+echo "   Image tag: $IMAGE_TAG"
 docker buildx create --use --name multiplatform 2>/dev/null || docker buildx use multiplatform
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest \
     --push \
     .
@@ -51,6 +55,7 @@ echo ""
 echo "4️⃣  Building credential-resolver image..."
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:${IMAGE_TAG} \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest \
     -f credential-proxy/Dockerfile \
     credential-proxy \
@@ -90,8 +95,10 @@ echo "7️⃣  Deploying credential-resolver..."
 kubectl apply -f credential-proxy/k8s/serviceaccount.yaml
 kubectl apply -f credential-proxy/k8s/deployment.yaml
 kubectl apply -f credential-proxy/k8s/service.yaml
-# Force restart to pick up new :latest image (like we do for incidentfox-server)
-kubectl rollout restart deployment/credential-resolver -n incidentfox-prod
+# Update to new image tag (Kubernetes will automatically detect and pull)
+kubectl set image deployment/credential-resolver \
+    credential-resolver=103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:${IMAGE_TAG} \
+    -n incidentfox-prod
 kubectl rollout status deployment/credential-resolver -n incidentfox-prod --timeout=2m
 
 # Deploy envoy proxy config (in incidentfox-prod namespace for sandbox pods)
@@ -109,15 +116,21 @@ echo ""
 echo "🔟  Deploying sandbox template..."
 kubectl apply -f k8s/sandbox-template.yaml -n incidentfox-prod
 
-# Deploy updated YAML (picks up new image + config changes like USE_GVISOR)
+# Deploy updated YAML (picks up config changes like USE_GVISOR)
 echo ""
 echo "1️⃣1️⃣  Deploying updated server configuration..."
 kubectl apply -f k8s/server-deployment.yaml -n incidentfox-prod
 
-# Force restart to pick up new :latest image (Kubernetes doesn't auto-restart when tag unchanged)
+# Update to new image tag (Kubernetes automatically detects changes and rolls out)
 echo ""
-echo "1️⃣2️⃣  Restarting server to pull new image..."
-kubectl rollout restart deployment/incidentfox-server -n incidentfox-prod
+echo "1️⃣2️⃣  Updating server to new image..."
+kubectl set image deployment/incidentfox-server \
+    incidentfox-server=103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
+    -n incidentfox-prod
+# Also update SANDBOX_IMAGE env var so sandboxes use the same version
+kubectl set env deployment/incidentfox-server \
+    SANDBOX_IMAGE=103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
+    -n incidentfox-prod
 kubectl rollout status deployment/incidentfox-server -n incidentfox-prod --timeout=3m
 
 # Get production URL

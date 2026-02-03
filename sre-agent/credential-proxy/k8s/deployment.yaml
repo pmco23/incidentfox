@@ -27,6 +27,8 @@ spec:
         fsGroup: 1000
       containers:
       - name: credential-resolver
+        # Image tag is updated by deploy script using kubectl set image
+        # Default :latest is only used if deployment is applied manually
         image: 103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest
         imagePullPolicy: Always
         ports:

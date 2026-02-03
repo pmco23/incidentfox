@@ -18,6 +18,8 @@ spec:
       serviceAccountName: slack-bot
       containers:
         - name: slack-bot
+          # Image tag is updated by deploy script using kubectl set image
+          # Default :latest is only used if deployment is applied manually
           image: 103002841599.dkr.ecr.us-west-2.amazonaws.com/slack-bot:latest
           imagePullPolicy: Always
           ports:

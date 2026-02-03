@@ -8,11 +8,13 @@ TERRAFORM_DIR="$KB_DIR/infra/terraform"
 
 AWS_REGION="${AWS_REGION:-us-west-2}"
 AWS_PROFILE="${AWS_PROFILE:-playground}"
-IMAGE_TAG="${IMAGE_TAG:-latest}"
+# Generate immutable tag from git SHA (can be overridden with IMAGE_TAG env var)
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD)}"
 
 echo "=== RAPTOR Knowledge Base Deployment ==="
 echo "Region: $AWS_REGION"
 echo "Profile: $AWS_PROFILE"
+echo "Image Tag: $IMAGE_TAG"
 echo ""
 
 # Step 1: Get ECR repository URL and S3 bucket from Terraform outputs
@@ -56,10 +58,11 @@ cd "$KB_DIR"
 aws ecr get-login-password --region "$AWS_REGION" --profile "$AWS_PROFILE" | \
     docker login --username AWS --password-stdin "$ECR_URL"
 
-# Build for ARM64 (Graviton)
+# Build for ARM64 (Graviton) with both SHA tag and :latest for compatibility
 docker buildx build \
     --platform linux/arm64 \
     -t "$ECR_URL:$IMAGE_TAG" \
+    -t "$ECR_URL:latest" \
     --push \
     .
 

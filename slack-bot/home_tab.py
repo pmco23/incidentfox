@@ -126,7 +126,7 @@ def build_home_tab_view(
             if len(description) > 60:
                 description = description[:57] + "..."
 
-            # Add status indicator with done.png for enabled integrations
+            # Add status indicator for both enabled and disabled integrations
             if is_enabled and done_url:
                 blocks.append(
                     {
@@ -144,14 +144,25 @@ def build_home_tab_view(
                         ],
                     }
                 )
+            elif not is_enabled:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":white_circle: Disabled",
+                            },
+                        ],
+                    }
+                )
 
-            # Build section block with name + description
-            status_suffix = " (disabled)" if not is_enabled else ""
+            # Build section block with name + description (no status suffix)
             section_block = {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{name}*{status_suffix}\n{description}",
+                    "text": f"*{name}*\n{description}",
                 },
             }
 
