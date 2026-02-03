@@ -4167,7 +4167,7 @@ def handle_api_key_submission(ack, body, client, view):
 
 @app.action("open_setup_wizard")
 def handle_open_setup_wizard(ack, body, client):
-    """Open the setup wizard modal (now goes directly to integrations page)."""
+    """Open the setup wizard modal (goes directly to integrations page)."""
     ack()
 
     team_id = body.get("team", {}).get("id")
@@ -4181,17 +4181,11 @@ def handle_open_setup_wizard(ack, body, client):
         configured = config_client.get_configured_integrations(team_id)
 
         onboarding = get_onboarding_modules()
-        # Go directly to integrations page (skip API key page - users get shared key)
-        if hasattr(onboarding, "build_integrations_page"):
-            modal = onboarding.build_integrations_page(
-                team_id=team_id,
-                configured=configured,
-                trial_info=trial_info,
-            )
-        elif hasattr(onboarding, "build_setup_wizard_page1"):
-            modal = onboarding.build_setup_wizard_page1(team_id, trial_info)
-        else:
-            modal = onboarding.build_api_key_modal(team_id, trial_info=trial_info)
+        modal = onboarding.build_integrations_page(
+            team_id=team_id,
+            configured=configured,
+            trial_info=trial_info,
+        )
 
         client.views_open(trigger_id=body["trigger_id"], view=modal)
         logger.info(f"Opened setup wizard (integrations page) for team {team_id}")
@@ -4237,64 +4231,6 @@ def handle_dismiss_welcome(ack, body, client):
             )
     except Exception as e:
         logger.warning(f"Failed to update dismissed welcome message: {e}")
-
-
-@app.view("setup_wizard_page1")
-def handle_setup_wizard_page1(ack, body, client, view):
-    """
-    Handle page 1 of setup wizard submission.
-
-    NOTE: This is now a legacy handler. The new flow goes directly to integrations.
-    This handler exists for backward compatibility with any stale modals.
-    """
-    import json
-
-    private_metadata = json.loads(view.get("private_metadata", "{}"))
-    team_id = private_metadata.get("team_id")
-    values = view.get("state", {}).get("values", {})
-
-    # Get API key value if provided (now optional)
-    api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
-    if api_key:
-        api_key = api_key.strip()
-
-    # Get optional endpoint
-    api_endpoint = (
-        values.get("api_endpoint_block", {})
-        .get("api_endpoint_input", {})
-        .get("value", "")
-    )
-    if api_endpoint:
-        api_endpoint = api_endpoint.strip()
-
-    # Save API key if provided (BYOK is optional)
-    if api_key:
-        config_client = get_config_client()
-        config_client.save_api_key(
-            slack_team_id=team_id,
-            api_key=api_key,
-            api_endpoint=api_endpoint if api_endpoint else None,
-        )
-        logger.info(f"Saved API key from wizard for team {team_id}")
-
-    # Fetch configured integrations for integrations page
-    config_client = get_config_client()
-    configured = config_client.get_configured_integrations(team_id)
-    trial_info = config_client.get_trial_status(team_id)
-
-    # Build integrations page
-    onboarding = get_onboarding_modules()
-    if hasattr(onboarding, "build_integrations_page"):
-        page2 = onboarding.build_integrations_page(
-            team_id=team_id,
-            configured=configured,
-            trial_info=trial_info,
-        )
-    else:
-        page2 = onboarding.build_integrations_page(team_id, configured=configured)
-
-    ack(response_action="update", view=page2)
-    logger.info(f"Advanced to integrations page for team {team_id}")
 
 
 @app.view("setup_wizard_page2")
@@ -4748,17 +4684,11 @@ def handle_mention_setup_wizard(ack, body, client):
         configured = config_client.get_configured_integrations(team_id)
 
         onboarding = get_onboarding_modules()
-        # Go directly to integrations page
-        if hasattr(onboarding, "build_integrations_page"):
-            wizard_view = onboarding.build_integrations_page(
-                team_id=team_id,
-                configured=configured,
-                trial_info=trial_info,
-            )
-        else:
-            wizard_view = onboarding.build_setup_wizard_page1(
-                team_id=team_id, trial_info=trial_info
-            )
+        wizard_view = onboarding.build_integrations_page(
+            team_id=team_id,
+            configured=configured,
+            trial_info=trial_info,
+        )
 
         client.views_open(trigger_id=body["trigger_id"], view=wizard_view)
         logger.info(f"Opened setup wizard from channel mention for team {team_id}")

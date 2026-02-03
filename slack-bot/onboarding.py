@@ -962,30 +962,8 @@ def build_help_message() -> list:
 
 
 # =============================================================================
-# SETUP WIZARD
+# INTEGRATIONS PAGE
 # =============================================================================
-
-
-def build_setup_wizard_page1(
-    team_id: str, trial_info: Optional[Dict] = None
-) -> Dict[str, Any]:
-    """
-    Build the setup wizard - now goes directly to integrations page.
-
-    This is the main entry point for the setup wizard. We skip the API key
-    page since:
-    1. Trial users get our shared key automatically
-    2. BYOK is niche and can be done later in settings
-
-    Args:
-        team_id: Slack team ID
-        trial_info: Trial status info (used for welcome message)
-
-    Returns:
-        Slack modal view object
-    """
-    # Go directly to integrations page
-    return build_integrations_page(team_id, trial_info=trial_info)
 
 
 def build_integrations_page(
