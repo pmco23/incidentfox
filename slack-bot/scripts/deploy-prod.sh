@@ -47,9 +47,13 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 # Build and push multi-platform image
 echo ""
 echo "3️⃣  Building multi-platform slack-bot image..."
+# Generate immutable tag from git SHA
+IMAGE_TAG=$(git rev-parse --short HEAD)
+echo "   Image tag: $IMAGE_TAG"
 docker buildx create --use --name multiplatform 2>/dev/null || docker buildx use multiplatform
 docker buildx build \
     --platform linux/amd64,linux/arm64 \
+    -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/slack-bot:${IMAGE_TAG} \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/slack-bot:latest \
     --push \
     .
@@ -71,6 +75,10 @@ kubectl apply -f k8s/serviceaccount.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service-https.yaml
 kubectl apply -f k8s/hpa.yaml
+# Update to new image tag (Kubernetes automatically detects and pulls)
+kubectl set image deployment/slack-bot \
+    slack-bot=103002841599.dkr.ecr.us-west-2.amazonaws.com/slack-bot:${IMAGE_TAG} \
+    -n incidentfox-prod
 kubectl rollout status deployment/slack-bot -n incidentfox-prod --timeout=3m
 
 # Get public URL

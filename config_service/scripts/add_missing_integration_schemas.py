@@ -115,8 +115,8 @@ INTEGRATION_SCHEMAS = [
                 "type": "string",
                 "required": True,
                 "level": "org",
-                "description": "Coralogix region (e.g., cx498.coralogix.com, eu2.coralogix.com)",
-                "placeholder": "cx498.coralogix.com",
+                "description": "Coralogix region (e.g., coralogix.com, app.eu2.coralogix.com, app.coralogix.us)",
+                "placeholder": "coralogix.com",
             },
             {
                 "name": "application",

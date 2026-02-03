@@ -110,22 +110,60 @@ def build_home_tab_view(
     )
 
     if configured_integrations:
+        from assets_config import get_asset_url
+
+        done_url = get_asset_url("done")
+
         for int_id, config in configured_integrations.items():
             # Get integration info from INTEGRATIONS
             integration = get_integration_by_id(int_id)
             name = integration.get("name") if integration else int_id.title()
+            description = integration.get("description", "") if integration else ""
             logo_url = get_integration_logo_url(int_id)
             is_enabled = config.get("enabled", True)
 
-            # Status indicator
-            if is_enabled:
-                status_text = f":white_check_mark: *{name}*"
-            else:
-                status_text = f":white_circle: *{name}* (disabled)"
+            # Truncate description
+            if len(description) > 60:
+                description = description[:57] + "..."
 
+            # Add status indicator for both enabled and disabled integrations
+            if is_enabled and done_url:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "image",
+                                "image_url": done_url,
+                                "alt_text": "connected",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": "Connected",
+                            },
+                        ],
+                    }
+                )
+            elif not is_enabled:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":white_circle: Disabled",
+                            },
+                        ],
+                    }
+                )
+
+            # Build section block with name + description (no status suffix)
             section_block = {
                 "type": "section",
-                "text": {"type": "mrkdwn", "text": status_text},
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{name}*\n{description}",
+                },
             }
 
             # Add logo if available
@@ -150,6 +188,7 @@ def build_home_tab_view(
                     }
                 )
             else:
+                # No logo - use button as accessory
                 section_block["accessory"] = {
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Edit"},

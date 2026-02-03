@@ -40,9 +40,11 @@ echo "⬆️  Pushing to ECR..."
 docker push $ECR_URL:latest
 docker push $ECR_URL:$GIT_SHA
 
-# Restart Kubernetes deployment
-echo "♻️  Restarting Kubernetes deployment..."
-kubectl rollout restart deployment/$ECR_REPOSITORY -n $NAMESPACE
+# Update to new image tag (Kubernetes automatically detects and pulls)
+echo "🔄 Updating deployment to new image..."
+kubectl set image deployment/$ECR_REPOSITORY \
+    $ECR_REPOSITORY=$ECR_URL:$GIT_SHA \
+    -n $NAMESPACE
 
 # Wait for rollout
 echo "⏳ Waiting for rollout to complete..."

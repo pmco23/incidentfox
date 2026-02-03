@@ -18,6 +18,8 @@ spec:
       serviceAccountName: incidentfox-knowledge-base
       containers:
         - name: raptor-kb
+          # Image tag is updated by deploy script (if using K8s)
+          # Note: Primary deployment uses ECS (see scripts/deploy.sh)
           image: 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-knowledge-base:latest
           ports:
             - containerPort: 8000

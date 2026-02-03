@@ -22,6 +22,8 @@ spec:
       - name: ecr-registry-secret
       containers:
       - name: server
+        # Image tag is updated by deploy script using kubectl set image
+        # Default :latest is only used if deployment is applied manually
         image: 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest
         imagePullPolicy: Always
         command: ["python", "/app/server.py"]
@@ -30,6 +32,7 @@ spec:
           name: http
         env:
         - name: SANDBOX_IMAGE
+          # Updated by deploy script to match server image tag
           value: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
         - name: SANDBOX_NAMESPACE
           valueFrom:

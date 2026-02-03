@@ -357,8 +357,9 @@ def create_investigation_stream(
                 sandbox_info, prompt, images, file_downloads
             )
             print(
-                f"✅ [STREAM] Got response object, starting to stream for thread {thread_id}"
+                f"✅ [STREAM] Got response object (status={response.status_code}), starting to stream for thread {thread_id}"
             )
+            print(f"🔍 [STREAM] Response headers: {dict(response.headers)}")
 
             # Pass through SSE events from sandbox as-is
             # The sandbox_server now returns SSE format

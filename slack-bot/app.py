@@ -4191,42 +4191,70 @@ def handle_api_key_submission(ack, body, client, view):
         ack(response_action="errors", errors={"api_key_block": error_message})
         return
 
-    ack()
-
     # Save the API key
     try:
         config_client = get_config_client()
-        success = config_client.save_api_key(
+        config_client.save_api_key(
             slack_team_id=team_id,
             api_key=api_key,
             api_endpoint=api_endpoint if api_endpoint else None,
         )
-
-        if success:
-            # Send success message to user
-            user_id = body.get("user", {}).get("id")
-            if user_id:
-                try:
-                    # Open a DM with the user
-                    dm_response = client.conversations_open(users=[user_id])
-                    dm_channel = dm_response.get("channel", {}).get("id")
-
-                    if dm_channel:
-                        success_blocks = onboarding.build_setup_complete_message()
-                        client.chat_postMessage(
-                            channel=dm_channel,
-                            text="Setup complete! Your API key has been saved.",
-                            blocks=success_blocks,
-                        )
-                except Exception as dm_error:
-                    logger.warning(f"Failed to send DM confirmation: {dm_error}")
-
-            logger.info(f"API key saved for team {team_id}")
-        else:
-            logger.error(f"Failed to save API key for team {team_id}")
-
     except Exception as e:
         logger.error(f"Error saving API key: {e}", exc_info=True)
+        # Extract error details
+        error_detail = str(e)
+        status_code = getattr(e, "status_code", None)
+        if status_code:
+            error_detail = f"HTTP {status_code}"
+
+        # Show error in a push modal so it's clearly visible
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Save Failed"},
+            "close": {"type": "plain_text", "text": "Try Again"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":x: *Failed to save API key*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Error: {error_detail}",
+                        }
+                    ],
+                },
+            ],
+        }
+        ack(response_action="push", view=error_modal)
+        return
+
+    ack()
+
+    # Send success message to user
+    user_id = body.get("user", {}).get("id")
+    if user_id:
+        try:
+            # Open a DM with the user
+            dm_response = client.conversations_open(users=[user_id])
+            dm_channel = dm_response.get("channel", {}).get("id")
+
+            if dm_channel:
+                success_blocks = onboarding.build_setup_complete_message()
+                client.chat_postMessage(
+                    channel=dm_channel,
+                    text="Setup complete! Your API key has been saved.",
+                    blocks=success_blocks,
+                )
+        except Exception as dm_error:
+            logger.warning(f"Failed to send DM confirmation: {dm_error}")
+
+    logger.info(f"API key saved for team {team_id}")
 
 
 @app.action("open_setup_wizard")
@@ -4235,6 +4263,9 @@ def handle_open_setup_wizard(ack, body, client):
     ack()
 
     team_id = body.get("team", {}).get("id")
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+
     if not team_id:
         logger.error("No team_id in body for setup wizard")
         return
@@ -4255,6 +4286,16 @@ def handle_open_setup_wizard(ack, body, client):
         logger.info(f"Opened setup wizard (integrations page) for team {team_id}")
     except Exception as e:
         logger.error(f"Failed to open setup wizard: {e}", exc_info=True)
+        # Show error to user via ephemeral message
+        if user_id and channel_id:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=":warning: Failed to open setup wizard. Please try again. If the problem persists, contact support@incidentfox.ai",
+                )
+            except Exception:
+                pass  # Best effort
 
 
 @app.action("dismiss_welcome")
@@ -4313,22 +4354,36 @@ def handle_configure_integration(ack, body, client):
         logger.error("No team_id for configure_integration action")
         return
 
+    # Extract category_filter from parent view's private_metadata
+    category_filter = "all"
+    try:
+        parent_metadata = body.get("view", {}).get("private_metadata", "{}")
+        parent_data = json.loads(parent_metadata)
+        category_filter = parent_data.get("category_filter", "all")
+    except (json.JSONDecodeError, TypeError):
+        pass
+
     try:
         # Get existing config if any (from config-service)
         config_client = get_config_client()
         configured = config_client.get_configured_integrations(team_id)
         existing_config = configured.get(integration_id, {})
 
-        # Build and push the integration config modal
+        # Build and update the modal (replace, not push) to avoid stale modal stack
         # Uses local INTEGRATIONS definition from onboarding.py
         onboarding = get_onboarding_modules()
         modal = onboarding.build_integration_config_modal(
             team_id=team_id,
             integration_id=integration_id,
             existing_config=existing_config,
+            category_filter=category_filter,
+            entry_point="integrations",
         )
-        client.views_push(trigger_id=body["trigger_id"], view=modal)
-        logger.info(f"Pushed config modal for {integration_id}")
+        # Use views_update to replace current modal instead of views_push
+        # This prevents stale modal accumulation
+        view_id = body.get("view", {}).get("id")
+        client.views_update(view_id=view_id, view=modal)
+        logger.info(f"Updated modal to config for {integration_id}")
 
     except Exception as e:
         logger.error(f"Failed to open integration config modal: {e}", exc_info=True)
@@ -4386,36 +4441,7 @@ def handle_integrations_page_done(ack, body, client, view):
     private_metadata = json.loads(view.get("private_metadata", "{}"))
     team_id = private_metadata.get("team_id")
 
-    # Send completion message to user
-    user_id = body.get("user", {}).get("id")
-    if user_id:
-        try:
-            dm_response = client.conversations_open(users=[user_id])
-            dm_channel = dm_response.get("channel", {}).get("id")
-
-            if dm_channel:
-                client.chat_postMessage(
-                    channel=dm_channel,
-                    text="Setup complete!",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": (
-                                    ":white_check_mark: *Setup complete!*\n\n"
-                                    "You're all set. Mention `@IncidentFox` in any channel "
-                                    "to start investigating incidents.\n\n"
-                                    "To manage integrations later, click on my avatar and select *Open App*."
-                                ),
-                            },
-                        },
-                    ],
-                )
-        except Exception as e:
-            logger.warning(f"Failed to send completion DM: {e}")
-
-    logger.info(f"Completed setup wizard for team {team_id}")
+    logger.info(f"Closed integrations page for team {team_id}")
 
 
 @app.action("open_advanced_settings")
@@ -4499,6 +4525,38 @@ def handle_advanced_settings_submission(ack, body, client, view):
             logger.info(f"Saved advanced settings for team {team_id}")
         except Exception as e:
             logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
+            # Extract error details
+            error_detail = str(e)
+            status_code = getattr(e, "status_code", None)
+            if status_code:
+                error_detail = f"HTTP {status_code}"
+
+            # Show error in a push modal
+            error_modal = {
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Save Failed"},
+                "close": {"type": "plain_text", "text": "Try Again"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": ":x: *Failed to save settings*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Error: {error_detail}",
+                            }
+                        ],
+                    },
+                ],
+            }
+            ack(response_action="push", view=error_modal)
+            return
 
     # Close the modal (go back to integrations page)
     ack()
@@ -4517,8 +4575,18 @@ def handle_integration_config_submission(ack, body, client, view):
 
     values = view.get("state", {}).get("values", {})
 
+    # Get existing config to preserve values not provided (e.g., secret fields left blank)
+    try:
+        config_client = get_config_client()
+        existing_integrations = config_client.get_configured_integrations(team_id)
+        existing_config = existing_integrations.get(integration_id, {})
+    except Exception:
+        existing_config = {}
+
     # Extract field values
     config = {}
+    validation_errors = []
+
     for field_id in field_names:
         block_id = f"field_{field_id}"
         action_id = f"input_{field_id}"
@@ -4531,37 +4599,132 @@ def handle_integration_config_submission(ack, body, client, view):
             # Plain text input
             val = field_value.get("value")
             if val:
-                config[field_id] = val.strip()
+                val = val.strip()
+
+                # Special handling for Coralogix domain field
+                if integration_id == "coralogix" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_domain, error_msg = (
+                        onboarding.extract_coralogix_domain(val)
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_domain
+                else:
+                    config[field_id] = val
+            elif field_id in existing_config:
+                # Field was left blank but exists in config - preserve existing value
+                # This is especially important for secret fields
+                config[field_id] = existing_config[field_id]
         elif "selected_option" in field_value:
             # Select
             selected = field_value.get("selected_option", {})
             if selected:
                 config[field_id] = selected.get("value")
+            elif field_id in existing_config:
+                # No selection but exists in config - preserve
+                config[field_id] = existing_config[field_id]
         elif "selected_options" in field_value:
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             config[field_id] = len(selected) > 0
 
+    # If validation errors, show error modal
+    if validation_errors:
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Validation Error"},
+            "close": {"type": "plain_text", "text": "Fix"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Please fix the following:*\n\n"
+                        + "\n".join(f"• {err}" for err in validation_errors),
+                    },
+                },
+            ],
+        }
+        ack(response_action="push", view=error_modal)
+        return
+
     # Save the integration config
     if team_id and integration_id and config:
         try:
             config_client = get_config_client()
-            success = config_client.save_integration_config(
+            config_client.save_integration_config(
                 slack_team_id=team_id,
                 integration_id=integration_id,
                 config=config,
             )
-
-            if success:
-                logger.info(f"Saved {integration_id} config for team {team_id}")
-            else:
-                logger.error(f"Failed to save {integration_id} config")
+            logger.info(f"Saved {integration_id} config for team {team_id}")
 
         except Exception as e:
             logger.error(f"Error saving integration config: {e}", exc_info=True)
+            # Extract more error details for debugging
+            error_detail = str(e)
+            status_code = getattr(e, "status_code", None)
+            if status_code:
+                error_detail = f"HTTP {status_code}"
 
-    # Close the modal (clear from stack to return to page 2)
-    ack(response_action="clear")
+            # Show error in a push modal so it's clearly visible
+            error_modal = {
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Save Failed"},
+                "close": {"type": "plain_text", "text": "Try Again"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":x: *Failed to save {integration_id} configuration*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Error: {error_detail}",
+                            }
+                        ],
+                    },
+                ],
+            }
+            ack(response_action="push", view=error_modal)
+            return
+
+    # Check entry point to decide how to handle modal after save
+    entry_point = private_metadata.get("entry_point", "integrations")
+
+    if entry_point == "home":
+        # Opened from home tab - close all modals (home tab shows status)
+        ack(response_action="clear")
+        logger.info(f"Closed modal after saving {integration_id} from Home Tab")
+    else:
+        # Opened from integrations page - return to integrations list with updated state
+        # Since we use views_update (not views_push) to open the config modal,
+        # there's only one modal, so response_action="update" works correctly
+        category_filter = private_metadata.get("category_filter", "all")
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            configured = config_client.get_configured_integrations(team_id)
+
+            onboarding = get_onboarding_modules()
+            integrations_view = onboarding.build_integrations_page(
+                team_id=team_id,
+                category_filter=category_filter,
+                configured=configured,
+                trial_info=trial_info,
+            )
+            ack(response_action="update", view=integrations_view)
+            logger.info(f"Returned to integrations page after saving {integration_id}")
+        except Exception as e:
+            logger.warning(f"Failed to rebuild integrations page: {e}")
+            ack(response_action="clear")
 
     # Try to refresh Home Tab if user is there
     user_id = body.get("user", {}).get("id")
@@ -4620,6 +4783,94 @@ def handle_app_home_opened(client, event, context):
 
     except Exception as e:
         logger.error(f"Failed to publish Home Tab: {e}", exc_info=True)
+        # Show error view to user
+        error_view = {
+            "type": "home",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Unable to load IncidentFox*\n\nWe encountered an error loading your configuration. Please try again in a few moments.\n\nIf the problem persists, contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Retry"},
+                            "action_id": "home_retry_load",
+                        }
+                    ],
+                },
+            ],
+        }
+        try:
+            client.views_publish(user_id=user_id, view=error_view)
+        except Exception:
+            pass  # Best effort
+
+
+@app.action("home_retry_load")
+def handle_home_retry_load(ack, body, client, context):
+    """Handle retry button when Home Tab fails to load."""
+    ack()
+
+    user_id = body.get("user", {}).get("id")
+    team_id = body.get("team", {}).get("id") or context.get("team_id")
+
+    if not user_id or not team_id:
+        return
+
+    # Re-trigger the Home Tab load
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+        schemas = config_client.get_integration_schemas()
+
+        from home_tab import build_home_tab_view
+
+        view = build_home_tab_view(
+            team_id=team_id,
+            trial_info=trial_info,
+            configured_integrations=configured,
+            available_schemas=schemas,
+        )
+
+        client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Retry: Published Home Tab for user {user_id}, team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Retry failed for Home Tab: {e}", exc_info=True)
+        # Show error again
+        error_view = {
+            "type": "home",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Unable to load IncidentFox*\n\nWe're still having trouble connecting. Please try again later or contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Retry"},
+                            "action_id": "home_retry_load",
+                        }
+                    ],
+                },
+            ],
+        }
+        try:
+            client.views_publish(user_id=user_id, view=error_view)
+        except Exception:
+            pass
 
 
 @app.action(re.compile(r"^home_(edit|add)_integration_.*"))
@@ -4655,6 +4906,7 @@ def handle_home_integration_action(ack, body, client):
             team_id=team_id,
             integration_id=integration_id,
             existing_config=existing_config,
+            entry_point="home",
         )
 
         client.views_open(trigger_id=body["trigger_id"], view=modal)

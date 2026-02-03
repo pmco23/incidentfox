@@ -69,18 +69,11 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             },
             {
                 "id": "domain",
-                "name": "Domain",
-                "type": "select",
+                "name": "Dashboard URL or Domain",
+                "type": "string",
                 "required": True,
-                "options": [
-                    "coralogix.com",
-                    "eu2.coralogix.com",
-                    "coralogix.in",
-                    "coralogix.us",
-                    "cx498.coralogix.com",
-                ],
-                "placeholder": "Select your Coralogix domain",
-                "hint": "The domain shown in your Coralogix URL",
+                "placeholder": "https://myteam.app.cx498.coralogix.com OR app.cx498.coralogix.com",
+                "hint": "Paste your Coralogix dashboard URL or just the domain from your browser",
             },
         ],
     },
@@ -409,38 +402,21 @@ def build_api_key_modal(
     """
     blocks = []
 
-    # Header section
-    if trial_info and not trial_info.get("expired"):
-        days = trial_info.get("days_remaining", 0)
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f":rocket: *You're on a free trial!*\n"
-                        f"You have *{days} days* remaining. "
-                        f"Add your own API key to continue using IncidentFox after the trial."
-                    ),
-                },
-            }
-        )
-        blocks.append({"type": "divider"})
-    else:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        ":key: *Set up your Anthropic API key*\n\n"
-                        "IncidentFox uses Claude to investigate incidents. "
-                        "Enter your Anthropic API key below to get started."
-                    ),
-                },
-            }
-        )
-        blocks.append({"type": "divider"})
+    # Header section (removed misleading trial messaging)
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    ":key: *Set up your Anthropic API key*\n\n"
+                    "IncidentFox uses Claude to investigate incidents. "
+                    "Enter your Anthropic API key below to get started."
+                ),
+            },
+        }
+    )
+    blocks.append({"type": "divider"})
 
     # Error message if any
     if error_message:
@@ -534,28 +510,16 @@ def build_setup_required_message(
 
     # Determine message based on trial status
     if trial_info and trial_info.get("expired"):
-        # Trial expired
+        # Trial expired - users need to upgrade
         header_text = ":warning: *Your free trial has ended*"
-        if show_upgrade:
-            body_text = (
-                "To continue using IncidentFox, you'll need to:\n"
-                "1. Upgrade to a paid subscription\n"
-                "2. Add your Anthropic API key\n\n"
-                "Click the button below to set up your API key, then upgrade your plan."
-            )
-        else:
-            body_text = (
-                "To continue using IncidentFox, please add your Anthropic API key.\n\n"
-                "Click the button below to set up your API key."
-            )
+        body_text = (
+            "To continue using IncidentFox, please upgrade to a paid subscription."
+        )
     elif trial_info and trial_info.get("days_remaining", 0) <= 3:
-        # Trial expiring soon
+        # Trial expiring soon - prompt to upgrade
         days = trial_info.get("days_remaining", 0)
         header_text = f":hourglass: *Your free trial expires in {days} days*"
-        body_text = (
-            "Add your Anthropic API key now to ensure uninterrupted service.\n\n"
-            "Click the button below to set up your API key."
-        )
+        body_text = "To continue using IncidentFox after the trial, you'll need to upgrade to a paid subscription."
     elif not trial_info:
         # No trial, needs setup
         header_text = ":wave: *Welcome to IncidentFox!*"
@@ -573,34 +537,47 @@ def build_setup_required_message(
 
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body_text}})
 
-    # Build action buttons based on whether upgrade is needed
-    action_elements = [
-        {
-            "type": "button",
-            "action_id": "open_api_key_modal",
-            "text": {
-                "type": "plain_text",
-                "text": ":key: Set Up API Key",
-                "emoji": True,
-            },
-            "style": "primary",
-        }
-    ]
+    # Build action buttons based on trial status
+    action_elements = []
 
-    if show_upgrade:
+    # For expired/expiring trial, show upgrade button as primary action
+    if trial_info and (
+        trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3
+    ):
         action_elements.append(
             {
                 "type": "button",
                 "action_id": "open_upgrade_page",
                 "text": {
                     "type": "plain_text",
-                    "text": ":credit_card: View Pricing",
+                    "text": ":credit_card: Upgrade to Continue",
                     "emoji": True,
                 },
-                "url": "https://incidentfox.ai/pricing",
+                "style": "primary",
+                "url": "https://calendly.com/d/cxd2-4hb-qgp/30-minute-demo-call-w-incidentfox",
+            }
+        )
+        action_elements.append(
+            {
+                "type": "button",
+                "action_id": "dismiss_setup_message",
+                "text": {"type": "plain_text", "text": "Later"},
             }
         )
     else:
+        # For non-trial users, show API key setup as primary action
+        action_elements.append(
+            {
+                "type": "button",
+                "action_id": "open_api_key_modal",
+                "text": {
+                    "type": "plain_text",
+                    "text": ":key: Set Up API Key",
+                    "emoji": True,
+                },
+                "style": "primary",
+            }
+        )
         action_elements.append(
             {
                 "type": "button",
@@ -611,9 +588,13 @@ def build_setup_required_message(
 
     blocks.append({"type": "actions", "elements": action_elements})
 
-    help_text = ":bulb: Need help? Visit <https://docs.incidentfox.ai|our docs> or contact support."
-    if show_upgrade:
+    # Help text based on trial status
+    if trial_info and (
+        trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3
+    ):
         help_text = ":bulb: Questions about pricing? Email us at support@incidentfox.ai"
+    else:
+        help_text = ":bulb: Need help? Visit <https://docs.incidentfox.ai|our docs> or contact support."
 
     blocks.append(
         {"type": "context", "elements": [{"type": "mrkdwn", "text": help_text}]}
@@ -727,6 +708,62 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
         return False, "Invalid API key format. Anthropic keys start with sk-ant-"
 
     return True, ""
+
+
+def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Coralogix domain from URL or domain string.
+
+    Args:
+        input_str: URL (e.g., https://myteam.app.cx498.coralogix.com/#/settings/api-keys)
+                   or domain (e.g., app.cx498.coralogix.com)
+
+    Returns:
+        (is_valid, domain, error_message)
+    """
+    import re
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Domain or URL is required"
+
+    input_str = input_str.strip()
+
+    # If it looks like a URL, parse it
+    if input_str.startswith(("http://", "https://")):
+        try:
+            parsed = urlparse(input_str)
+            hostname = parsed.hostname or parsed.netloc.split(":")[0]
+        except Exception:
+            return False, "", "Invalid URL format"
+    else:
+        # Treat as domain directly
+        hostname = input_str
+
+    # Validate it's a Coralogix domain
+    # Valid patterns: *.coralogix.com, *.app.coralogix.us, *.app.coralogix.in,
+    #                 *.app.coralogixsg.com, *.app.cx498.coralogix.com,
+    #                 *.app.eu2.coralogix.com, *.app.ap3.coralogix.com
+    valid_patterns = [
+        r"\.?coralogix\.com$",
+        r"\.?app\.coralogix\.us$",
+        r"\.?app\.coralogix\.in$",
+        r"\.?app\.coralogixsg\.com$",
+        r"\.?app\.cx498\.coralogix\.com$",
+        r"\.?app\.eu2\.coralogix\.com$",
+        r"\.?app\.ap3\.coralogix\.com$",
+    ]
+
+    is_valid = any(re.search(pattern, hostname) for pattern in valid_patterns)
+
+    if not is_valid:
+        return (
+            False,
+            "",
+            f"Invalid Coralogix domain: {hostname}. Please use a domain like app.cx498.coralogix.com or coralogix.com",
+        )
+
+    return True, hostname, ""
 
 
 def build_welcome_message(
@@ -1069,6 +1106,11 @@ def build_integrations_page(
             }
         )
 
+        # Get done.png URL for status indicator
+        from assets_config import get_asset_url
+
+        done_url = get_asset_url("done")
+
         # Create integration cards with logos
         for idx, integration in enumerate(active_integrations):
             int_id = integration["id"]
@@ -1080,20 +1122,43 @@ def build_integrations_page(
             is_enabled = int_config.get("enabled", True) if is_configured else False
             logo_url = get_integration_logo_url(int_id)
 
-            # Status indicator: configured + enabled, configured but disabled, or not configured
-            if is_configured and is_enabled:
-                status_indicator = ":white_check_mark: "
+            # For configured integrations, show status with done.png image in context block
+            if is_configured and is_enabled and done_url:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "image",
+                                "image_url": done_url,
+                                "alt_text": "connected",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": "*Connected*",
+                            },
+                        ],
+                    }
+                )
             elif is_configured and not is_enabled:
-                status_indicator = ":white_circle: "  # Disabled but configured
-            else:
-                status_indicator = ""
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":white_circle: *Disabled*",
+                            },
+                        ],
+                    }
+                )
 
             # Build section with logo image as accessory if available
             section_block = {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*{status_indicator}{name}*\n{description}",
+                    "text": f"*{name}*\n{description}",
                 },
             }
 
@@ -1131,9 +1196,7 @@ def build_integrations_page(
                     del blocks[-1]["elements"][0]["style"]
             else:
                 # Fallback: use emoji icon and button accessory
-                section_block["text"][
-                    "text"
-                ] = f"{icon} *{status_indicator}{name}*\n{description}"
+                section_block["text"]["text"] = f"{icon} *{name}*\n{description}"
                 section_block["accessory"] = {
                     "type": "button",
                     "action_id": f"configure_integration_{int_id}",
@@ -1432,6 +1495,8 @@ def build_integration_config_modal(
     schema: Dict[str, Any] = None,
     existing_config: Optional[Dict] = None,
     integration_id: str = None,
+    category_filter: str = "all",
+    entry_point: str = "integrations",
 ) -> Dict[str, Any]:
     """
     Build integration configuration modal with video tutorial, instructions, and form fields.
@@ -1654,12 +1719,29 @@ def build_integration_config_modal(
 
         field_names.append(field_id)
 
+        # Make field optional if:
+        # 1. Field already has a value (editing scenario) - especially for secret fields, OR
+        # 2. Field is not originally required
+        # Note: We can't make fields optional based on enabled status because the user
+        # can change that checkbox in the modal itself
+        field_has_value = field_id in existing_config
+        make_optional = field_has_value or not field_required
+
         if field_type == "secret":
             # Secret fields: plain text input, don't pre-fill
+            # Always optional when editing (field_has_value) to avoid forcing re-entry
+            hint_text = field_hint
+            if field_has_value:
+                hint_text = (
+                    f"{field_hint} (already configured - leave blank to keep existing)"
+                    if field_hint
+                    else "Already configured - leave blank to keep existing value"
+                )
+
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": {
                     "type": "plain_text_input",
                     "action_id": f"input_{field_id}",
@@ -1670,8 +1752,8 @@ def build_integration_config_modal(
                 },
                 "label": {"type": "plain_text", "text": field_name},
             }
-            if field_hint:
-                input_block["hint"] = {"type": "plain_text", "text": field_hint}
+            if hint_text:
+                input_block["hint"] = {"type": "plain_text", "text": hint_text}
             blocks.append(input_block)
 
         elif field_type == "boolean":
@@ -1734,7 +1816,7 @@ def build_integration_config_modal(
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": element,
                 "label": {"type": "plain_text", "text": field_name},
             }
@@ -1759,7 +1841,7 @@ def build_integration_config_modal(
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": element,
                 "label": {"type": "plain_text", "text": field_name},
             }
@@ -1838,6 +1920,8 @@ def build_integration_config_modal(
             "team_id": team_id,
             "integration_id": int_id,
             "field_names": all_field_names,
+            "category_filter": category_filter,
+            "entry_point": entry_point,
         }
     )
 
