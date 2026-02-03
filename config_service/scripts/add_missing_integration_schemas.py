@@ -98,7 +98,7 @@ INTEGRATION_SCHEMAS = [
         "name": "Coralogix",
         "category": "observability",
         "description": "Coralogix observability platform for logs, metrics, and traces",
-        "docs_url": "https://coralogix.com/docs/",
+        "docs_url": "https://docs.incidentfox.ai/data-sources/coralogix",
         "display_order": 15,
         "featured": True,
         "fields": [

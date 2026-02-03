@@ -52,11 +52,11 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into your Coralogix dashboard\n"
-            "2. Go to *Data Flow* > *API Keys*\n"
-            "3. Create a new API key with *Logs Query* permissions\n"
+            "2. Go to *Settings* (left navbar) > *API Keys*\n"
+            "3. Click *+ Team Key*, select *DataQuerying* role preset, then *Create*\n"
             "4. Copy the API key and your domain below"
         ),
-        "docs_url": "https://coralogix.com/docs/api-keys/",
+        "docs_url": "https://docs.incidentfox.ai/data-sources/coralogix",
         "context_prompt_placeholder": "e.g., 'Our logs use application=myapp for filtering. Production has env=prod tag. Error logs are in severity=error.'",
         "fields": [
             {

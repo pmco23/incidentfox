@@ -1,7 +1,7 @@
 """
 Coralogix tools for querying logs, metrics, and traces.
 
-Coralogix API documentation: https://coralogix.com/docs/
+Coralogix API documentation: https://docs.incidentfox.ai/data-sources/coralogix
 """
 
 import json
