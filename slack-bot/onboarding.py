@@ -402,38 +402,21 @@ def build_api_key_modal(
     """
     blocks = []
 
-    # Header section
-    if trial_info and not trial_info.get("expired"):
-        days = trial_info.get("days_remaining", 0)
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f":rocket: *You're on a free trial!*\n"
-                        f"You have *{days} days* remaining. "
-                        f"Add your own API key to continue using IncidentFox after the trial."
-                    ),
-                },
-            }
-        )
-        blocks.append({"type": "divider"})
-    else:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        ":key: *Set up your Anthropic API key*\n\n"
-                        "IncidentFox uses Claude to investigate incidents. "
-                        "Enter your Anthropic API key below to get started."
-                    ),
-                },
-            }
-        )
-        blocks.append({"type": "divider"})
+    # Header section (removed misleading trial messaging)
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    ":key: *Set up your Anthropic API key*\n\n"
+                    "IncidentFox uses Claude to investigate incidents. "
+                    "Enter your Anthropic API key below to get started."
+                ),
+            },
+        }
+    )
+    blocks.append({"type": "divider"})
 
     # Error message if any
     if error_message:
@@ -527,27 +510,19 @@ def build_setup_required_message(
 
     # Determine message based on trial status
     if trial_info and trial_info.get("expired"):
-        # Trial expired
+        # Trial expired - users need to upgrade, not just add API key
         header_text = ":warning: *Your free trial has ended*"
-        if show_upgrade:
-            body_text = (
-                "To continue using IncidentFox, you'll need to:\n"
-                "1. Upgrade to a paid subscription\n"
-                "2. Add your Anthropic API key\n\n"
-                "Click the button below to set up your API key, then upgrade your plan."
-            )
-        else:
-            body_text = (
-                "To continue using IncidentFox, please add your Anthropic API key.\n\n"
-                "Click the button below to set up your API key."
-            )
+        body_text = (
+            "To continue using IncidentFox, please upgrade to a paid subscription.\n\n"
+            "After upgrading, you can optionally bring your own Anthropic API key."
+        )
     elif trial_info and trial_info.get("days_remaining", 0) <= 3:
-        # Trial expiring soon
+        # Trial expiring soon - prompt to upgrade
         days = trial_info.get("days_remaining", 0)
         header_text = f":hourglass: *Your free trial expires in {days} days*"
         body_text = (
-            "Add your Anthropic API key now to ensure uninterrupted service.\n\n"
-            "Click the button below to set up your API key."
+            "To continue using IncidentFox after the trial, you'll need to upgrade to a paid subscription.\n\n"
+            "You can optionally bring your own Anthropic API key for privacy or compliance reasons."
         )
     elif not trial_info:
         # No trial, needs setup
@@ -566,34 +541,45 @@ def build_setup_required_message(
 
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": body_text}})
 
-    # Build action buttons based on whether upgrade is needed
-    action_elements = [
-        {
-            "type": "button",
-            "action_id": "open_api_key_modal",
-            "text": {
-                "type": "plain_text",
-                "text": ":key: Set Up API Key",
-                "emoji": True,
-            },
-            "style": "primary",
-        }
-    ]
+    # Build action buttons based on trial status
+    action_elements = []
 
-    if show_upgrade:
+    # For expired/expiring trial, show upgrade button as primary action
+    if trial_info and (trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3):
         action_elements.append(
             {
                 "type": "button",
                 "action_id": "open_upgrade_page",
                 "text": {
                     "type": "plain_text",
-                    "text": ":credit_card: View Pricing",
+                    "text": ":credit_card: Upgrade to Continue",
                     "emoji": True,
                 },
-                "url": "https://incidentfox.ai/pricing",
+                "style": "primary",
+                "url": "https://calendly.com/d/cxd2-4hb-qgp/30-minute-demo-call-w-incidentfox",
+            }
+        )
+        action_elements.append(
+            {
+                "type": "button",
+                "action_id": "dismiss_setup_message",
+                "text": {"type": "plain_text", "text": "Later"},
             }
         )
     else:
+        # For non-trial users, show API key setup as primary action
+        action_elements.append(
+            {
+                "type": "button",
+                "action_id": "open_api_key_modal",
+                "text": {
+                    "type": "plain_text",
+                    "text": ":key: Set Up API Key",
+                    "emoji": True,
+                },
+                "style": "primary",
+            }
+        )
         action_elements.append(
             {
                 "type": "button",
@@ -604,9 +590,11 @@ def build_setup_required_message(
 
     blocks.append({"type": "actions", "elements": action_elements})
 
-    help_text = ":bulb: Need help? Visit <https://docs.incidentfox.ai|our docs> or contact support."
-    if show_upgrade:
+    # Help text based on trial status
+    if trial_info and (trial_info.get("expired") or trial_info.get("days_remaining", 0) <= 3):
         help_text = ":bulb: Questions about pricing? Email us at support@incidentfox.ai"
+    else:
+        help_text = ":bulb: Need help? Visit <https://docs.incidentfox.ai|our docs> or contact support."
 
     blocks.append(
         {"type": "context", "elements": [{"type": "mrkdwn", "text": help_text}]}
