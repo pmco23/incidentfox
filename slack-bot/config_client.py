@@ -245,7 +245,9 @@ class ConfigServiceClient:
         headers["X-Org-Id"] = org_id
         headers["X-Team-Node-Id"] = team_node_id
 
-        response = requests.patch(url, json=config, headers=headers, timeout=10)
+        # API expects {"config": ...} wrapper per ConfigPatchRequest schema
+        body = {"config": config}
+        response = requests.patch(url, json=body, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json()
 
