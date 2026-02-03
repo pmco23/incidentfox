@@ -111,6 +111,11 @@ kubectl apply -f k8s/sandbox-template.yaml -n incidentfox-prod
 echo ""
 echo "1️⃣1️⃣  Deploying updated server configuration..."
 kubectl apply -f k8s/server-deployment.yaml -n incidentfox-prod
+
+# Force restart to pick up new :latest image (Kubernetes doesn't auto-restart when tag unchanged)
+echo ""
+echo "1️⃣2️⃣  Restarting server to pull new image..."
+kubectl rollout restart deployment/incidentfox-server -n incidentfox-prod
 kubectl rollout status deployment/incidentfox-server -n incidentfox-prod --timeout=3m
 
 # Get production URL
