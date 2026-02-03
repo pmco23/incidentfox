@@ -4291,7 +4291,7 @@ def handle_setup_wizard_page1(ack, body, client, view):
             trial_info=trial_info,
         )
     else:
-        page2 = onboarding.build_setup_wizard_page2(team_id, [], configured)
+        page2 = onboarding.build_integrations_page(team_id, configured=configured)
 
     ack(response_action="update", view=page2)
     logger.info(f"Advanced to integrations page for team {team_id}")
@@ -4491,9 +4491,14 @@ def handle_open_advanced_settings(ack, body, client):
             existing_endpoint=existing_endpoint,
         )
 
-        logger.info("Pushing advanced settings modal...")
-        result = client.views_push(trigger_id=body["trigger_id"], view=modal)
-        logger.info(f"views_push result: ok={result.get('ok')}")
+        # Use views_open from Home tab (no existing view), views_push from modal
+        if body.get("view"):
+            logger.info("Pushing advanced settings modal (from modal)...")
+            result = client.views_push(trigger_id=body["trigger_id"], view=modal)
+        else:
+            logger.info("Opening advanced settings modal (from Home tab)...")
+            result = client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"views result: ok={result.get('ok')}")
         logger.info(f"Opened Advanced Settings modal for team {team_id}")
 
     except Exception as e:

@@ -962,7 +962,7 @@ def build_help_message() -> list:
 
 
 # =============================================================================
-# NEW INTEGRATION-FIRST SETUP WIZARD
+# SETUP WIZARD
 # =============================================================================
 
 
@@ -1286,16 +1286,6 @@ def build_integrations_page(
         "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": blocks,
     }
-
-
-# Keep old function name for backward compatibility
-def build_setup_wizard_page2(
-    team_id: str,
-    schemas: list = None,
-    configured: dict = None,
-) -> Dict[str, Any]:
-    """Backward compatible alias - now uses build_integrations_page."""
-    return build_integrations_page(team_id, configured=configured or {})
 
 
 def build_advanced_settings_modal(
