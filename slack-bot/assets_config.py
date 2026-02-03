@@ -47,6 +47,7 @@ INTEGRATION_LOGOS = {
     "jira": f"{ASSETS_BASE_URL}/integrations/jira.png",
     "linear": f"{ASSETS_BASE_URL}/integrations/linear.png",
     "notion": f"{ASSETS_BASE_URL}/integrations/notion.png",
+    "confluence": f"{ASSETS_BASE_URL}/integrations/confluence.png",
     "glean": f"{ASSETS_BASE_URL}/integrations/glean.png",
     "servicenow": f"{ASSETS_BASE_URL}/integrations/servicenow.png",
     # Infrastructure
