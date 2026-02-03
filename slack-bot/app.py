@@ -4725,10 +4725,35 @@ def handle_integration_config_submission(ack, body, client, view):
             ack(response_action="push", view=error_modal)
             return
 
-    # Close all modals after save - simpler and more consistent UX
-    # Users can re-open integrations page if they want to configure more
-    ack(response_action="clear")
-    logger.info(f"Closed modal after saving {integration_id}")
+    # Check entry point to decide how to handle modal after save
+    entry_point = private_metadata.get("entry_point", "integrations")
+
+    if entry_point == "home":
+        # Opened from home tab - close all modals (home tab shows status)
+        ack(response_action="clear")
+        logger.info(f"Closed modal after saving {integration_id} from Home Tab")
+    else:
+        # Opened from integrations page - return to integrations list with updated state
+        # Since we use views_update (not views_push) to open the config modal,
+        # there's only one modal, so response_action="update" works correctly
+        category_filter = private_metadata.get("category_filter", "all")
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            configured = config_client.get_configured_integrations(team_id)
+
+            onboarding = get_onboarding_modules()
+            integrations_view = onboarding.build_integrations_page(
+                team_id=team_id,
+                category_filter=category_filter,
+                configured=configured,
+                trial_info=trial_info,
+            )
+            ack(response_action="update", view=integrations_view)
+            logger.info(f"Returned to integrations page after saving {integration_id}")
+        except Exception as e:
+            logger.warning(f"Failed to rebuild integrations page: {e}")
+            ack(response_action="clear")
 
     # Try to refresh Home Tab if user is there
     user_id = body.get("user", {}).get("id")
