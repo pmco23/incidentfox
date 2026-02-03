@@ -440,6 +440,18 @@ static_resources:
                                         "name": "CORALOGIX_BASE_URL",
                                         "value": "http://localhost:8001",
                                     },
+                                    # Laminar tracing: platform observability (shared across all customers)
+                                    # Used for debugging agent behavior - not customer data
+                                    {
+                                        "name": "LMNR_PROJECT_API_KEY",
+                                        "valueFrom": {
+                                            "secretKeyRef": {
+                                                "name": "incidentfox-secrets",
+                                                "key": "laminar-api-key",
+                                                "optional": True,
+                                            }
+                                        },
+                                    },
                                     # Kubernetes context (use pre-configured kubeconfig for incidentfox-demo cluster)
                                     {
                                         "name": "KUBECONFIG",
