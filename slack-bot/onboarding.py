@@ -56,7 +56,7 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             "3. Create a new API key with *Logs Query* permissions\n"
             "4. Copy the API key and your domain below"
         ),
-        "docs_url": "https://coralogix.com/docs/api-keys/",
+        "docs_url": "https://docs.incidentfox.ai/data-sources/coralogix",
         "context_prompt_placeholder": "e.g., 'Our logs use application=myapp for filtering. Production has env=prod tag. Error logs are in severity=error.'",
         "fields": [
             {
