@@ -4441,36 +4441,7 @@ def handle_integrations_page_done(ack, body, client, view):
     private_metadata = json.loads(view.get("private_metadata", "{}"))
     team_id = private_metadata.get("team_id")
 
-    # Send completion message to user
-    user_id = body.get("user", {}).get("id")
-    if user_id:
-        try:
-            dm_response = client.conversations_open(users=[user_id])
-            dm_channel = dm_response.get("channel", {}).get("id")
-
-            if dm_channel:
-                client.chat_postMessage(
-                    channel=dm_channel,
-                    text="Setup complete!",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": (
-                                    ":white_check_mark: *Setup complete!*\n\n"
-                                    "You're all set. Mention `@IncidentFox` in any channel "
-                                    "to start investigating incidents.\n\n"
-                                    "To manage integrations later, click on my avatar and select *Open App*."
-                                ),
-                            },
-                        },
-                    ],
-                )
-        except Exception as e:
-            logger.warning(f"Failed to send completion DM: {e}")
-
-    logger.info(f"Completed setup wizard for team {team_id}")
+    logger.info(f"Closed integrations page for team {team_id}")
 
 
 @app.action("open_advanced_settings")
