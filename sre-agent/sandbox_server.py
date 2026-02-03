@@ -334,13 +334,19 @@ async def execute(request: ExecuteRequest):
             async for event in session.execute(request.prompt, images=images_list):
                 event_count += 1
                 if isinstance(event, StreamEvent):
-                    print(f"🔍 [SANDBOX-STREAM] Event #{event_count}: {event.type} for thread {thread_id}")
+                    print(
+                        f"🔍 [SANDBOX-STREAM] Event #{event_count}: {event.type} for thread {thread_id}"
+                    )
                     yield event.to_sse()
                 else:
-                    print(f"🔍 [SANDBOX-STREAM] Event #{event_count}: raw string for thread {thread_id}")
+                    print(
+                        f"🔍 [SANDBOX-STREAM] Event #{event_count}: raw string for thread {thread_id}"
+                    )
                     # Fallback for any raw strings (shouldn't happen)
                     yield f"data: {event}\n\n"
-            print(f"✅ [SANDBOX-STREAM] Stream completed with {event_count} events for thread {thread_id}")
+            print(
+                f"✅ [SANDBOX-STREAM] Stream completed with {event_count} events for thread {thread_id}"
+            )
 
         except Exception as e:
             import traceback

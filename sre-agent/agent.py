@@ -292,12 +292,18 @@ if _laminar_disabled:
     print("⚠️ [DEBUG] Laminar instrumentation DISABLED via DISABLE_LAMINAR env var")
 elif os.getenv("LMNR_PROJECT_API_KEY") and not _laminar_initialized:
     # Debug: Log Laminar initialization
-    print(f"🔍 [DEBUG] Initializing Laminar with API key: {os.getenv('LMNR_PROJECT_API_KEY')[:10]}...")
-    print(f"🔍 [DEBUG] ANTHROPIC_BASE_URL: {os.getenv('ANTHROPIC_BASE_URL', 'not set')}")
-    print(f"🔍 [DEBUG] ANTHROPIC_API_KEY: {os.getenv('ANTHROPIC_API_KEY', 'not set')[:20]}...")
+    print(
+        f"🔍 [DEBUG] Initializing Laminar with API key: {os.getenv('LMNR_PROJECT_API_KEY')[:10]}..."
+    )
+    print(
+        f"🔍 [DEBUG] ANTHROPIC_BASE_URL: {os.getenv('ANTHROPIC_BASE_URL', 'not set')}"
+    )
+    print(
+        f"🔍 [DEBUG] ANTHROPIC_API_KEY: {os.getenv('ANTHROPIC_API_KEY', 'not set')[:20]}..."
+    )
     Laminar.initialize()
     _laminar_initialized = True
-    print(f"✅ [DEBUG] Laminar initialized successfully")
+    print("✅ [DEBUG] Laminar initialized successfully")
 
 
 def get_environment() -> str:
@@ -696,12 +702,16 @@ Do NOT dump full kubectl output. Synthesize findings.""",
 
             # Receive response with timeout
             try:
-                print(f"🔍 [DEBUG] Starting receive_response() with timeout {RESPONSE_TIMEOUT}s for thread {self.thread_id}")
+                print(
+                    f"🔍 [DEBUG] Starting receive_response() with timeout {RESPONSE_TIMEOUT}s for thread {self.thread_id}"
+                )
                 message_count = 0
                 async with asyncio.timeout(RESPONSE_TIMEOUT):
                     async for message in self.client.receive_response():
                         message_count += 1
-                        print(f"🔍 [DEBUG] Received message #{message_count}: {type(message).__name__} for thread {self.thread_id}")
+                        print(
+                            f"🔍 [DEBUG] Received message #{message_count}: {type(message).__name__} for thread {self.thread_id}"
+                        )
                         # Get parent_tool_use_id if this message is from a subagent
                         parent_tool_use_id = getattr(
                             message, "parent_tool_use_id", None
@@ -807,9 +817,13 @@ Do NOT dump full kubectl output. Synthesize findings.""",
                                 images=extracted_images if extracted_images else None,
                                 files=extracted_files if extracted_files else None,
                             )
-                print(f"✅ [DEBUG] receive_response() completed. Total messages: {message_count} for thread {self.thread_id}")
+                print(
+                    f"✅ [DEBUG] receive_response() completed. Total messages: {message_count} for thread {self.thread_id}"
+                )
             except asyncio.TimeoutError:
-                print(f"❌ [DEBUG] receive_response() TIMEOUT after {RESPONSE_TIMEOUT}s, messages received: {message_count} for thread {self.thread_id}")
+                print(
+                    f"❌ [DEBUG] receive_response() TIMEOUT after {RESPONSE_TIMEOUT}s, messages received: {message_count} for thread {self.thread_id}"
+                )
                 yield error_event(
                     self.thread_id,
                     "Response exceeded maximum time limit",
