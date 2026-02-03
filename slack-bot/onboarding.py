@@ -116,6 +116,54 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             },
         ],
     },
+    {
+        "id": "confluence",
+        "name": "Confluence",
+        "category": "scm",
+        "status": "active",
+        "icon": ":confluence:",
+        "icon_fallback": ":notebook:",
+        "description": "Search runbooks, documentation, and knowledge base articles.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into <https://id.atlassian.com/manage-profile/security/api-tokens|Atlassian API Tokens>\n"
+            "2. Click *Create API token with scopes*\n"
+            '3. Enter a name (e.g., "IncidentFox") and set an expiration date\n'
+            "4. Select *Confluence* as the app\n"
+            "5. In the scope search box, paste: `search:confluence` and select it\n"
+            "6. Repeat for these scopes: `read:content:confluence`, `read:content-details:confluence`, `read:space:confluence`, `read:attachment:confluence`\n"
+            "7. Click *Create token*, then *Copy* the token\n"
+            "8. Paste the API token and your details below"
+        ),
+        "docs_url": "https://developer.atlassian.com/cloud/confluence/rest/v2/intro/",
+        "context_prompt_placeholder": "e.g., 'Runbooks are in the SRE space. Production docs use the PROD label. Our incident response guide is at /wiki/spaces/SRE/pages/123456.'",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Token",
+                "type": "secret",
+                "required": True,
+                "placeholder": "ATATT3x...",
+                "hint": "Your Atlassian API token with Confluence scopes",
+            },
+            {
+                "id": "email",
+                "name": "Atlassian Email",
+                "type": "string",
+                "required": True,
+                "placeholder": "you@company.com",
+                "hint": "The email address associated with your Atlassian account",
+            },
+            {
+                "id": "domain",
+                "name": "Confluence URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-team.atlassian.net",
+                "hint": "Your Confluence URL (copy from your browser address bar on any Confluence page)",
+            },
+        ],
+    },
     # COMING SOON INTEGRATIONS
     {
         "id": "datadog",
