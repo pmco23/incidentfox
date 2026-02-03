@@ -4191,8 +4191,6 @@ def handle_api_key_submission(ack, body, client, view):
         ack(response_action="errors", errors={"api_key_block": error_message})
         return
 
-    ack()
-
     # Save the API key
     try:
         config_client = get_config_client()
@@ -4201,29 +4199,38 @@ def handle_api_key_submission(ack, body, client, view):
             api_key=api_key,
             api_endpoint=api_endpoint if api_endpoint else None,
         )
-
-        # Send success message to user
-        user_id = body.get("user", {}).get("id")
-        if user_id:
-            try:
-                # Open a DM with the user
-                dm_response = client.conversations_open(users=[user_id])
-                dm_channel = dm_response.get("channel", {}).get("id")
-
-                if dm_channel:
-                    success_blocks = onboarding.build_setup_complete_message()
-                    client.chat_postMessage(
-                        channel=dm_channel,
-                        text="Setup complete! Your API key has been saved.",
-                        blocks=success_blocks,
-                    )
-            except Exception as dm_error:
-                logger.warning(f"Failed to send DM confirmation: {dm_error}")
-
-        logger.info(f"API key saved for team {team_id}")
-
     except Exception as e:
         logger.error(f"Error saving API key: {e}", exc_info=True)
+        # Show error to user in modal
+        ack(
+            response_action="errors",
+            errors={
+                "api_key_block": f"Failed to save API key. Please try again. Error: {type(e).__name__}"
+            },
+        )
+        return
+
+    ack()
+
+    # Send success message to user
+    user_id = body.get("user", {}).get("id")
+    if user_id:
+        try:
+            # Open a DM with the user
+            dm_response = client.conversations_open(users=[user_id])
+            dm_channel = dm_response.get("channel", {}).get("id")
+
+            if dm_channel:
+                success_blocks = onboarding.build_setup_complete_message()
+                client.chat_postMessage(
+                    channel=dm_channel,
+                    text="Setup complete! Your API key has been saved.",
+                    blocks=success_blocks,
+                )
+        except Exception as dm_error:
+            logger.warning(f"Failed to send DM confirmation: {dm_error}")
+
+    logger.info(f"API key saved for team {team_id}")
 
 
 @app.action("open_setup_wizard")
@@ -4232,6 +4239,9 @@ def handle_open_setup_wizard(ack, body, client):
     ack()
 
     team_id = body.get("team", {}).get("id")
+    user_id = body.get("user", {}).get("id")
+    channel_id = body.get("channel", {}).get("id")
+
     if not team_id:
         logger.error("No team_id in body for setup wizard")
         return
@@ -4252,6 +4262,16 @@ def handle_open_setup_wizard(ack, body, client):
         logger.info(f"Opened setup wizard (integrations page) for team {team_id}")
     except Exception as e:
         logger.error(f"Failed to open setup wizard: {e}", exc_info=True)
+        # Show error to user via ephemeral message
+        if user_id and channel_id:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=f":warning: Failed to open setup wizard. Please try again. If the problem persists, contact support@incidentfox.ai",
+                )
+            except Exception:
+                pass  # Best effort
 
 
 @app.action("dismiss_welcome")
@@ -4496,6 +4516,14 @@ def handle_advanced_settings_submission(ack, body, client, view):
             logger.info(f"Saved advanced settings for team {team_id}")
         except Exception as e:
             logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
+            # Show error to user in modal
+            ack(
+                response_action="errors",
+                errors={
+                    "api_key_block": f"Failed to save settings. Please try again."
+                },
+            )
+            return
 
     # Close the modal (go back to integrations page)
     ack()
@@ -4552,6 +4580,15 @@ def handle_integration_config_submission(ack, body, client, view):
 
         except Exception as e:
             logger.error(f"Error saving integration config: {e}", exc_info=True)
+            # Show error to user - find the first field to attach error to
+            first_field = field_names[0] if field_names else "config"
+            ack(
+                response_action="errors",
+                errors={
+                    f"field_{first_field}": f"Failed to save {integration_id} config. Please try again."
+                },
+            )
+            return
 
     # Close the modal (clear from stack to return to page 2)
     ack(response_action="clear")
@@ -4613,6 +4650,94 @@ def handle_app_home_opened(client, event, context):
 
     except Exception as e:
         logger.error(f"Failed to publish Home Tab: {e}", exc_info=True)
+        # Show error view to user
+        error_view = {
+            "type": "home",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Unable to load IncidentFox*\n\nWe encountered an error loading your configuration. Please try again in a few moments.\n\nIf the problem persists, contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Retry"},
+                            "action_id": "home_retry_load",
+                        }
+                    ],
+                },
+            ],
+        }
+        try:
+            client.views_publish(user_id=user_id, view=error_view)
+        except Exception:
+            pass  # Best effort
+
+
+@app.action("home_retry_load")
+def handle_home_retry_load(ack, body, client, context):
+    """Handle retry button when Home Tab fails to load."""
+    ack()
+
+    user_id = body.get("user", {}).get("id")
+    team_id = body.get("team", {}).get("id") or context.get("team_id")
+
+    if not user_id or not team_id:
+        return
+
+    # Re-trigger the Home Tab load
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+        schemas = config_client.get_integration_schemas()
+
+        from home_tab import build_home_tab_view
+
+        view = build_home_tab_view(
+            team_id=team_id,
+            trial_info=trial_info,
+            configured_integrations=configured,
+            available_schemas=schemas,
+        )
+
+        client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Retry: Published Home Tab for user {user_id}, team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Retry failed for Home Tab: {e}", exc_info=True)
+        # Show error again
+        error_view = {
+            "type": "home",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":warning: *Unable to load IncidentFox*\n\nWe're still having trouble connecting. Please try again later or contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Retry"},
+                            "action_id": "home_retry_load",
+                        }
+                    ],
+                },
+            ],
+        }
+        try:
+            client.views_publish(user_id=user_id, view=error_view)
+        except Exception:
+            pass
 
 
 @app.action(re.compile(r"^home_(edit|add)_integration_.*"))
