@@ -2001,13 +2001,9 @@ def _trigger_incident_io_investigation(event, client, context):
                     f"Using workspace-configured incident.io API key for team {team_id}"
                 )
             else:
-                logger.info(
-                    f"No incident.io integration configured for team {team_id}"
-                )
+                logger.info(f"No incident.io integration configured for team {team_id}")
         except Exception as e:
-            logger.warning(
-                f"Failed to get incident.io config from config-service: {e}"
-            )
+            logger.warning(f"Failed to get incident.io config from config-service: {e}")
 
     # Fetch enriched alert details from Incident.io API
     logger.info("Fetching alert details from Incident.io API...")
