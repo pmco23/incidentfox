@@ -69,18 +69,11 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             },
             {
                 "id": "domain",
-                "name": "Domain",
-                "type": "select",
+                "name": "Dashboard URL or Domain",
+                "type": "string",
                 "required": True,
-                "options": [
-                    "coralogix.com",
-                    "eu2.coralogix.com",
-                    "coralogix.in",
-                    "coralogix.us",
-                    "cx498.coralogix.com",
-                ],
-                "placeholder": "Select your Coralogix domain",
-                "hint": "The domain shown in your Coralogix URL",
+                "placeholder": "https://myteam.app.cx498.coralogix.com OR app.cx498.coralogix.com",
+                "hint": "Paste your Coralogix dashboard URL or just the domain from your browser",
             },
         ],
     },
@@ -727,6 +720,58 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
         return False, "Invalid API key format. Anthropic keys start with sk-ant-"
 
     return True, ""
+
+
+def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Coralogix domain from URL or domain string.
+
+    Args:
+        input_str: URL (e.g., https://myteam.app.cx498.coralogix.com/#/settings/api-keys)
+                   or domain (e.g., app.cx498.coralogix.com)
+
+    Returns:
+        (is_valid, domain, error_message)
+    """
+    import re
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Domain or URL is required"
+
+    input_str = input_str.strip()
+
+    # If it looks like a URL, parse it
+    if input_str.startswith(('http://', 'https://')):
+        try:
+            parsed = urlparse(input_str)
+            hostname = parsed.hostname or parsed.netloc.split(':')[0]
+        except Exception:
+            return False, "", "Invalid URL format"
+    else:
+        # Treat as domain directly
+        hostname = input_str
+
+    # Validate it's a Coralogix domain
+    # Valid patterns: *.coralogix.com, *.app.coralogix.us, *.app.coralogix.in,
+    #                 *.app.coralogixsg.com, *.app.cx498.coralogix.com,
+    #                 *.app.eu2.coralogix.com, *.app.ap3.coralogix.com
+    valid_patterns = [
+        r'\.?coralogix\.com$',
+        r'\.?app\.coralogix\.us$',
+        r'\.?app\.coralogix\.in$',
+        r'\.?app\.coralogixsg\.com$',
+        r'\.?app\.cx498\.coralogix\.com$',
+        r'\.?app\.eu2\.coralogix\.com$',
+        r'\.?app\.ap3\.coralogix\.com$',
+    ]
+
+    is_valid = any(re.search(pattern, hostname) for pattern in valid_patterns)
+
+    if not is_valid:
+        return False, "", f"Invalid Coralogix domain: {hostname}. Please use a domain like app.cx498.coralogix.com or coralogix.com"
+
+    return True, hostname, ""
 
 
 def build_welcome_message(

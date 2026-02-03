@@ -4602,6 +4602,8 @@ def handle_integration_config_submission(ack, body, client, view):
 
     # Extract field values
     config = {}
+    validation_errors = []
+
     for field_id in field_names:
         block_id = f"field_{field_id}"
         action_id = f"input_{field_id}"
@@ -4614,7 +4616,18 @@ def handle_integration_config_submission(ack, body, client, view):
             # Plain text input
             val = field_value.get("value")
             if val:
-                config[field_id] = val.strip()
+                val = val.strip()
+
+                # Special handling for Coralogix domain field
+                if integration_id == "coralogix" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_domain, error_msg = onboarding.extract_coralogix_domain(val)
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_domain
+                else:
+                    config[field_id] = val
         elif "selected_option" in field_value:
             # Select
             selected = field_value.get("selected_option", {})
@@ -4624,6 +4637,25 @@ def handle_integration_config_submission(ack, body, client, view):
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             config[field_id] = len(selected) > 0
+
+    # If validation errors, show error modal
+    if validation_errors:
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Validation Error"},
+            "close": {"type": "plain_text", "text": "Fix"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":warning: *Please fix the following:*\n\n" + "\n".join(f"• {err}" for err in validation_errors),
+                    },
+                },
+            ],
+        }
+        ack(response_action="push", view=error_modal)
+        return
 
     # Save the integration config
     if team_id and integration_id and config:
