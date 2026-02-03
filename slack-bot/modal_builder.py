@@ -141,9 +141,6 @@ def build_session_modal(
     page: int = 1,
     result_images: Optional[List[dict]] = None,
     result_files: Optional[List[dict]] = None,
-    # Backward compatibility aliases (deprecated)
-    loading_file_id: Optional[str] = None,
-    done_file_id: Optional[str] = None,
 ) -> dict:
     """
     Build a modal showing the full investigation session.
@@ -2518,9 +2515,6 @@ def build_subagent_detail_modal(
     done_url: str = None,
     thought_idx: int = 0,
     page: int = 1,
-    # Backward compatibility aliases (deprecated)
-    loading_file_id: str = None,
-    done_file_id: str = None,
 ) -> dict:
     """
     Build a modal showing detailed view of a subagent's tool calls.

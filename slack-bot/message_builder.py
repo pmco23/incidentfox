@@ -181,9 +181,6 @@ def build_progress_message(
     thread_id: Optional[str] = None,
     trigger_user_id: Optional[str] = None,
     trigger_text: Optional[str] = None,
-    # Backward compatibility aliases (deprecated)
-    loading_file_id: Optional[str] = None,
-    done_file_id: Optional[str] = None,
 ) -> list:
     """
     Build Block Kit blocks for an in-progress investigation.
@@ -464,8 +461,6 @@ def build_final_message(
     result_files: Optional[List[dict]] = None,
     trigger_user_id: Optional[str] = None,
     trigger_text: Optional[str] = None,
-    # Backward compatibility (deprecated)
-    done_file_id: Optional[str] = None,
 ) -> list:
     """
     Build Block Kit blocks for a completed investigation.
