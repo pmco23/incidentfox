@@ -118,7 +118,7 @@ class ConfigServiceClient:
         try:
             # Call Config Service to get team's effective config
             response = await self._client.get(
-                f"{self.base_url}/api/v2/config/me",
+                f"{self.base_url}/api/v1/config/me",
                 headers={
                     "Accept": "application/json",
                     "X-Org-Id": tenant_id,

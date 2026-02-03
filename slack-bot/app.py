@@ -4196,34 +4196,31 @@ def handle_api_key_submission(ack, body, client, view):
     # Save the API key
     try:
         config_client = get_config_client()
-        success = config_client.save_api_key(
+        config_client.save_api_key(
             slack_team_id=team_id,
             api_key=api_key,
             api_endpoint=api_endpoint if api_endpoint else None,
         )
 
-        if success:
-            # Send success message to user
-            user_id = body.get("user", {}).get("id")
-            if user_id:
-                try:
-                    # Open a DM with the user
-                    dm_response = client.conversations_open(users=[user_id])
-                    dm_channel = dm_response.get("channel", {}).get("id")
+        # Send success message to user
+        user_id = body.get("user", {}).get("id")
+        if user_id:
+            try:
+                # Open a DM with the user
+                dm_response = client.conversations_open(users=[user_id])
+                dm_channel = dm_response.get("channel", {}).get("id")
 
-                    if dm_channel:
-                        success_blocks = onboarding.build_setup_complete_message()
-                        client.chat_postMessage(
-                            channel=dm_channel,
-                            text="Setup complete! Your API key has been saved.",
-                            blocks=success_blocks,
-                        )
-                except Exception as dm_error:
-                    logger.warning(f"Failed to send DM confirmation: {dm_error}")
+                if dm_channel:
+                    success_blocks = onboarding.build_setup_complete_message()
+                    client.chat_postMessage(
+                        channel=dm_channel,
+                        text="Setup complete! Your API key has been saved.",
+                        blocks=success_blocks,
+                    )
+            except Exception as dm_error:
+                logger.warning(f"Failed to send DM confirmation: {dm_error}")
 
-            logger.info(f"API key saved for team {team_id}")
-        else:
-            logger.error(f"Failed to save API key for team {team_id}")
+        logger.info(f"API key saved for team {team_id}")
 
     except Exception as e:
         logger.error(f"Error saving API key: {e}", exc_info=True)
@@ -4546,16 +4543,12 @@ def handle_integration_config_submission(ack, body, client, view):
     if team_id and integration_id and config:
         try:
             config_client = get_config_client()
-            success = config_client.save_integration_config(
+            config_client.save_integration_config(
                 slack_team_id=team_id,
                 integration_id=integration_id,
                 config=config,
             )
-
-            if success:
-                logger.info(f"Saved {integration_id} config for team {team_id}")
-            else:
-                logger.error(f"Failed to save {integration_id} config")
+            logger.info(f"Saved {integration_id} config for team {team_id}")
 
         except Exception as e:
             logger.error(f"Error saving integration config: {e}", exc_info=True)

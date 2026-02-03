@@ -13,6 +13,15 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
+class ConfigServiceError(Exception):
+    """Raised when config service operations fail."""
+
+    def __init__(self, message: str, status_code: int = None, response_text: str = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_text = response_text
+
 # Config service URL
 CONFIG_SERVICE_URL = os.environ.get(
     "CONFIG_SERVICE_URL",
@@ -230,7 +239,7 @@ class ConfigServiceClient:
         config: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Update node configuration."""
-        url = f"{self.base_url}/api/v2/config"
+        url = f"{self.base_url}/api/v1/config/me"
 
         headers = self._headers()
         headers["X-Org-Id"] = org_id
@@ -244,11 +253,18 @@ class ConfigServiceClient:
         self,
         slack_team_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """Get configuration for a Slack workspace."""
+        """Get configuration for a Slack workspace.
+
+        Returns:
+            Configuration dict, or None if workspace not found (404).
+
+        Raises:
+            ConfigServiceError: If the config service request fails (non-404 errors).
+        """
         org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
-        url = f"{self.base_url}/api/v2/config/effective"
+        url = f"{self.base_url}/api/v1/config/me"
 
         headers = self._headers()
         headers["X-Org-Id"] = org_id
@@ -257,12 +273,21 @@ class ConfigServiceClient:
         try:
             response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 404:
+                logger.info(f"No config found for workspace {slack_team_id}")
                 return None
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get workspace config: {e}")
-            return None
+            logger.error(
+                f"Failed to get workspace config for {slack_team_id}: "
+                f"status={getattr(e.response, 'status_code', 'N/A')}, "
+                f"error={e}"
+            )
+            raise ConfigServiceError(
+                f"Failed to get workspace config: {e}",
+                status_code=getattr(e.response, "status_code", None),
+                response_text=getattr(e.response, "text", None),
+            ) from e
 
     def has_access(self, slack_team_id: str) -> bool:
         """Check if workspace has access to the service.
@@ -358,10 +383,13 @@ class ConfigServiceClient:
             "can_access": can_access,
         }
 
-    def activate_subscription(self, slack_team_id: str) -> bool:
+    def activate_subscription(self, slack_team_id: str) -> None:
         """Activate subscription for a workspace (called after payment).
 
         Sets subscription_status to "active", allowing BYOK access.
+
+        Raises:
+            ConfigServiceError: If the config service request fails.
         """
         org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
@@ -378,10 +406,17 @@ class ConfigServiceClient:
         try:
             self._update_config(org_id, team_node_id, config)
             logger.info(f"Activated subscription for workspace {slack_team_id}")
-            return True
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to activate subscription: {e}")
-            return False
+            logger.error(
+                f"Failed to activate subscription for {slack_team_id}: "
+                f"status={getattr(e.response, 'status_code', 'N/A')}, "
+                f"error={e}"
+            )
+            raise ConfigServiceError(
+                f"Failed to activate subscription: {e}",
+                status_code=getattr(e.response, "status_code", None),
+                response_text=getattr(e.response, "text", None),
+            ) from e
 
     def get_trial_status(self, slack_team_id: str) -> Optional[Dict[str, Any]]:
         """Get free trial status for a workspace."""
@@ -418,8 +453,12 @@ class ConfigServiceClient:
         slack_team_id: str,
         api_key: str,
         api_endpoint: str = None,
-    ) -> bool:
-        """Save user's Anthropic API key."""
+    ) -> None:
+        """Save user's Anthropic API key.
+
+        Raises:
+            ConfigServiceError: If the config service request fails.
+        """
         org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
@@ -438,10 +477,17 @@ class ConfigServiceClient:
         try:
             self._update_config(org_id, team_node_id, config)
             logger.info(f"Saved API key for workspace {slack_team_id}")
-            return True
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to save API key: {e}")
-            return False
+            logger.error(
+                f"Failed to save API key for {slack_team_id}: "
+                f"status={getattr(e.response, 'status_code', 'N/A')}, "
+                f"error={e}"
+            )
+            raise ConfigServiceError(
+                f"Failed to save API key: {e}",
+                status_code=getattr(e.response, "status_code", None),
+                response_text=getattr(e.response, "text", None),
+            ) from e
 
     def get_integration_schemas(
         self, category: str = None, featured: bool = None
@@ -455,6 +501,9 @@ class ConfigServiceClient:
 
         Returns:
             List of integration schema dictionaries
+
+        Raises:
+            ConfigServiceError: If the config service request fails.
         """
         url = f"{self.base_url}/api/v1/integrations/schemas"
         params = {}
@@ -470,8 +519,16 @@ class ConfigServiceClient:
             response.raise_for_status()
             return response.json().get("integrations", [])
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get integration schemas: {e}")
-            return []
+            logger.error(
+                f"Failed to get integration schemas: "
+                f"status={getattr(e.response, 'status_code', 'N/A')}, "
+                f"error={e}"
+            )
+            raise ConfigServiceError(
+                f"Failed to get integration schemas: {e}",
+                status_code=getattr(e.response, "status_code", None),
+                response_text=getattr(e.response, "text", None),
+            ) from e
 
     def get_configured_integrations(self, slack_team_id: str) -> dict:
         """
@@ -520,7 +577,7 @@ class ConfigServiceClient:
 
     def save_integration_config(
         self, slack_team_id: str, integration_id: str, config: dict
-    ) -> bool:
+    ) -> None:
         """
         Save configuration for a specific integration.
 
@@ -529,8 +586,8 @@ class ConfigServiceClient:
             integration_id: Integration identifier (e.g., "datadog", "cloudwatch")
             config: Configuration dict for the integration
 
-        Returns:
-            True if successful, False otherwise
+        Raises:
+            ConfigServiceError: If the config service request fails.
         """
         org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
@@ -540,10 +597,17 @@ class ConfigServiceClient:
         try:
             self._update_config(org_id, team_node_id, update)
             logger.info(f"Saved {integration_id} config for workspace {slack_team_id}")
-            return True
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to save {integration_id} config: {e}")
-            return False
+            logger.error(
+                f"Failed to save {integration_id} config for {slack_team_id}: "
+                f"status={getattr(e.response, 'status_code', 'N/A')}, "
+                f"error={e}"
+            )
+            raise ConfigServiceError(
+                f"Failed to save {integration_id} config: {e}",
+                status_code=getattr(e.response, "status_code", None),
+                response_text=getattr(e.response, "text", None),
+            ) from e
 
 
 # Global client instance
