@@ -69,6 +69,7 @@ SLACK_SCOPES = [
     "im:write",
     "links:read",
     "links:write",
+    "links.embed:write",
     "metadata.message:read",
     "mpim:history",
     "mpim:read",

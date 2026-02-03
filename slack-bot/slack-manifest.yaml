@@ -19,6 +19,9 @@ oauth_config:
       - reactions:write
       - im:history
       - groups:history
+      - links:read
+      - links:write
+      - links.embed:write
 settings:
   event_subscriptions:
     bot_events:
