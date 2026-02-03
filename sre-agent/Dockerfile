@@ -26,6 +26,8 @@ RUN echo "Building for architecture: ${TARGETARCH}"
 # ==============================================================================
 
 # Install Node.js (required by Claude Code CLI), kubectl, AWS CLI, and utilities
+# Pin kubectl version for reproducible builds (avoids flaky dl.k8s.io/release/stable.txt)
+ARG KUBECTL_VERSION=v1.31.0
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -33,9 +35,9 @@ RUN apt-get update && apt-get install -y \
     jq \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs \
-    # Install kubectl for correct architecture
+    # Install kubectl for correct architecture (pinned version)
     && KUBECTL_ARCH=$([ "${TARGETARCH}" = "arm64" ] && echo "arm64" || echo "amd64") \
-    && curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/${KUBECTL_ARCH}/kubectl" \
+    && curl -LO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl" \
     && install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl \
     && rm kubectl \
     # Install AWS CLI for correct architecture
