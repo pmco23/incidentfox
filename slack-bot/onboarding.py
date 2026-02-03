@@ -1616,7 +1616,7 @@ def build_integration_config_modal(
         {
             "type": "input",
             "block_id": "field_enabled",
-            "optional": False,
+            "optional": True,
             "element": {
                 "type": "checkboxes",
                 "action_id": "input_enabled",
