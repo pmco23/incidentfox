@@ -4491,12 +4491,13 @@ def handle_open_advanced_settings(ack, body, client):
             existing_endpoint=existing_endpoint,
         )
 
-        # Use views_open from Home tab (no existing view), views_push from modal
-        if body.get("view"):
+        # Use views_push from modal, views_open from Home tab or messages
+        view_type = body.get("view", {}).get("type")
+        if view_type == "modal":
             logger.info("Pushing advanced settings modal (from modal)...")
             result = client.views_push(trigger_id=body["trigger_id"], view=modal)
         else:
-            logger.info("Opening advanced settings modal (from Home tab)...")
+            logger.info("Opening advanced settings modal (from Home tab/message)...")
             result = client.views_open(trigger_id=body["trigger_id"], view=modal)
         logger.info(f"views result: ok={result.get('ok')}")
         logger.info(f"Opened Advanced Settings modal for team {team_id}")
