@@ -4201,13 +4201,37 @@ def handle_api_key_submission(ack, body, client, view):
         )
     except Exception as e:
         logger.error(f"Error saving API key: {e}", exc_info=True)
-        # Show error to user in modal
-        ack(
-            response_action="errors",
-            errors={
-                "api_key_block": f"Failed to save API key. Please try again. Error: {type(e).__name__}"
-            },
-        )
+        # Extract error details
+        error_detail = str(e)
+        status_code = getattr(e, "status_code", None)
+        if status_code:
+            error_detail = f"HTTP {status_code}"
+
+        # Show error in a push modal so it's clearly visible
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Save Failed"},
+            "close": {"type": "plain_text", "text": "Try Again"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":x: *Failed to save API key*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                    },
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": f"Error: {error_detail}",
+                        }
+                    ],
+                },
+            ],
+        }
+        ack(response_action="push", view=error_modal)
         return
 
     ack()
@@ -4516,13 +4540,37 @@ def handle_advanced_settings_submission(ack, body, client, view):
             logger.info(f"Saved advanced settings for team {team_id}")
         except Exception as e:
             logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
-            # Show error to user in modal
-            ack(
-                response_action="errors",
-                errors={
-                    "api_key_block": f"Failed to save settings. Please try again."
-                },
-            )
+            # Extract error details
+            error_detail = str(e)
+            status_code = getattr(e, "status_code", None)
+            if status_code:
+                error_detail = f"HTTP {status_code}"
+
+            # Show error in a push modal
+            error_modal = {
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Save Failed"},
+                "close": {"type": "plain_text", "text": "Try Again"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": ":x: *Failed to save settings*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Error: {error_detail}",
+                            }
+                        ],
+                    },
+                ],
+            }
+            ack(response_action="push", view=error_modal)
             return
 
     # Close the modal (go back to integrations page)
@@ -4580,14 +4628,37 @@ def handle_integration_config_submission(ack, body, client, view):
 
         except Exception as e:
             logger.error(f"Error saving integration config: {e}", exc_info=True)
-            # Show error to user - find the first field to attach error to
-            first_field = field_names[0] if field_names else "config"
-            ack(
-                response_action="errors",
-                errors={
-                    f"field_{first_field}": f"Failed to save {integration_id} config. Please try again."
-                },
-            )
+            # Extract more error details for debugging
+            error_detail = str(e)
+            status_code = getattr(e, "status_code", None)
+            if status_code:
+                error_detail = f"HTTP {status_code}"
+
+            # Show error in a push modal so it's clearly visible
+            error_modal = {
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Save Failed"},
+                "close": {"type": "plain_text", "text": "Try Again"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":x: *Failed to save {integration_id} configuration*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": f"Error: {error_detail}",
+                            }
+                        ],
+                    },
+                ],
+            }
+            ack(response_action="push", view=error_modal)
             return
 
     # Close the modal (clear from stack to return to page 2)
