@@ -634,12 +634,18 @@ static_resources:
                                     timeout=5,
                                 )
                                 if health_response.status_code == 200:
-                                    print(f"✅ Sandbox {sandbox_name} health check passed")
+                                    print(
+                                        f"✅ Sandbox {sandbox_name} health check passed"
+                                    )
                                     return True
                                 else:
-                                    print(f"⏳ Sandbox health check returned {health_response.status_code}, retrying...")
+                                    print(
+                                        f"⏳ Sandbox health check returned {health_response.status_code}, retrying..."
+                                    )
                             except requests.RequestException as e:
-                                print(f"⏳ Sandbox health check failed ({e}), retrying...")
+                                print(
+                                    f"⏳ Sandbox health check failed ({e}), retrying..."
+                                )
 
             except ApiException:
                 pass
