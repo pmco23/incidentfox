@@ -1548,8 +1548,13 @@ def handle_mention(event, say, client, context):
             logger.info(f"Trial expired for team {team_id}, skipping investigation")
             return
     except Exception as e:
-        logger.warning(f"Failed to check trial status: {e}")
-        # Continue anyway - don't block on trial check failure
+        logger.error(f"Failed to check trial status: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=event.get("thread_ts") or event["ts"],
+            text=":x: Unable to verify your account status. Please try again later.",
+        )
+        return
 
     # Thread context: use existing thread or create new one
     thread_ts = event.get("thread_ts") or event["ts"]
@@ -2293,8 +2298,12 @@ def handle_message(event, client, context):
                 )
                 return
         except Exception as e:
-            logger.warning(f"Failed to check trial status for DM: {e}")
-            # Continue anyway - don't block on trial check failure
+            logger.error(f"Failed to check trial status for DM: {e}")
+            client.chat_postMessage(
+                channel=channel_id,
+                text=":x: Unable to verify your account status. Please try again later.",
+            )
+            return
 
         # Continue to DM investigation below
         # (Extract images, build prompt, trigger investigation)
@@ -2568,8 +2577,8 @@ def handle_message(event, client, context):
                     )
                     return
             except Exception as e:
-                logger.warning(f"Failed to check trial status for alert: {e}")
-                # Continue anyway - don't block on trial check failure
+                logger.error(f"Failed to check trial status for alert: {e}")
+                return  # Block if we can't verify trial status
 
             logger.info("✅ Confirmed: NEW ALERT - triggering investigation")
             _trigger_incident_io_investigation(event, client, context)
