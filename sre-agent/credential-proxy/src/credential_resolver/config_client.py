@@ -153,6 +153,18 @@ class ConfigServiceClient:
                 f"Config Service HTTP error: {e.response.status_code} - "
                 f"{e.response.text}"
             )
+            # For Anthropic, fall back to shared key when tenant doesn't exist
+            # This enables development/testing without full tenant setup
+            if integration_id == "anthropic":
+                logger.info(
+                    f"Tenant {tenant_id} not found, falling back to shared Anthropic key"
+                )
+                shared_key = get_shared_anthropic_key()
+                if shared_key:
+                    return {
+                        "api_key": shared_key,
+                        "workspace_attribution": tenant_id,
+                    }
             return None
         except Exception as e:
             logger.error(f"Config Service error: {e}")

@@ -1733,6 +1733,8 @@ def handle_mention(event, say, client, context):
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         # Add images if any were attached
@@ -2108,6 +2110,8 @@ Use all available tools to gather context about this issue."""
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(
@@ -2402,6 +2406,8 @@ def handle_message(event, client, context):
             request_payload = {
                 "prompt": enriched_prompt,
                 "thread_id": thread_id,
+                "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+                "team_id": team_id,
             }
 
             # Add images if present
@@ -2886,6 +2892,8 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(
@@ -3066,6 +3074,8 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(

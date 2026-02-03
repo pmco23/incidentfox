@@ -28,7 +28,6 @@ INTEGRATION_LOGOS = {
     "elasticsearch": f"{ASSETS_BASE_URL}/integrations/elasticsearch.png",
     "opensearch": f"{ASSETS_BASE_URL}/integrations/opensearch.png",
     "newrelic": f"{ASSETS_BASE_URL}/integrations/new-relic.png",
-    "new_relic": f"{ASSETS_BASE_URL}/integrations/new-relic.png",
     "honeycomb": f"{ASSETS_BASE_URL}/integrations/honeycomb.png",
     "dynatrace": f"{ASSETS_BASE_URL}/integrations/dynatrace.png",
     "chronosphere": f"{ASSETS_BASE_URL}/integrations/chronosphere.png",
@@ -38,7 +37,6 @@ INTEGRATION_LOGOS = {
     # Incident management
     "incident_io": f"{ASSETS_BASE_URL}/integrations/incident_io.png",
     "pagerduty": f"{ASSETS_BASE_URL}/integrations/pagerduty.png",
-    "pd": f"{ASSETS_BASE_URL}/integrations/pagerduty.png",
     "opsgenie": f"{ASSETS_BASE_URL}/integrations/opsgenie.png",
     # Cloud providers
     "aws": f"{ASSETS_BASE_URL}/integrations/aws.png",
@@ -53,7 +51,6 @@ INTEGRATION_LOGOS = {
     "servicenow": f"{ASSETS_BASE_URL}/integrations/servicenow.png",
     # Infrastructure
     "kubernetes": f"{ASSETS_BASE_URL}/integrations/k8s.png",
-    "k8s": f"{ASSETS_BASE_URL}/integrations/k8s.png",
     "temporal": f"{ASSETS_BASE_URL}/integrations/temporal.png",
     # Data
     "snowflake": f"{ASSETS_BASE_URL}/integrations/snowflake.png",
