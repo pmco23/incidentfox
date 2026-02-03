@@ -1708,12 +1708,29 @@ def build_integration_config_modal(
 
         field_names.append(field_id)
 
+        # Make field optional if:
+        # 1. Integration is disabled (not enabled), OR
+        # 2. Field already has a value (editing scenario), OR
+        # 3. Field is not originally required
+        is_enabled = existing_config.get("enabled", True)
+        field_has_value = field_id in existing_config and existing_config.get(field_id)
+        make_optional = not is_enabled or field_has_value or not field_required
+
         if field_type == "secret":
             # Secret fields: plain text input, don't pre-fill
+            # Always optional when editing (field_has_value) to avoid forcing re-entry
+            hint_text = field_hint
+            if field_has_value:
+                hint_text = (
+                    f"{field_hint} (already configured - leave blank to keep existing)"
+                    if field_hint
+                    else "Already configured - leave blank to keep existing value"
+                )
+
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": {
                     "type": "plain_text_input",
                     "action_id": f"input_{field_id}",
@@ -1724,8 +1741,8 @@ def build_integration_config_modal(
                 },
                 "label": {"type": "plain_text", "text": field_name},
             }
-            if field_hint:
-                input_block["hint"] = {"type": "plain_text", "text": field_hint}
+            if hint_text:
+                input_block["hint"] = {"type": "plain_text", "text": hint_text}
             blocks.append(input_block)
 
         elif field_type == "boolean":
@@ -1788,7 +1805,7 @@ def build_integration_config_modal(
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": element,
                 "label": {"type": "plain_text", "text": field_name},
             }
@@ -1813,7 +1830,7 @@ def build_integration_config_modal(
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
-                "optional": not field_required,
+                "optional": make_optional,
                 "element": element,
                 "label": {"type": "plain_text", "text": field_name},
             }

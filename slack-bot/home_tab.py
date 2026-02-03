@@ -110,6 +110,10 @@ def build_home_tab_view(
     )
 
     if configured_integrations:
+        from assets_config import get_asset_url
+
+        done_url = get_asset_url("done")
+
         for int_id, config in configured_integrations.items():
             # Get integration info from INTEGRATIONS
             integration = get_integration_by_id(int_id)
@@ -122,7 +126,26 @@ def build_home_tab_view(
             if len(description) > 60:
                 description = description[:57] + "..."
 
-            # Build consistent section block (same as available integrations)
+            # Add status indicator with done.png for enabled integrations
+            if is_enabled and done_url:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "image",
+                                "image_url": done_url,
+                                "alt_text": "connected",
+                            },
+                            {
+                                "type": "mrkdwn",
+                                "text": "Connected",
+                            },
+                        ],
+                    }
+                )
+
+            # Build section block with name + description
             status_suffix = " (disabled)" if not is_enabled else ""
             section_block = {
                 "type": "section",

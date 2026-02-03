@@ -117,12 +117,15 @@ class ConfigServiceClient:
         """
         try:
             # Call Config Service to get team's effective config
+            # Config service expects org_id in "slack-{team_id}" format
+            org_id = f"slack-{tenant_id}" if not tenant_id.startswith("slack-") else tenant_id
+            # Use "default" as node_id - the config is stored at org level
             response = await self._client.get(
                 f"{self.base_url}/api/v1/config/me",
                 headers={
                     "Accept": "application/json",
-                    "X-Org-Id": tenant_id,
-                    "X-Team-Node-Id": team_id,
+                    "X-Org-Id": org_id,
+                    "X-Team-Node-Id": "default",
                 },
             )
             response.raise_for_status()

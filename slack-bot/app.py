@@ -4600,6 +4600,14 @@ def handle_integration_config_submission(ack, body, client, view):
 
     values = view.get("state", {}).get("values", {})
 
+    # Get existing config to preserve values not provided (e.g., secret fields left blank)
+    try:
+        config_client = get_config_client()
+        existing_integrations = config_client.get_configured_integrations(team_id)
+        existing_config = existing_integrations.get(integration_id, {})
+    except Exception:
+        existing_config = {}
+
     # Extract field values
     config = {}
     validation_errors = []
@@ -4628,11 +4636,18 @@ def handle_integration_config_submission(ack, body, client, view):
                         config[field_id] = parsed_domain
                 else:
                     config[field_id] = val
+            elif field_id in existing_config:
+                # Field was left blank but exists in config - preserve existing value
+                # This is especially important for secret fields
+                config[field_id] = existing_config[field_id]
         elif "selected_option" in field_value:
             # Select
             selected = field_value.get("selected_option", {})
             if selected:
                 config[field_id] = selected.get("value")
+            elif field_id in existing_config:
+                # No selection but exists in config - preserve
+                config[field_id] = existing_config[field_id]
         elif "selected_options" in field_value:
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
