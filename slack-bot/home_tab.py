@@ -6,12 +6,15 @@ Provides the App Home tab UI for managing integrations and viewing status.
 
 from typing import Dict, List, Optional
 
+from assets_config import get_integration_logo_url
+from onboarding import INTEGRATIONS, get_integration_by_id
+
 
 def build_home_tab_view(
     team_id: str,
     trial_info: Optional[Dict],
     configured_integrations: Dict[str, Dict],
-    available_schemas: List[Dict],
+    available_schemas: List[Dict] = None,  # Deprecated - now uses INTEGRATIONS
     user_is_admin: bool = False,
 ) -> Dict:
     """
@@ -21,7 +24,7 @@ def build_home_tab_view(
         team_id: Slack team ID
         trial_info: Trial status info from config_client
         configured_integrations: Dict of configured integration configs
-        available_schemas: List of available integration schemas
+        available_schemas: Deprecated - now uses INTEGRATIONS from onboarding
         user_is_admin: Whether the user is a workspace admin
 
     Returns:
@@ -108,21 +111,51 @@ def build_home_tab_view(
 
     if configured_integrations:
         for int_id, config in configured_integrations.items():
-            # Find schema for display name
-            schema = next((s for s in available_schemas if s.get("id") == int_id), None)
-            name = schema.get("name") if schema else int_id.title()
+            # Get integration info from INTEGRATIONS
+            integration = get_integration_by_id(int_id)
+            name = integration.get("name") if integration else int_id.title()
+            logo_url = get_integration_logo_url(int_id)
+            is_enabled = config.get("enabled", True)
 
-            blocks.append(
-                {
-                    "type": "section",
-                    "text": {"type": "mrkdwn", "text": f":white_check_mark: *{name}*"},
-                    "accessory": {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Edit"},
-                        "action_id": f"home_edit_integration_{int_id}",
-                    },
+            # Status indicator
+            if is_enabled:
+                status_text = f":white_check_mark: *{name}*"
+            else:
+                status_text = f":white_circle: *{name}* (disabled)"
+
+            section_block = {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": status_text},
+            }
+
+            # Add logo if available
+            if logo_url:
+                section_block["accessory"] = {
+                    "type": "image",
+                    "image_url": logo_url,
+                    "alt_text": name,
                 }
-            )
+                blocks.append(section_block)
+                # Add Edit button in separate actions block
+                blocks.append(
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Edit"},
+                                "action_id": f"home_edit_integration_{int_id}",
+                            }
+                        ],
+                    }
+                )
+            else:
+                section_block["accessory"] = {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Edit"},
+                    "action_id": f"home_edit_integration_{int_id}",
+                }
+                blocks.append(section_block)
     else:
         blocks.append(
             {
@@ -133,7 +166,7 @@ def build_home_tab_view(
 
     blocks.append({"type": "divider"})
 
-    # Available integrations section
+    # Available integrations section - use INTEGRATIONS from onboarding
     blocks.append(
         {
             "type": "header",
@@ -141,62 +174,137 @@ def build_home_tab_view(
         }
     )
 
-    # Show unconfigured integrations (prioritize featured, limit to 8)
-    unconfigured = [
-        s for s in available_schemas if s.get("id") not in configured_integrations
+    # Get active integrations not yet configured
+    active_integrations = [
+        i for i in INTEGRATIONS
+        if i.get("status") == "active" and i.get("id") not in configured_integrations
     ]
-    featured = [s for s in unconfigured if s.get("featured")]
-    non_featured = [s for s in unconfigured if not s.get("featured")]
 
-    # Show featured first, then non-featured, max 8 total
-    to_show = featured[:8]
-    if len(to_show) < 8:
-        to_show.extend(non_featured[: 8 - len(to_show)])
+    if active_integrations:
+        for integration in active_integrations:
+            int_id = integration["id"]
+            name = integration["name"]
+            description = integration.get("description", "")
+            logo_url = get_integration_logo_url(int_id)
 
-    if to_show:
-        for schema in to_show:
-            description = schema.get("description", "")
             # Truncate description
             if len(description) > 60:
                 description = description[:57] + "..."
 
-            blocks.append(
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"*{schema.get('name', schema.get('id'))}*\n{description}",
-                    },
-                    "accessory": {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Connect"},
-                        "action_id": f"home_add_integration_{schema.get('id')}",
-                        "style": "primary",
-                    },
+            section_block = {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*{name}*\n{description}",
+                },
+            }
+
+            # Add logo if available
+            if logo_url:
+                section_block["accessory"] = {
+                    "type": "image",
+                    "image_url": logo_url,
+                    "alt_text": name,
                 }
-            )
-    elif available_schemas and len(configured_integrations) == len(available_schemas):
-        # Only show this if there are schemas AND all are connected
+                blocks.append(section_block)
+                # Add Connect button in separate actions block
+                blocks.append(
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "Connect"},
+                                "action_id": f"home_add_integration_{int_id}",
+                                "style": "primary",
+                            }
+                        ],
+                    }
+                )
+            else:
+                section_block["accessory"] = {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Connect"},
+                    "action_id": f"home_add_integration_{int_id}",
+                    "style": "primary",
+                }
+                blocks.append(section_block)
+
+        blocks.append({"type": "divider"})
+    elif not active_integrations and configured_integrations:
+        # All active integrations are connected
         blocks.append(
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "_All available integrations are connected!_",
+                    "text": ":white_check_mark: _All available integrations are connected!_",
                 },
             }
         )
-    else:
-        # No schemas available at all
+        blocks.append({"type": "divider"})
+
+    # Coming Soon section
+    coming_soon = [i for i in INTEGRATIONS if i.get("status") == "coming_soon"]
+    if coming_soon:
         blocks.append(
             {
                 "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "_No integrations available at this time._",
-                },
+                "text": {"type": "mrkdwn", "text": "*Coming Soon*"},
             }
         )
+
+        # Show coming soon integrations with logos in context blocks
+        # Group into rows of 4 integrations
+        for i in range(0, len(coming_soon), 4):
+            row_integrations = coming_soon[i : i + 4]
+            context_elements = []
+            for integration in row_integrations:
+                int_id = integration["id"]
+                name = integration["name"]
+                logo_url = get_integration_logo_url(int_id)
+                if logo_url:
+                    context_elements.append(
+                        {
+                            "type": "image",
+                            "image_url": logo_url,
+                            "alt_text": name,
+                        }
+                    )
+                context_elements.append(
+                    {
+                        "type": "plain_text",
+                        "text": name,
+                        "emoji": True,
+                    }
+                )
+            if context_elements:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": context_elements,
+                    }
+                )
+
+        blocks.append({"type": "divider"})
+
+    # Set Up Integrations button
+    blocks.append(
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": ":gear: Set Up Integrations",
+                        "emoji": True,
+                    },
+                    "action_id": "open_setup_wizard",
+                },
+            ],
+        }
+    )
 
     # Help footer
     blocks.append({"type": "divider"})

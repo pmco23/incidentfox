@@ -1032,9 +1032,9 @@ def build_integrations_page(
             button["style"] = "primary"
         category_buttons.append(button)
 
-    # Split into rows of 3 for better visual balance (6 categories = 2 rows of 3)
-    for i in range(0, len(category_buttons), 3):
-        blocks.append({"type": "actions", "elements": category_buttons[i : i + 3]})
+    # Split into rows of 2 for consistent layout (6 categories = 3 rows of 2)
+    for i in range(0, len(category_buttons), 2):
+        blocks.append({"type": "actions", "elements": category_buttons[i : i + 2]})
 
     blocks.append({"type": "divider"})
 

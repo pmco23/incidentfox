@@ -4464,6 +4464,7 @@ def handle_integrations_page_done(ack, body, client, view):
 def handle_open_advanced_settings(ack, body, client):
     """Open Advanced Settings modal (BYOK, HTTP proxy)."""
     ack()
+    logger.info("open_advanced_settings action triggered")
 
     team_id = body.get("team", {}).get("id")
     if not team_id:
@@ -4473,10 +4474,14 @@ def handle_open_advanced_settings(ack, body, client):
     try:
         # Check if user already has an API key configured
         config_client = get_config_client()
+        logger.info(f"Fetching anthropic config for team {team_id}")
         anthropic_config = config_client.get_integration_config(team_id, "anthropic")
         existing_api_key = bool(anthropic_config and anthropic_config.get("api_key"))
         existing_endpoint = (
             anthropic_config.get("api_endpoint") if anthropic_config else None
+        )
+        logger.info(
+            f"Building advanced settings modal: existing_api_key={existing_api_key}, existing_endpoint={existing_endpoint}"
         )
 
         onboarding = get_onboarding_modules()
@@ -4486,7 +4491,9 @@ def handle_open_advanced_settings(ack, body, client):
             existing_endpoint=existing_endpoint,
         )
 
-        client.views_push(trigger_id=body["trigger_id"], view=modal)
+        logger.info("Pushing advanced settings modal...")
+        result = client.views_push(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"views_push result: ok={result.get('ok')}")
         logger.info(f"Opened Advanced Settings modal for team {team_id}")
 
     except Exception as e:
@@ -4671,22 +4678,18 @@ def handle_home_integration_action(ack, body, client):
 
     try:
         config_client = get_config_client()
-        schemas = config_client.get_integration_schemas()
-        schema = next((s for s in schemas if s.get("id") == integration_id), None)
+        onboarding = get_onboarding_modules()
 
-        if not schema:
-            logger.error(f"Schema not found for {integration_id}")
-            return
-
+        # Get existing config if editing
         existing_config = None
         if action_type == "edit":
             configured = config_client.get_configured_integrations(team_id)
             existing_config = configured.get(integration_id, {})
 
-        onboarding = get_onboarding_modules()
+        # Use onboarding.get_integration_by_id() directly - no need for config-service schemas
         modal = onboarding.build_integration_config_modal(
             team_id=team_id,
-            schema=schema,
+            integration_id=integration_id,
             existing_config=existing_config,
         )
 
