@@ -1542,7 +1542,7 @@ def handle_mention(event, say, client, context):
                 text=(
                     ":warning: Your free trial has expired.\n\n"
                     "To continue using IncidentFox, please upgrade your plan. "
-                    "Contact us at sales@incidentfox.ai to get started."
+                    "Contact us at support@incidentfox.ai to get started."
                 ),
             )
             logger.info(f"Trial expired for team {team_id}, skipping investigation")
@@ -2290,7 +2290,7 @@ def handle_message(event, client, context):
                     text=(
                         ":warning: Your free trial has expired.\n\n"
                         "To continue using IncidentFox, please upgrade your plan. "
-                        "Contact us at sales@incidentfox.ai to get started."
+                        "Contact us at support@incidentfox.ai to get started."
                     ),
                 )
                 logger.info(
