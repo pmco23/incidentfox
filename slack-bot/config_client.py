@@ -35,8 +35,9 @@ CONFIG_SERVICE_ADMIN_TOKEN = os.environ.get("CONFIG_SERVICE_ADMIN_TOKEN", "")
 FREE_TRIAL_DAYS = int(os.environ.get("FREE_TRIAL_DAYS", "7"))
 FREE_TRIAL_ENABLED = os.environ.get("FREE_TRIAL_ENABLED", "true").lower() == "true"
 
-# IncidentFox's API key for free trial (managed by us)
-INCIDENTFOX_ANTHROPIC_API_KEY = os.environ.get("INCIDENTFOX_ANTHROPIC_API_KEY", "")
+# NOTE: INCIDENTFOX_ANTHROPIC_API_KEY is no longer needed here.
+# The credential-resolver fetches the shared key from Secrets Manager at runtime.
+# We only store trial metadata (is_trial=True, expiration) during provisioning.
 
 
 class ConfigServiceClient:
@@ -107,11 +108,9 @@ class ConfigServiceClient:
             trial_info = None
             org_already_existed = org_response.get("exists", False)
 
-            if (
-                FREE_TRIAL_ENABLED
-                and INCIDENTFOX_ANTHROPIC_API_KEY
-                and not org_already_existed
-            ):
+            if FREE_TRIAL_ENABLED and not org_already_existed:
+                # Note: We only store trial metadata here.
+                # The credential-resolver fetches the actual API key from Secrets Manager.
                 trial_info = self._setup_free_trial(org_id, team_node_id)
                 logger.info(
                     f"Free trial enabled for {org_id}: expires {trial_info.get('expires_at')}"

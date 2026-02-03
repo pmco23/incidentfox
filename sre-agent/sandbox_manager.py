@@ -518,11 +518,8 @@ static_resources:
                         ],
                     },
                 },
-                # Automatic cleanup after TTL
-                "lifecycle": {
-                    "shutdownTime": shutdown_time,
-                    "shutdownPolicy": "Delete",
-                },
+                # Automatic cleanup after TTL (shutdownTime is a top-level spec field)
+                "shutdownTime": shutdown_time,
                 "replicas": 1,
             },
         }
