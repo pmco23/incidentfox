@@ -885,6 +885,9 @@ def build_dm_welcome_message(trial_info: Optional[Dict] = None) -> list:
                     ":zap: Auto-investigate alerts posted in channels I'm in\n"
                     ":speech_balloon: Answer questions when you `@IncidentFox` (supports images & files!)\n"
                     ":link: Query your observability tools when connected\n\n"
+                    "*How DMs work:*\n"
+                    "Each thread is a separate session. I start fresh in every thread "
+                    "and won't remember previous conversations.\n\n"
                     "Type `help` anytime for more guidance."
                 ),
             },
@@ -950,6 +953,10 @@ def build_help_message() -> list:
             "text": {
                 "type": "mrkdwn",
                 "text": (
+                    "*How threads work:*\n"
+                    "Each thread is a separate session. I start fresh in every new thread "
+                    "and won't remember previous conversations. Keep related questions in the same thread "
+                    "to maintain context.\n\n"
                     "*Connected integrations:*\n"
                     "Check the *Home* tab to see and manage your connected tools.\n\n"
                     "*Need more help?*\n"
