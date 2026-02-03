@@ -4798,14 +4798,16 @@ def handle_member_joined_channel(event, client, context):
             "text": {
                 "type": "mrkdwn",
                 "text": (
-                    ":wave: *I'm here!* `@mention` me to investigate incidents, errors, or alerts."
+                    ":wave: *I'm here!*\n"
+                    ":zap: I'll auto-investigate alerts posted in this channel\n"
+                    ":speech_balloon: `@mention` me with questions, errors, or files"
                 ),
             },
             "accessory": {
                 "type": "button",
                 "text": {
                     "type": "plain_text",
-                    "text": "Set Up Integrations",
+                    "text": "Configure",
                     "emoji": True,
                 },
                 "action_id": "open_setup_wizard",
@@ -4816,7 +4818,7 @@ def handle_member_joined_channel(event, client, context):
     try:
         client.chat_postMessage(
             channel=channel_id,
-            text="I'm here! @mention me to investigate incidents.",
+            text="I'm here! I'll auto-investigate alerts and answer questions when @mentioned.",
             blocks=blocks,
         )
         logger.info(f"Sent welcome message to channel {channel_id}")

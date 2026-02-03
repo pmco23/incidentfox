@@ -766,8 +766,7 @@ def build_welcome_message(
                     "type": "mrkdwn",
                     "text": (
                         f":gift: *Your {days}-day free trial is active!*\n\n"
-                        "I'm an AI-powered SRE assistant that helps investigate incidents. "
-                        "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
+                        "I'm an AI-powered SRE assistant that helps investigate incidents."
                     ),
                 },
             }
@@ -778,13 +777,28 @@ def build_welcome_message(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        "I'm an AI-powered SRE assistant that helps investigate incidents.\n\n"
-                        "Mention `@IncidentFox` in any channel with your question, error message, or alert link."
-                    ),
+                    "text": "I'm an AI-powered SRE assistant that helps investigate incidents.",
                 },
             }
         )
+
+    blocks.append({"type": "divider"})
+
+    # What I can do
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*What I can do:*\n"
+                    ":zap: *Auto-investigate alerts* — I'll automatically analyze alerts from incident.io, PagerDuty, and other sources posted in channels I'm in\n"
+                    ":speech_balloon: *Answer questions* — Mention `@IncidentFox` with your question, error message, or alert link. You can also attach images and files!\n"
+                    ":link: *Connect your tools* — I work best when connected to your observability stack (logs, metrics, APM)"
+                ),
+            },
+        }
+    )
 
     blocks.append({"type": "divider"})
 
@@ -796,7 +810,7 @@ def build_welcome_message(
                 "type": "mrkdwn",
                 "text": (
                     "*Quick Start*\n"
-                    "1. Go to any channel\n"
+                    "1. Invite me to your incident channels\n"
                     "2. Type `@IncidentFox why is this pod crashing?`\n"
                     "3. Share error messages, logs, or screenshots for context"
                 ),
@@ -816,7 +830,7 @@ def build_welcome_message(
                     "action_id": "open_setup_wizard",
                     "text": {
                         "type": "plain_text",
-                        "text": "Set Up Integrations",
+                        "text": "Configure IncidentFox",
                         "emoji": True,
                     },
                     "style": "primary",
@@ -837,7 +851,7 @@ def build_welcome_message(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": ":bulb: Connect your observability tools (Datadog, CloudWatch, etc.) for richer investigations.",
+                    "text": ":bulb: Click *Configure* to connect integrations, set up a custom API endpoint, or bring your own Anthropic API key.",
                 }
             ],
         }
@@ -867,21 +881,35 @@ def build_dm_welcome_message(trial_info: Optional[Dict] = None) -> list:
                 "text": (
                     ":wave: *Hi! I'm IncidentFox.*\n\n"
                     "I'm an AI-powered SRE assistant that helps investigate incidents.\n\n"
-                    "*How to use me:*\n"
-                    "• Mention `@IncidentFox` in any channel with your question\n"
-                    "• Share error messages, logs, or alert links\n"
-                    "• I'll analyze and help troubleshoot\n\n"
+                    "*What I can do:*\n"
+                    ":zap: Auto-investigate alerts posted in channels I'm in\n"
+                    ":speech_balloon: Answer questions when you `@IncidentFox` (supports images & files!)\n"
+                    ":link: Query your observability tools when connected\n\n"
                     "Type `help` anytime for more guidance."
                 ),
             },
         },
         {"type": "divider"},
         {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": "open_setup_wizard",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Configure IncidentFox",
+                        "emoji": True,
+                    },
+                },
+            ],
+        },
+        {
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": ":bulb: Tip: I work best when you share specific error messages or alert details.",
+                    "text": ":bulb: Click *Configure* to connect integrations, set up a custom API endpoint, or bring your own API key.",
                 }
             ],
         },
@@ -1301,9 +1329,9 @@ def build_advanced_settings_modal(
                 "type": "mrkdwn",
                 "text": (
                     "*Bring Your Own Key (BYOK)*\n"
-                    "By default, IncidentFox uses our shared API key during your trial. "
-                    "You can optionally provide your own Anthropic API key for higher rate limits "
-                    "or to continue after trial expiration."
+                    "By default, IncidentFox uses our API key which includes a "
+                    "zero data retention agreement with Anthropic. You can optionally "
+                    "provide your own API key if you prefer to use your own account."
                 ),
             },
         }
@@ -1337,8 +1365,21 @@ def build_advanced_settings_modal(
             "label": {"type": "plain_text", "text": "Anthropic API Key"},
             "hint": {
                 "type": "plain_text",
-                "text": "Leave blank to use our shared key. Get yours at console.anthropic.com",
+                "text": "Leave blank to use IncidentFox's API key (recommended).",
             },
+        }
+    )
+
+    # Security note - close to API key section
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":lock: Your API key is encrypted and stored securely. <https://console.anthropic.com/settings/keys|Get an API key>",
+                }
+            ],
         }
     )
 
@@ -1353,7 +1394,8 @@ def build_advanced_settings_modal(
                 "text": (
                     "*Custom API Endpoint*\n"
                     "If your company uses an internal ML gateway or HTTP proxy for API calls, "
-                    "you can configure a custom endpoint here."
+                    "configure your custom endpoint here. If your proxy requires an API key, "
+                    "set it in the field above."
                 ),
             },
         }
@@ -1382,20 +1424,6 @@ def build_advanced_settings_modal(
                 "type": "plain_text",
                 "text": "Leave blank to use the default Anthropic API endpoint.",
             },
-        }
-    )
-
-    # Security note
-    blocks.append({"type": "divider"})
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":lock: Your API key is encrypted and stored securely.",
-                }
-            ],
         }
     )
 
