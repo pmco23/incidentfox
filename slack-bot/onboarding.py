@@ -958,7 +958,7 @@ def build_help_message() -> list:
                     "and won't remember previous conversations. Keep related questions in the same thread "
                     "to maintain context.\n\n"
                     "*Connected integrations:*\n"
-                    "Check the *Home* tab to see and manage your connected tools.\n\n"
+                    "To manage integrations, click on my avatar and select *Open App*.\n\n"
                     "*Need more help?*\n"
                     "• <https://docs.incidentfox.ai|Documentation>\n"
                     "• <mailto:support@incidentfox.ai|Contact Support>"
@@ -1217,7 +1217,7 @@ def build_integrations_page(
                 {
                     "type": "mrkdwn",
                     "text": (
-                        ":bulb: Add more integrations anytime: click *IncidentFox* in the sidebar → *Home* tab.\n"
+                        ":bulb: Add more integrations anytime: click on the IncidentFox avatar → *Open App*.\n"
                         ":lock: All credentials are encrypted and stored securely."
                     ),
                 }

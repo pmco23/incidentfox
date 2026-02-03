@@ -1531,6 +1531,26 @@ def handle_mention(event, say, client, context):
     channel_id = event["channel"]
     team_id = event.get("team") or context.get("team_id", "unknown")
 
+    # Check if trial has expired
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        if trial_info and trial_info.get("expired"):
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=event.get("thread_ts") or event["ts"],
+                text=(
+                    ":warning: Your free trial has expired.\n\n"
+                    "To continue using IncidentFox, please bring your own API key. "
+                    "Click on my avatar and select *Open App* to configure."
+                ),
+            )
+            logger.info(f"Trial expired for team {team_id}, skipping investigation")
+            return
+    except Exception as e:
+        logger.warning(f"Failed to check trial status: {e}")
+        # Continue anyway - don't block on trial check failure
+
     # Thread context: use existing thread or create new one
     thread_ts = event.get("thread_ts") or event["ts"]
     message_ts = event["ts"]  # Current message timestamp
@@ -2255,6 +2275,25 @@ def handle_message(event, client, context):
         if is_first_time and dm_text.lower() in ["hi", "hello", "hey", ""]:
             return
 
+        # Check if trial has expired before proceeding with investigation
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            if trial_info and trial_info.get("expired"):
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=(
+                        ":warning: Your free trial has expired.\n\n"
+                        "To continue using IncidentFox, please bring your own API key. "
+                        "Click on my avatar and select *Open App* to configure."
+                    ),
+                )
+                logger.info(f"Trial expired for team {team_id}, skipping DM investigation")
+                return
+        except Exception as e:
+            logger.warning(f"Failed to check trial status for DM: {e}")
+            # Continue anyway - don't block on trial check failure
+
         # Continue to DM investigation below
         # (Extract images, build prompt, trigger investigation)
         logger.info(f"🔵 DM INVESTIGATION: user={user_id}, text={dm_text[:100]}")
@@ -2516,6 +2555,18 @@ def handle_message(event, client, context):
         )
 
         if is_new_alert:
+            # Check if trial has expired - silently skip auto-investigation
+            team_id = context.get("team_id")
+            try:
+                config_client = get_config_client()
+                trial_info = config_client.get_trial_status(team_id)
+                if trial_info and trial_info.get("expired"):
+                    logger.info(f"Trial expired for team {team_id}, skipping auto-investigation")
+                    return
+            except Exception as e:
+                logger.warning(f"Failed to check trial status for alert: {e}")
+                # Continue anyway - don't block on trial check failure
+
             logger.info("✅ Confirmed: NEW ALERT - triggering investigation")
             _trigger_incident_io_investigation(event, client, context)
             return
@@ -4214,7 +4265,7 @@ def handle_dismiss_welcome(ack, body, client):
                             "text": (
                                 ":wave: No problem! You can start investigating right away.\n\n"
                                 "Just mention `@IncidentFox` in any channel with your question. "
-                                "You can always set up integrations later from the *Home* tab."
+                                "To set up integrations later, click on my avatar and select *Open App*."
                             ),
                         },
                     },
@@ -4231,48 +4282,6 @@ def handle_dismiss_welcome(ack, body, client):
             )
     except Exception as e:
         logger.warning(f"Failed to update dismissed welcome message: {e}")
-
-
-@app.view("setup_wizard_page2")
-def handle_setup_wizard_page2(ack, body, client, view):
-    """Handle page 2 of setup wizard submission (Done button)."""
-    import json
-
-    ack()
-
-    private_metadata = json.loads(view.get("private_metadata", "{}"))
-    team_id = private_metadata.get("team_id")
-
-    # Send completion message to user
-    user_id = body.get("user", {}).get("id")
-    if user_id:
-        try:
-            dm_response = client.conversations_open(users=[user_id])
-            dm_channel = dm_response.get("channel", {}).get("id")
-
-            if dm_channel:
-                client.chat_postMessage(
-                    channel=dm_channel,
-                    text="Setup complete!",
-                    blocks=[
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": (
-                                    ":white_check_mark: *Setup complete!*\n\n"
-                                    "You're all set. Mention `@IncidentFox` in any channel "
-                                    "to start investigating incidents.\n\n"
-                                    "You can manage integrations anytime from the *Home* tab."
-                                ),
-                            },
-                        },
-                    ],
-                )
-        except Exception as e:
-            logger.warning(f"Failed to send completion DM: {e}")
-
-    logger.info(f"Completed setup wizard for team {team_id}")
 
 
 @app.action(re.compile(r"^configure_integration_.*"))
@@ -4384,7 +4393,7 @@ def handle_integrations_page_done(ack, body, client, view):
                                     ":white_check_mark: *Setup complete!*\n\n"
                                     "You're all set. Mention `@IncidentFox` in any channel "
                                     "to start investigating incidents.\n\n"
-                                    "You can manage integrations anytime from the *Home* tab."
+                                    "To manage integrations later, click on my avatar and select *Open App*."
                                 ),
                             },
                         },
