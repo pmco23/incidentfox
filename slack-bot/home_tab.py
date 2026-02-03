@@ -289,7 +289,7 @@ def build_home_tab_view(
 
         blocks.append({"type": "divider"})
 
-    # Set Up Integrations button
+    # Advanced Settings button
     blocks.append(
         {
             "type": "actions",
@@ -298,10 +298,10 @@ def build_home_tab_view(
                     "type": "button",
                     "text": {
                         "type": "plain_text",
-                        "text": ":gear: Set Up Integrations",
+                        "text": ":gear: Advanced Settings",
                         "emoji": True,
                     },
-                    "action_id": "open_setup_wizard",
+                    "action_id": "open_advanced_settings",
                 },
             ],
         }
