@@ -96,9 +96,13 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         },
         "setup_instructions": (
             "*Setup Instructions:*\n"
-            "1. Go to incident.io Settings > API\n"
-            "2. Create a new API key\n"
-            "3. Copy the key below"
+            "1. Go to your incident.io home dashboard\n"
+            "2. Click the settings gear icon at the bottom of the left navbar (next to your name)\n"
+            "3. Scroll down to the *Extend* section and click *API keys*\n"
+            "4. Click *Add New* (top right)\n"
+            "5. Click *View data...* (the first permission option)\n"
+            "6. Name your API key appropriately, scroll down, and click *Create*\n"
+            "7. Copy the API key and paste it below"
         ),
         "docs_url": "https://api-docs.incident.io/",
         "context_prompt_placeholder": "e.g., 'SEV1 incidents require immediate response. Use #incident-response channel. Our SLO is 99.9% uptime.'",
