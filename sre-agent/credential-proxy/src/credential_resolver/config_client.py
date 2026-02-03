@@ -127,7 +127,10 @@ class ConfigServiceClient:
             )
             response.raise_for_status()
 
-            config = response.json()
+            data = response.json()
+            # API returns {"effective_config": {...}, "node_id": ..., ...}
+            # Extract effective_config to get the actual configuration
+            config = data.get("effective_config", data)
             integrations = config.get("integrations", {})
 
             integration_config = integrations.get(integration_id, {})
