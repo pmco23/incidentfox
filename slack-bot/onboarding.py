@@ -1432,6 +1432,7 @@ def build_integration_config_modal(
     schema: Dict[str, Any] = None,
     existing_config: Optional[Dict] = None,
     integration_id: str = None,
+    category_filter: str = "all",
 ) -> Dict[str, Any]:
     """
     Build integration configuration modal with video tutorial, instructions, and form fields.
@@ -1838,6 +1839,7 @@ def build_integration_config_modal(
             "team_id": team_id,
             "integration_id": int_id,
             "field_names": all_field_names,
+            "category_filter": category_filter,
         }
     )
 

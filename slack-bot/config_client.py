@@ -278,7 +278,10 @@ class ConfigServiceClient:
                 logger.info(f"No config found for workspace {slack_team_id}")
                 return None
             response.raise_for_status()
-            return response.json()
+            data = response.json()
+            # API returns {"effective_config": {...}, "node_id": ..., ...}
+            # Extract effective_config for compatibility
+            return data.get("effective_config", data)
         except requests.exceptions.RequestException as e:
             logger.error(
                 f"Failed to get workspace config for {slack_team_id}: "

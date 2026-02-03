@@ -4354,6 +4354,15 @@ def handle_configure_integration(ack, body, client):
         logger.error("No team_id for configure_integration action")
         return
 
+    # Extract category_filter from parent view's private_metadata
+    category_filter = "all"
+    try:
+        parent_metadata = body.get("view", {}).get("private_metadata", "{}")
+        parent_data = json.loads(parent_metadata)
+        category_filter = parent_data.get("category_filter", "all")
+    except (json.JSONDecodeError, TypeError):
+        pass
+
     try:
         # Get existing config if any (from config-service)
         config_client = get_config_client()
@@ -4367,6 +4376,7 @@ def handle_configure_integration(ack, body, client):
             team_id=team_id,
             integration_id=integration_id,
             existing_config=existing_config,
+            category_filter=category_filter,
         )
         client.views_push(trigger_id=body["trigger_id"], view=modal)
         logger.info(f"Pushed config modal for {integration_id}")
@@ -4661,8 +4671,27 @@ def handle_integration_config_submission(ack, body, client, view):
             ack(response_action="push", view=error_modal)
             return
 
-    # Close the modal (clear from stack to return to page 2)
-    ack(response_action="clear")
+    # Return to the integrations page (update current modal to show integrations list)
+    category_filter = private_metadata.get("category_filter", "all")
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+
+        # Rebuild the integrations page with updated config
+        onboarding = get_onboarding_modules()
+        integrations_view = onboarding.build_integrations_page(
+            team_id=team_id,
+            category_filter=category_filter,
+            configured=configured,
+            trial_info=trial_info,
+        )
+        ack(response_action="update", view=integrations_view)
+        logger.info(f"Returned to integrations page after saving {integration_id}")
+    except Exception as e:
+        logger.warning(f"Failed to rebuild integrations page: {e}")
+        # Fallback to just closing the modal
+        ack(response_action="clear")
 
     # Try to refresh Home Tab if user is there
     user_id = body.get("user", {}).get("id")
