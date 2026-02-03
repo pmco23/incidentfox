@@ -442,6 +442,7 @@ static_resources:
                                     },
                                     # Laminar tracing: platform observability (shared across all customers)
                                     # Used for debugging agent behavior - not customer data
+                                    # NOTE: Temporarily disabled to debug proxy conflict issue
                                     {
                                         "name": "LMNR_PROJECT_API_KEY",
                                         "valueFrom": {
@@ -451,6 +452,13 @@ static_resources:
                                                 "optional": True,
                                             }
                                         },
+                                    },
+                                    # Disable Laminar's claude-agent-sdk instrumentation
+                                    # This prevents Laminar's proxy from intercepting Claude SDK calls
+                                    # which may conflict with our Envoy sidecar credential injection
+                                    {
+                                        "name": "DISABLE_LAMINAR",
+                                        "value": "true",
                                     },
                                     # Kubernetes context (use pre-configured kubeconfig for incidentfox-demo cluster)
                                     {
