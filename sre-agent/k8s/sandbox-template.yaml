@@ -1,10 +1,16 @@
+# ⚠️ DEPRECATED / NOT USED ⚠️
+# This file is NOT actually used for sandbox creation!
+# Sandbox pods are created programmatically in sre-agent/sandbox_manager.py (line 383+)
+# This file is kept as reference documentation for the expected pod structure.
+# To modify sandbox configuration, edit the sandbox_manifest dictionary in sandbox_manager.py
+#
 # SandboxTemplate: Reusable configuration for IncidentFox agent sandboxes
 # This defines the template - individual instances are created via SandboxClaim or programmatically
 apiVersion: extensions.agents.x-k8s.io/v1alpha1
 kind: SandboxTemplate
 metadata:
   name: incidentfox-agent-template
-  # namespace not specified - uses namespace from kubectl context
+  namespace: incidentfox-prod
 spec:
   podTemplate:
     metadata:
@@ -27,7 +33,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: incidentfox-secrets
-              key: anthropic-api-key
+              key: shared-anthropic-api-key
         - name: LMNR_PROJECT_API_KEY
           valueFrom:
             secretKeyRef:

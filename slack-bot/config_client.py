@@ -443,6 +443,108 @@ class ConfigServiceClient:
             logger.error(f"Failed to save API key: {e}")
             return False
 
+    def get_integration_schemas(
+        self, category: str = None, featured: bool = None
+    ) -> list:
+        """
+        Fetch integration schemas from config-service.
+
+        Args:
+            category: Filter by category (observability, cloud, scm, etc.)
+            featured: Filter by featured flag
+
+        Returns:
+            List of integration schema dictionaries
+        """
+        url = f"{self.base_url}/api/v1/integrations/schemas"
+        params = {}
+        if category:
+            params["category"] = category
+        if featured is not None:
+            params["featured"] = str(featured).lower()
+
+        try:
+            response = requests.get(
+                url, params=params, headers=self._headers(), timeout=10
+            )
+            response.raise_for_status()
+            return response.json().get("integrations", [])
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get integration schemas: {e}")
+            return []
+
+    def get_configured_integrations(self, slack_team_id: str) -> dict:
+        """
+        Get configured integrations for a workspace.
+
+        Returns dict of integration_id -> config, excluding 'anthropic'
+        (which is handled separately as the API key).
+
+        Args:
+            slack_team_id: Slack team ID
+
+        Returns:
+            Dict mapping integration IDs to their configs
+        """
+        config = self.get_workspace_config(slack_team_id)
+        if not config:
+            return {}
+
+        integrations = config.get("integrations", {})
+        # Filter out anthropic (API key) and empty configs
+        return {
+            k: v
+            for k, v in integrations.items()
+            if k != "anthropic" and v and isinstance(v, dict)
+        }
+
+    def get_integration_config(
+        self, slack_team_id: str, integration_id: str
+    ) -> Optional[dict]:
+        """
+        Get configuration for a specific integration.
+
+        Args:
+            slack_team_id: Slack team ID
+            integration_id: Integration identifier (e.g., "anthropic", "datadog")
+
+        Returns:
+            Integration config dict or None if not configured
+        """
+        config = self.get_workspace_config(slack_team_id)
+        if not config:
+            return None
+
+        integrations = config.get("integrations", {})
+        return integrations.get(integration_id)
+
+    def save_integration_config(
+        self, slack_team_id: str, integration_id: str, config: dict
+    ) -> bool:
+        """
+        Save configuration for a specific integration.
+
+        Args:
+            slack_team_id: Slack team ID
+            integration_id: Integration identifier (e.g., "datadog", "cloudwatch")
+            config: Configuration dict for the integration
+
+        Returns:
+            True if successful, False otherwise
+        """
+        org_id = f"slack-{slack_team_id}"
+        team_node_id = "default"
+
+        update = {"integrations": {integration_id: config}}
+
+        try:
+            self._update_config(org_id, team_node_id, update)
+            logger.info(f"Saved {integration_id} config for workspace {slack_team_id}")
+            return True
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to save {integration_id} config: {e}")
+            return False
+
 
 # Global client instance
 _client: Optional[ConfigServiceClient] = None

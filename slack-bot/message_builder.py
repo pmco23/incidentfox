@@ -164,11 +164,11 @@ def _process_text_with_images(text: str, images: Optional[List[dict]] = None) ->
     return segments
 
 
-def _render_image_block(file_id: str, alt: str) -> dict:
-    """Create a Slack image block using slack_file."""
+def _render_image_block(image_url: str, alt: str) -> dict:
+    """Create a Slack image block using image_url (S3-hosted assets)."""
     return {
         "type": "image",
-        "slack_file": {"id": file_id},
+        "image_url": image_url,
         "alt_text": alt[:2000],  # Slack limit
     }
 
@@ -176,8 +176,8 @@ def _render_image_block(file_id: str, alt: str) -> dict:
 def build_progress_message(
     thoughts: Optional[List] = None,
     current_tool: Optional[dict] = None,
-    loading_file_id: Optional[str] = None,
-    done_file_id: Optional[str] = None,
+    loading_url: Optional[str] = None,
+    done_url: Optional[str] = None,
     thread_id: Optional[str] = None,
     trigger_user_id: Optional[str] = None,
     trigger_text: Optional[str] = None,
@@ -200,6 +200,10 @@ def build_progress_message(
     """
     blocks = []
     thoughts = thoughts or []
+
+    # Use URL parameters (ignore deprecated file_id params)
+    loading_icon = loading_url
+    done_icon = done_url
 
     # Add trigger context if this was a nudge-initiated investigation
     if trigger_user_id and trigger_text:
@@ -230,19 +234,19 @@ def build_progress_message(
 
         # Choose icon based on state
         if is_completed:
-            icon_file_id = done_file_id
+            icon_url = done_icon
             icon_alt = "Done"
         else:
-            icon_file_id = loading_file_id
+            icon_url = loading_icon
             icon_alt = "Loading"
 
         # Build thought block
         thought_elements = []
-        if icon_file_id:
+        if icon_url:
             thought_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": icon_file_id},
+                    "image_url": icon_url,
                     "alt_text": icon_alt,
                 }
             )
@@ -313,19 +317,19 @@ def build_progress_message(
                     tool, thought_completed=is_completed
                 )
                 is_running = tool.get("running", False)
-                image_file_id = tool.get("_image_file_id")
+                tool_image_url = tool.get("_image_url")  # URL for image output
 
                 icon_element = None
-                if is_running and loading_file_id:
+                if is_running and loading_icon:
                     icon_element = {
                         "type": "image",
-                        "slack_file": {"id": loading_file_id},
+                        "image_url": loading_icon,
                         "alt_text": "Loading",
                     }
-                elif not is_running and done_file_id:
+                elif not is_running and done_icon:
                     icon_element = {
                         "type": "image",
-                        "slack_file": {"id": done_file_id},
+                        "image_url": done_icon,
                         "alt_text": "Done",
                     }
 
@@ -340,11 +344,11 @@ def build_progress_message(
                     tool_elements.append(icon_element)
                 tool_elements.append({"type": "mrkdwn", "text": tool_text})
 
-                if image_file_id and not is_running:
+                if tool_image_url and not is_running:
                     tool_elements.append(
                         {
                             "type": "image",
-                            "slack_file": {"id": image_file_id},
+                            "image_url": tool_image_url,
                             "alt_text": "Image output",
                         }
                     )
@@ -451,7 +455,7 @@ def build_final_message(
     thoughts: Optional[List] = None,
     success: bool = True,
     error: Optional[str] = None,
-    done_file_id: Optional[str] = None,
+    done_url: Optional[str] = None,
     thread_id: Optional[str] = None,
     result_images: Optional[List[dict]] = None,
     result_files: Optional[List[dict]] = None,
@@ -478,12 +482,15 @@ def build_final_message(
         thoughts: List of thought objects
         success: Whether the investigation succeeded
         error: Error message if any
-        done_file_id: Slack file ID for done icon
+        done_url: URL for done icon (S3-hosted)
         thread_id: Thread ID for View Session button
-        result_images: List of image dicts with {path, file_id, alt, media_type}
+        result_images: List of image dicts with {path, file_id/image_url, alt, media_type}
     """
     blocks = []
     thoughts = thoughts or []
+
+    # Use URL parameter (ignore deprecated file_id param)
+    done_icon = done_url
 
     # Add trigger context if this was a nudge-initiated investigation
     if trigger_user_id and trigger_text:
@@ -505,11 +512,11 @@ def build_final_message(
     # Error state
     if error:
         error_elements = []
-        if done_file_id:
+        if done_icon:
             error_elements.append(
                 {
                     "type": "image",
-                    "slack_file": {"id": done_file_id},
+                    "image_url": done_icon,
                     "alt_text": "Done",
                 }
             )
@@ -529,11 +536,11 @@ def build_final_message(
             thought_text = slack_mrkdwn(thought.text)
 
             thought_elements = []
-            if done_file_id:
+            if done_icon:
                 thought_elements.append(
                     {
                         "type": "image",
-                        "slack_file": {"id": done_file_id},
+                        "image_url": done_icon,
                         "alt_text": "Done",
                     }
                 )

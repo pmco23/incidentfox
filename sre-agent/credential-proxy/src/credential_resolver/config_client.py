@@ -29,44 +29,57 @@ SHARED_KEY_CACHE_TTL_SECONDS = 300  # 5 minutes
 
 
 def get_shared_anthropic_key() -> Optional[str]:
-    """Get shared Anthropic API key from AWS Secrets Manager.
+    """Get shared Anthropic API key for free trials.
 
-    Fetches key from AWS Secrets Manager for production security.
-    For self-hosting, customers should use BYOK instead of relying on a shared key.
+    Priority order:
+    1. SHARED_ANTHROPIC_API_KEY env var (K8s secret - simplest, best for self-hosting)
+    2. AWS Secrets Manager (requires IRSA - for AWS-native deployments)
 
-    Returns None if not configured or fetch fails.
+    Returns None if not configured.
     """
     cache_key = "anthropic"
     now = datetime.utcnow()
 
-    # Check cache
+    # Check cache first
     if cache_key in _shared_key_cache:
         cached_key, cached_at = _shared_key_cache[cache_key]
         age_seconds = (now - cached_at).total_seconds()
         if age_seconds < SHARED_KEY_CACHE_TTL_SECONDS:
             return cached_key
 
-    # Fetch from AWS Secrets Manager (requires IRSA)
+    # Option 1: Environment variable (K8s secret) - simplest option
+    env_key = os.getenv("SHARED_ANTHROPIC_API_KEY")
+    if env_key:
+        _shared_key_cache[cache_key] = (env_key, now)
+        logger.info("Using shared Anthropic key from environment variable")
+        return env_key
+
+    # Option 2: AWS Secrets Manager (requires IRSA)
     try:
         client = boto3.client("secretsmanager", region_name=AWS_REGION)
         response = client.get_secret_value(SecretId=SHARED_ANTHROPIC_SECRET)
         secret_string = response.get("SecretString", "{}")
 
-        secret_data = json.loads(secret_string)
-        api_key = secret_data.get("api_key")
+        # Support both raw string and JSON format
+        try:
+            secret_data = json.loads(secret_string)
+            api_key = secret_data.get("api_key", secret_string)
+        except json.JSONDecodeError:
+            # Raw string format (just the key)
+            api_key = secret_string.strip()
 
-        if api_key:
+        if api_key and len(api_key) > 10:
             _shared_key_cache[cache_key] = (api_key, now)
-            logger.info("Fetched shared Anthropic key from Secrets Manager")
+            logger.info("Fetched shared Anthropic key from AWS Secrets Manager")
             return api_key
         else:
-            logger.warning("Shared Anthropic secret exists but has no api_key")
+            logger.warning("AWS Secrets Manager secret exists but has no valid api_key")
             return None
 
     except Exception as e:
-        logger.error(
-            f"Failed to fetch shared Anthropic key from Secrets Manager: {e}. "
-            f"Ensure IRSA is configured or customer uses BYOK."
+        logger.warning(
+            f"AWS Secrets Manager not available: {e}. "
+            f"Set SHARED_ANTHROPIC_API_KEY env var or configure IRSA."
         )
         return None
 
@@ -140,6 +153,18 @@ class ConfigServiceClient:
                 f"Config Service HTTP error: {e.response.status_code} - "
                 f"{e.response.text}"
             )
+            # For Anthropic, fall back to shared key when tenant doesn't exist
+            # This enables development/testing without full tenant setup
+            if integration_id == "anthropic":
+                logger.info(
+                    f"Tenant {tenant_id} not found, falling back to shared Anthropic key"
+                )
+                shared_key = get_shared_anthropic_key()
+                if shared_key:
+                    return {
+                        "api_key": shared_key,
+                        "workspace_attribution": tenant_id,
+                    }
             return None
         except Exception as e:
             logger.error(f"Config Service error: {e}")

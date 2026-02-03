@@ -50,13 +50,14 @@ jobs:
       - name: Create .env file from secrets
         working-directory: sre-agent
         run: |
-          # Multi-tenant architecture - only platform secrets needed here:
+          # Multi-tenant architecture - platform secrets:
           # - JWT_SECRET: sre-agent <-> credential-resolver auth
           # - LMNR_PROJECT_API_KEY: Our observability tracing
-          # Customer API keys (Anthropic, Coralogix, etc.) are stored in config-service.
-          # Shared Anthropic key for trials is in AWS Secrets Manager (accessed via IRSA).
+          # - SHARED_ANTHROPIC_API_KEY: Free trial key (simpler than AWS Secrets Manager)
+          # Customer API keys (Anthropic BYOK, Coralogix, etc.) are stored in config-service.
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" > .env
           echo "LMNR_PROJECT_API_KEY=${{ secrets.LMNR_PROJECT_API_KEY }}" >> .env
+          echo "SHARED_ANTHROPIC_API_KEY=${{ secrets.SHARED_ANTHROPIC_API_KEY }}" >> .env
           echo "✅ Created .env file"
 
       - name: Deploy to production
@@ -66,6 +67,7 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           LMNR_PROJECT_API_KEY: ${{ secrets.LMNR_PROJECT_API_KEY }}
+          SHARED_ANTHROPIC_API_KEY: ${{ secrets.SHARED_ANTHROPIC_API_KEY }}
 
       - name: Verify deployment
         run: |

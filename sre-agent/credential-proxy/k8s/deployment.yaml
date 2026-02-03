@@ -49,15 +49,21 @@ spec:
             secretKeyRef:
               name: incidentfox-secrets
               key: jwt-secret
-        # AWS region for Secrets Manager (shared API key for free trials)
+        # Shared Anthropic API key for free trials (simplest option - K8s secret)
+        - name: SHARED_ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: incidentfox-secrets
+              key: shared-anthropic-api-key
+              optional: true  # Falls back to AWS Secrets Manager if not set
+        # AWS Secrets Manager fallback (requires IRSA - for AWS-native deployments)
         - name: AWS_REGION
           value: "us-west-2"
         - name: SHARED_ANTHROPIC_SECRET
           value: "incidentfox/prod/anthropic"
         # Multi-tenant credential flow:
         # - Customer API keys (Anthropic BYOK, Coralogix, Datadog) -> stored in config-service RDS
-        # - Shared Anthropic key (for free trials) -> fetched from AWS Secrets Manager
-        # - No integration credentials stored in K8s secrets or environment variables
+        # - Shared Anthropic key (for free trials) -> K8s secret (preferred) or AWS Secrets Manager
         resources:
           requests:
             cpu: 100m

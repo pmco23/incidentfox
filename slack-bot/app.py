@@ -54,9 +54,28 @@ SLACK_CLIENT_ID = os.environ.get("SLACK_CLIENT_ID")
 SLACK_CLIENT_SECRET = os.environ.get("SLACK_CLIENT_SECRET")
 SLACK_SCOPES = [
     "app_mentions:read",
-    "chat:write",
     "channels:history",
+    "channels:join",
+    "channels:read",
+    "chat:write",
+    "chat:write.customize",
+    "commands",
+    "files:read",
     "files:write",
+    "groups:history",
+    "groups:read",
+    "im:history",
+    "im:read",
+    "im:write",
+    "links:read",
+    "links:write",
+    "metadata.message:read",
+    "mpim:history",
+    "mpim:read",
+    "reactions:read",
+    "reactions:write",
+    "usergroups:read",
+    "users:read",
 ]
 
 # Check if OAuth is configured (for public distribution)
@@ -103,6 +122,10 @@ UPDATE_INTERVAL_SECONDS = 0.5
 
 # Deployment mode: "socket" for local dev, "http" for production
 SLACK_APP_MODE = os.environ.get("SLACK_APP_MODE", "socket")
+
+# Track channels where we've sent the welcome nudge (resets on restart, which is fine)
+# Key format: "{team_id}:{channel_id}"
+_nudge_sent_channels: set = set()
 
 
 @dataclass
@@ -268,27 +291,18 @@ def parse_sse_event(line: str) -> Optional[dict]:
 
 def build_progress_blocks(state: MessageState, client, team_id: str) -> list:
     """Build Block Kit blocks for in-progress state."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
     from message_builder import build_progress_message
 
-    # Get Slack-hosted assets (uploads on first use)
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        done_file_id = None
+    # Get S3-hosted asset URLs (no per-workspace uploads needed)
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     return build_progress_message(
         thoughts=state.thoughts,
         current_tool=state.current_tool,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         thread_id=state.thread_id,
         trigger_user_id=state.trigger_user_id,
         trigger_text=state.trigger_text,
@@ -297,22 +311,18 @@ def build_progress_blocks(state: MessageState, client, team_id: str) -> list:
 
 def build_final_blocks(state: MessageState, client, team_id: str) -> list:
     """Build Block Kit blocks for final state."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
     from message_builder import build_final_message
 
-    # Get Slack-hosted done icon
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load asset: {e}")
-        done_file_id = None
+    # Get S3-hosted done icon URL
+    done_url = get_asset_url("done")
 
     return build_final_message(
         result_text=state.final_result or state.current_thought,
         thoughts=state.thoughts,
         success=state.error is None,
         error=state.error,
-        done_file_id=done_file_id,
+        done_url=done_url,
         thread_id=state.thread_id,
         result_images=state.result_images,
         result_files=state.result_files,
@@ -363,7 +373,7 @@ def update_slack_message(
     if final and state.result_images:
         _update_with_progressive_images(client, state, team_id, text)
     else:
-        # Regular update without images
+        # Regular update (using S3-hosted URLs - no caching issues)
         try:
             if final:
                 blocks = build_final_blocks(state, client, team_id)
@@ -1521,9 +1531,29 @@ def handle_mention(event, say, client, context):
     channel_id = event["channel"]
     team_id = event.get("team") or context.get("team_id", "unknown")
 
-    # Check workspace setup (API key configured or active trial)
-    if not check_workspace_setup(client, team_id, channel_id, user_id):
-        logger.info(f"Workspace {team_id} not set up, prompted for API key")
+    # Check if trial has expired
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        if trial_info and trial_info.get("expired"):
+            client.chat_postMessage(
+                channel=channel_id,
+                thread_ts=event.get("thread_ts") or event["ts"],
+                text=(
+                    ":warning: Your free trial has expired.\n\n"
+                    "To continue using IncidentFox, please upgrade your plan. "
+                    "Contact us at support@incidentfox.ai to get started."
+                ),
+            )
+            logger.info(f"Trial expired for team {team_id}, skipping investigation")
+            return
+    except Exception as e:
+        logger.error(f"Failed to check trial status: {e}")
+        client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=event.get("thread_ts") or event["ts"],
+            text=":x: Unable to verify your account status. Please try again later.",
+        )
         return
 
     # Thread context: use existing thread or create new one
@@ -1678,56 +1708,40 @@ def handle_mention(event, say, client, context):
 
     # Post minimal initial message with loading indicator
     # Will be updated immediately with first event
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to get loading asset: {e}")
+    loading_url = get_asset_url("loading")
 
-    # Build initial blocks - try with slack_file, fall back to emoji
-    def build_initial_blocks(use_slack_file: bool):
-        if use_slack_file and loading_file_id:
-            return [
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "image",
-                            "slack_file": {"id": loading_file_id},
-                            "alt_text": "Loading",
-                        },
-                        {"type": "mrkdwn", "text": "Investigating..."},
-                    ],
-                }
-            ]
-        else:
-            return [
-                {
-                    "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-                }
-            ]
+    # Build initial blocks with S3-hosted loading GIF
+    initial_blocks = (
+        [
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating..."},
+                ],
+            }
+        ]
+        if loading_url
+        else [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+            }
+        ]
+    )
 
-    # Try with slack_file first, fall back to emoji if it fails
-    try:
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating...",
-            blocks=build_initial_blocks(use_slack_file=True),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
-        # Clear cached asset (might be invalid)
-        clear_asset_cache(team_id)
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating...",
-            blocks=build_initial_blocks(use_slack_file=False),
-        )
+    initial_response = client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text="Investigating...",
+        blocks=initial_blocks,
+    )
 
     message_ts = initial_response["ts"]
 
@@ -1744,6 +1758,8 @@ def handle_mention(event, say, client, context):
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         # Add images if any were attached
@@ -2069,57 +2085,40 @@ Use all available tools to gather context about this issue."""
     thread_id = f"slack-{sanitized_channel}-{sanitized_thread_ts}"
 
     # Post initial investigation message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to get loading asset: {e}")
+    loading_url = get_asset_url("loading")
 
-    # Build initial blocks
-    def build_initial_blocks(use_slack_file: bool):
-        if use_slack_file and loading_file_id:
-            return [
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "image",
-                            "slack_file": {"id": loading_file_id},
-                            "alt_text": "Loading",
-                        },
-                        {"type": "mrkdwn", "text": "Investigating alert..."},
-                    ],
-                }
-            ]
-        else:
-            return [
-                {
-                    "type": "context",
-                    "elements": [
-                        {"type": "mrkdwn", "text": "⏳ Investigating alert..."}
-                    ],
-                }
-            ]
+    # Build initial blocks with S3-hosted loading GIF
+    initial_blocks = (
+        [
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating alert..."},
+                ],
+            }
+        ]
+        if loading_url
+        else [
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating alert..."}],
+            }
+        ]
+    )
 
-    # Try to post initial message
-    try:
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating alert...",
-            blocks=build_initial_blocks(use_slack_file=True),
-        )
-    except Exception as e:
-        logger.warning(f"Failed to post with slack_file, falling back to emoji: {e}")
-        clear_asset_cache(team_id)
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text="Investigating alert...",
-            blocks=build_initial_blocks(use_slack_file=False),
-        )
+    initial_response = client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text="Investigating alert...",
+        blocks=initial_blocks,
+    )
 
     response_message_ts = initial_response["ts"]
 
@@ -2136,6 +2135,8 @@ Use all available tools to gather context about this issue."""
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(
@@ -2214,10 +2215,336 @@ def handle_message(event, client, context):
     logger.info(f"   type={event.get('type')}")
     logger.info(f"   subtype={event.get('subtype')}")
     logger.info(f"   channel={event.get('channel')}")
+    logger.info(f"   channel_type={event.get('channel_type')}")
     logger.info(f"   user={event.get('user')}")
     logger.info(f"   bot_id={event.get('bot_id')}")
     logger.info(f"   text={event.get('text', '')[:100]}")
     logger.info("=" * 60)
+
+    # ============================================================================
+    # DM HANDLING - First-time welcome, help command, and investigations
+    # ============================================================================
+    channel_type = event.get("channel_type")
+    if channel_type == "im":
+        user_id = event.get("user")
+        team_id = context.get("team_id")
+        channel_id = event.get("channel")
+        dm_text = event.get("text", "").strip()
+
+        # Skip bot's own messages
+        if event.get("bot_id"):
+            return
+
+        # Handle help command first
+        if dm_text.lower() == "help":
+            try:
+                onboarding = get_onboarding_modules()
+                help_blocks = onboarding.build_help_message()
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="IncidentFox Help",
+                    blocks=help_blocks,
+                )
+                logger.info(f"Sent help message to user {user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to send help message: {e}")
+            return  # Don't process further
+
+        # Check if this is first-time DM (no previous bot messages in this channel)
+        is_first_time = False
+        try:
+            history = client.conversations_history(channel=channel_id, limit=10)
+            bot_has_messaged = any(
+                msg.get("bot_id") for msg in history.get("messages", [])
+            )
+
+            if not bot_has_messaged:
+                # First interaction! Send welcome message
+                is_first_time = True
+                onboarding = get_onboarding_modules()
+                config_client = get_config_client()
+                trial_info = (
+                    config_client.get_trial_status(team_id) if team_id else None
+                )
+                welcome_blocks = onboarding.build_dm_welcome_message(trial_info)
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text="Welcome to IncidentFox!",
+                    blocks=welcome_blocks,
+                )
+                logger.info(f"Sent first-time DM welcome to user {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to check/send DM welcome: {e}")
+
+        # If this is first-time and message is empty/short greeting, don't investigate
+        if is_first_time and dm_text.lower() in ["hi", "hello", "hey", ""]:
+            return
+
+        # Check if trial has expired before proceeding with investigation
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            if trial_info and trial_info.get("expired"):
+                client.chat_postMessage(
+                    channel=channel_id,
+                    text=(
+                        ":warning: Your free trial has expired.\n\n"
+                        "To continue using IncidentFox, please upgrade your plan. "
+                        "Contact us at support@incidentfox.ai to get started."
+                    ),
+                )
+                logger.info(
+                    f"Trial expired for team {team_id}, skipping DM investigation"
+                )
+                return
+        except Exception as e:
+            logger.error(f"Failed to check trial status for DM: {e}")
+            client.chat_postMessage(
+                channel=channel_id,
+                text=":x: Unable to verify your account status. Please try again later.",
+            )
+            return
+
+        # Continue to DM investigation below
+        # (Extract images, build prompt, trigger investigation)
+        logger.info(f"🔵 DM INVESTIGATION: user={user_id}, text={dm_text[:100]}")
+
+        # Thread context: DMs use message timestamp as thread
+        thread_ts = event.get("thread_ts") or event["ts"]
+        message_ts = event["ts"]
+
+        # Generate thread_id for DM (use channel ID which is unique per DM)
+        sanitized_thread_ts = thread_ts.replace(".", "-")
+        sanitized_channel = channel_id.lower()
+        thread_id = f"slack-dm-{sanitized_channel}-{sanitized_thread_ts}"
+
+        # Get bot's own user ID
+        bot_user_id = context.get("bot_user_id")
+        if not bot_user_id:
+            try:
+                auth_response = client.auth_test()
+                bot_user_id = auth_response.get("user_id")
+            except Exception as e:
+                logger.warning(f"Failed to get bot user ID: {e}")
+                bot_user_id = None
+
+        # Resolve mentions in DM text (if any)
+        resolved_text, id_to_name_mapping = _resolve_mentions(
+            dm_text, client, bot_user_id
+        )
+
+        # Extract images from the event
+        images = _extract_images_from_event(event, client)
+
+        # Extract file attachments
+        file_attachments = _extract_file_attachments_from_event(event, client)
+
+        # Get sender's name
+        sender_name = "Unknown User"
+        try:
+            user_response = client.users_info(user=user_id)
+            if user_response["ok"]:
+                user = user_response["user"]
+                profile = user.get("profile", {})
+                sender_name = (
+                    profile.get("display_name")
+                    or profile.get("real_name")
+                    or user.get("name", "Unknown User")
+                )
+        except Exception as e:
+            logger.warning(f"Failed to get sender name for {user_id}: {e}")
+
+        prompt_text = resolved_text.strip()
+
+        if not prompt_text and not images and not file_attachments:
+            client.chat_postMessage(
+                channel=channel_id,
+                text="What would you like me to help you investigate?",
+                thread_ts=thread_ts,
+            )
+            return
+
+        # Build enriched prompt with DM context
+        context_lines = ["\n### Slack Context"]
+        context_lines.append(f"**Requested by:** {sender_name} (User ID: {user_id})")
+        context_lines.append("**Channel:** Private DM with IncidentFox")
+        context_lines.append(
+            "\nThis is a private one-on-one conversation. The user is messaging you directly "
+            "in a DM rather than in a public channel."
+        )
+
+        if id_to_name_mapping:
+            context_lines.append("\n**User/Bot ID to Name Mapping:**")
+            for uid, name in id_to_name_mapping.items():
+                context_lines.append(f"- {name}: {uid}")
+
+        # Add file attachments context
+        if file_attachments:
+            context_lines.append("\n**File Attachments:**")
+            context_lines.append(
+                "The user attached the following files, which are being downloaded into your workspace:"
+            )
+            for att in file_attachments:
+                filename = att["filename"]
+                size_bytes = att["size"]
+                if size_bytes >= 1024 * 1024:
+                    size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+                else:
+                    size_str = f"{size_bytes / 1024:.1f} KB"
+                context_lines.append(f"- `attachments/{filename}` ({size_str})")
+            context_lines.append("\nYou can read these files using the Read tool.")
+
+        # Add image/file sharing context
+        context_lines.append("\n**Including Images in Your Response:**")
+        context_lines.append(
+            "If you create images during analysis, include them using: `![description](./path/to/image.png)`"
+        )
+        context_lines.append("\n**Sharing Files with the User:**")
+        context_lines.append(
+            "If you generate files, share them using: `[description](./path/to/file.csv)`"
+        )
+
+        enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
+
+        # Post initial message
+        from assets_config import get_asset_url
+
+        loading_url = get_asset_url("loading")
+
+        initial_blocks = (
+            [
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "image",
+                            "image_url": loading_url,
+                            "alt_text": "Loading",
+                        },
+                        {"type": "mrkdwn", "text": "Investigating..."},
+                    ],
+                }
+            ]
+            if loading_url
+            else [
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
+                }
+            ]
+        )
+
+        initial_response = client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text="Investigating...",
+            blocks=initial_blocks,
+        )
+
+        response_message_ts = initial_response["ts"]
+
+        # Initialize state
+        state = MessageState(
+            channel_id=channel_id,
+            message_ts=response_message_ts,
+            thread_ts=thread_ts,
+            thread_id=thread_id,
+        )
+
+        try:
+            # Build request payload
+            request_payload = {
+                "prompt": enriched_prompt,
+                "thread_id": thread_id,
+                "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+                "team_id": team_id,
+            }
+
+            # Add images if present
+            if images:
+                request_payload["images"] = [
+                    {
+                        "type": "base64",
+                        "media_type": img["media_type"],
+                        "data": img["data"],
+                        "filename": img.get("filename", "image"),
+                    }
+                    for img in images
+                ]
+                logger.info(f"Sending {len(images)} image(s) to agent (DM)")
+
+            # Add file attachments if present
+            if file_attachments:
+                request_payload["file_attachments"] = [
+                    {
+                        "filename": att["filename"],
+                        "size": att["size"],
+                        "media_type": att["media_type"],
+                        "download_url": att["download_url"],
+                        "auth_header": att["auth_header"],
+                    }
+                    for att in file_attachments
+                ]
+                logger.info(
+                    f"Sending {len(file_attachments)} file attachment(s) to agent (DM)"
+                )
+
+            # Call sre-agent with SSE streaming
+            response = requests.post(
+                f"{SRE_AGENT_URL}/investigate",
+                json=request_payload,
+                stream=True,
+                timeout=300,  # 5 minutes
+                headers={"Accept": "text/event-stream"},
+            )
+
+            if response.status_code != 200:
+                error_detail = response.text[:200] if response.text else "Unknown error"
+                state.error = f"Server error ({response.status_code}): {error_detail}"
+                update_slack_message(client, state, team_id, final=True)
+                return
+
+            # Process SSE stream
+            event_count = 0
+            for line in response.iter_lines(decode_unicode=True):
+                if line:
+                    event = parse_sse_event(line)
+                    if event:
+                        event_count += 1
+                        handle_stream_event(state, event, client, team_id)
+
+            # Cache state for modal view
+            import time
+
+            _investigation_cache[thread_id] = state
+            _cache_timestamps[thread_id] = time.time()
+
+            logger.info(
+                f"✅ DM investigation completed (processed {event_count} events)"
+            )
+
+            # If no events received, something went wrong
+            if event_count == 0 and not state.error:
+                state.error = "No response received from agent"
+
+            # Final update with feedback buttons
+            update_slack_message(client, state, team_id, final=True)
+
+            # Save snapshot
+            save_investigation_snapshot(state)
+
+        except requests.exceptions.ConnectionError:
+            state.error = "Could not connect to investigation service. Is it running?"
+            update_slack_message(client, state, team_id, final=True)
+        except requests.exceptions.Timeout:
+            state.error = "Investigation timed out (5 min limit). Try a simpler query?"
+            update_slack_message(client, state, team_id, final=True)
+        except Exception as e:
+            logger.exception(f"Unexpected error during DM investigation: {e}")
+            state.error = f"Unexpected error: {str(e)}"
+            update_slack_message(client, state, team_id, final=True)
+
+        return  # DM handled, don't process further
 
     # ============================================================================
     # INCIDENT.IO ALERT DETECTION - Check for "New alert" messages from bots
@@ -2239,6 +2566,20 @@ def handle_message(event, client, context):
         )
 
         if is_new_alert:
+            # Check if trial has expired - silently skip auto-investigation
+            team_id = context.get("team_id")
+            try:
+                config_client = get_config_client()
+                trial_info = config_client.get_trial_status(team_id)
+                if trial_info and trial_info.get("expired"):
+                    logger.info(
+                        f"Trial expired for team {team_id}, skipping auto-investigation"
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Failed to check trial status for alert: {e}")
+                return  # Block if we can't verify trial status
+
             logger.info("✅ Confirmed: NEW ALERT - triggering investigation")
             _trigger_incident_io_investigation(event, client, context)
             return
@@ -2548,13 +2889,9 @@ def handle_nudge_invoke(ack, body, client, context, respond):
     enriched_prompt = text + "\n" + "\n".join(context_lines)
 
     # Post initial "Investigating..." message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        pass
+    loading_url = get_asset_url("loading")
 
     # Truncate text for display
     display_text = text[:80] + "..." if len(text) > 80 else text
@@ -2567,7 +2904,7 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         ],
     }
 
-    if loading_file_id:
+    if loading_url:
         initial_blocks = [
             trigger_context,
             {
@@ -2575,7 +2912,7 @@ def handle_nudge_invoke(ack, body, client, context, respond):
                 "elements": [
                     {
                         "type": "image",
-                        "slack_file": {"id": loading_file_id},
+                        "image_url": loading_url,
                         "alt_text": "Loading",
                     },
                     {"type": "mrkdwn", "text": "Investigating..."},
@@ -2619,6 +2956,8 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(
@@ -2732,13 +3071,9 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
     logger.info("Triggering Coralogix investigation with prompt")
 
     # Post initial "Investigating..." message
-    from asset_manager import clear_asset_cache, get_asset_file_id
+    from assets_config import get_asset_url
 
-    loading_file_id = None
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        pass
+    loading_url = get_asset_url("loading")
 
     # Build initial blocks with context
     trigger_context = {
@@ -2751,7 +3086,7 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         ],
     }
 
-    if loading_file_id:
+    if loading_url:
         initial_blocks = [
             trigger_context,
             {
@@ -2759,7 +3094,7 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
                 "elements": [
                     {
                         "type": "image",
-                        "slack_file": {"id": loading_file_id},
+                        "image_url": loading_url,
                         "alt_text": "Loading",
                     },
                     {"type": "mrkdwn", "text": "Investigating..."},
@@ -2803,6 +3138,8 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
+            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
+            "team_id": team_id,
         }
 
         response = requests.post(
@@ -2930,22 +3267,11 @@ def handle_view_session(ack, body, client):
         )
         return
 
-    # Get Slack-hosted assets for modal
-    from asset_manager import get_asset_file_id
+    # Get S3-hosted asset URLs for modal
+    from assets_config import get_asset_url
 
-    team_id = body.get("team", {}).get("id") or body.get("user", {}).get("team_id")
-
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception as e:
-        logger.warning(f"Failed to load loading asset: {e}")
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load done asset: {e}")
-        done_file_id = None
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     # Build modal with hierarchical thoughts (same formatting as main message)
     from modal_builder import build_session_modal
@@ -2954,8 +3280,8 @@ def handle_view_session(ack, body, client):
         thread_id=thread_id,
         thoughts=state.thoughts,
         result=state.final_result,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         result_images=state.result_images,
         result_files=state.result_files,
     )
@@ -2998,20 +3324,11 @@ def handle_modal_pagination(ack, body, client):
         logger.warning(f"No cached state for pagination: {thread_id}")
         return
 
-    # Get Slack-hosted assets for modal
-    from asset_manager import get_asset_file_id
+    # Get S3-hosted asset URLs for modal
+    from assets_config import get_asset_url
 
-    team_id = body.get("team", {}).get("id") or body.get("user", {}).get("team_id")
-
-    try:
-        loading_file_id = get_asset_file_id(client, team_id, "loading")
-    except Exception:
-        loading_file_id = None
-
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception:
-        done_file_id = None
+    loading_url = get_asset_url("loading")
+    done_url = get_asset_url("done")
 
     # Build modal for requested page
     from modal_builder import build_session_modal
@@ -3020,8 +3337,8 @@ def handle_modal_pagination(ack, body, client):
         thread_id=thread_id,
         thoughts=state.thoughts,
         result=state.final_result,
-        loading_file_id=loading_file_id,
-        done_file_id=done_file_id,
+        loading_url=loading_url,
+        done_url=done_url,
         page=page,
         result_images=state.result_images,
         result_files=state.result_files,
@@ -3599,17 +3916,10 @@ def _build_submitted_answer_blocks(
     questions: list, answers: dict, client, body, user_id: str = None
 ) -> list:
     """Build blocks showing the submitted Q&A summary with checkmark image and user mention."""
-    from asset_manager import get_asset_file_id
+    from assets_config import get_asset_url
 
-    # Get team ID for asset loading
-    team_id = body.get("team", {}).get("id")
-
-    # Try to get checkmark image
-    done_file_id = None
-    try:
-        done_file_id = get_asset_file_id(client, team_id, "done")
-    except Exception as e:
-        logger.warning(f"Failed to load done asset: {e}")
+    # Get S3-hosted checkmark image URL
+    done_url = get_asset_url("done")
 
     blocks = []
 
@@ -3620,9 +3930,9 @@ def _build_submitted_answer_blocks(
         header_text = "*Answer submitted!* Processing your response..."
 
     header_elements = []
-    if done_file_id:
+    if done_url:
         header_elements.append(
-            {"type": "image", "slack_file": {"id": done_file_id}, "alt_text": "Done"}
+            {"type": "image", "image_url": done_url, "alt_text": "Done"}
         )
     header_elements.append({"type": "mrkdwn", "text": header_text})
 
@@ -3919,66 +4229,559 @@ def handle_api_key_submission(ack, body, client, view):
         logger.error(f"Error saving API key: {e}", exc_info=True)
 
 
-def check_workspace_setup(client, team_id: str, channel_id: str, user_id: str) -> bool:
-    """
-    Check if workspace has access to the service.
+@app.action("open_setup_wizard")
+def handle_open_setup_wizard(ack, body, client):
+    """Open the setup wizard modal (goes directly to integrations page)."""
+    ack()
 
-    Access is granted if:
-    1. Active free trial (not expired), OR
-    2. Active subscription (API key optional - can use shared key)
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in body for setup wizard")
+        return
 
-    If no access, posts appropriate setup/upgrade prompt and returns False.
-    Returns True if access is granted.
-    """
     try:
         config_client = get_config_client()
-        status = config_client.get_subscription_status(team_id)
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
 
-        # Has access - allow usage
-        if status.get("can_access"):
-            return True
-
-        # No access - determine why and show appropriate message
         onboarding = get_onboarding_modules()
-        trial_info = status.get("trial_info")
+        modal = onboarding.build_integrations_page(
+            team_id=team_id,
+            configured=configured,
+            trial_info=trial_info,
+        )
 
-        if trial_info and trial_info.get("expired"):
-            # Trial expired - need subscription + API key
-            if status.get("has_api_key"):
-                # Has API key but no subscription - need to upgrade
-                blocks = onboarding.build_upgrade_required_message(
-                    trial_info=trial_info
-                )
-                client.chat_postMessage(
-                    channel=channel_id,
-                    text="Your free trial has ended. Please upgrade to continue using IncidentFox.",
-                    blocks=blocks,
-                )
-            else:
-                # Trial expired, no API key - need both subscription and key
-                blocks = onboarding.build_setup_required_message(
-                    trial_info=trial_info, show_upgrade=True
-                )
-                client.chat_postMessage(
-                    channel=channel_id,
-                    text="Your free trial has ended. Please upgrade and set up your API key.",
-                    blocks=blocks,
-                )
-        else:
-            # No trial info or not on trial - just need setup
-            blocks = onboarding.build_setup_required_message(trial_info=trial_info)
-            client.chat_postMessage(
-                channel=channel_id,
-                text="Welcome to IncidentFox! Please set up your API key to get started.",
-                blocks=blocks,
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened setup wizard (integrations page) for team {team_id}")
+    except Exception as e:
+        logger.error(f"Failed to open setup wizard: {e}", exc_info=True)
+
+
+@app.action("dismiss_welcome")
+def handle_dismiss_welcome(ack, body, client):
+    """Dismiss the welcome message with helpful tips."""
+    ack()
+
+    try:
+        channel = body.get("channel", {}).get("id")
+        message_ts = body.get("message", {}).get("ts")
+        if channel and message_ts:
+            client.chat_update(
+                channel=channel,
+                ts=message_ts,
+                text="No problem! Mention @IncidentFox anytime to start investigating.",
+                blocks=[
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": (
+                                ":wave: No problem! You can start investigating right away.\n\n"
+                                "Just mention `@IncidentFox` in any channel with your question. "
+                                "To set up integrations later, click on my avatar and select *Open App*."
+                            ),
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":bulb: Tip: Type `help` in this DM anytime for guidance.",
+                            }
+                        ],
+                    },
+                ],
             )
+    except Exception as e:
+        logger.warning(f"Failed to update dismissed welcome message: {e}")
 
-        return False
+
+@app.action(re.compile(r"^configure_integration_.*"))
+def handle_configure_integration(ack, body, client):
+    """Handle integration configuration button click."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Extract integration_id from action_id (e.g., "configure_integration_datadog")
+    integration_id = action_id.replace("configure_integration_", "")
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id for configure_integration action")
+        return
+
+    try:
+        # Get existing config if any (from config-service)
+        config_client = get_config_client()
+        configured = config_client.get_configured_integrations(team_id)
+        existing_config = configured.get(integration_id, {})
+
+        # Build and push the integration config modal
+        # Uses local INTEGRATIONS definition from onboarding.py
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_integration_config_modal(
+            team_id=team_id,
+            integration_id=integration_id,
+            existing_config=existing_config,
+        )
+        client.views_push(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Pushed config modal for {integration_id}")
 
     except Exception as e:
-        logger.warning(f"Error checking workspace setup: {e}")
-        # On error, allow usage (fail open for better UX)
-        return True
+        logger.error(f"Failed to open integration config modal: {e}", exc_info=True)
+
+
+@app.action(re.compile(r"^filter_category_.*"))
+def handle_filter_category(ack, body, client):
+    """Handle category filter button click on integrations page."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Extract category from action_id (e.g., "filter_category_observability")
+    category = action_id.replace("filter_category_", "")
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id for filter_category action")
+        return
+
+    try:
+        # Get configured integrations to show checkmarks
+        config_client = get_config_client()
+        configured = config_client.get_configured_integrations(team_id)
+        trial_info = config_client.get_trial_status(team_id)
+
+        # Rebuild the integrations page with new category filter
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_integrations_page(
+            team_id=team_id,
+            category_filter=category,
+            configured=configured,
+            trial_info=trial_info,
+        )
+
+        # Update the current modal view
+        client.views_update(
+            view_id=body.get("view", {}).get("id"),
+            view=modal,
+        )
+        logger.info(f"Filtered integrations to category: {category}")
+
+    except Exception as e:
+        logger.error(f"Failed to filter integrations: {e}", exc_info=True)
+
+
+@app.view("integrations_page")
+def handle_integrations_page_done(ack, body, client, view):
+    """Handle Done button on integrations page."""
+    import json
+
+    ack()
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+
+    # Send completion message to user
+    user_id = body.get("user", {}).get("id")
+    if user_id:
+        try:
+            dm_response = client.conversations_open(users=[user_id])
+            dm_channel = dm_response.get("channel", {}).get("id")
+
+            if dm_channel:
+                client.chat_postMessage(
+                    channel=dm_channel,
+                    text="Setup complete!",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    ":white_check_mark: *Setup complete!*\n\n"
+                                    "You're all set. Mention `@IncidentFox` in any channel "
+                                    "to start investigating incidents.\n\n"
+                                    "To manage integrations later, click on my avatar and select *Open App*."
+                                ),
+                            },
+                        },
+                    ],
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send completion DM: {e}")
+
+    logger.info(f"Completed setup wizard for team {team_id}")
+
+
+@app.action("open_advanced_settings")
+def handle_open_advanced_settings(ack, body, client):
+    """Open Advanced Settings modal (BYOK, HTTP proxy)."""
+    ack()
+    logger.info("open_advanced_settings action triggered")
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in open_advanced_settings")
+        return
+
+    try:
+        # Check if user already has an API key configured
+        config_client = get_config_client()
+        logger.info(f"Fetching anthropic config for team {team_id}")
+        anthropic_config = config_client.get_integration_config(team_id, "anthropic")
+        existing_api_key = bool(anthropic_config and anthropic_config.get("api_key"))
+        existing_endpoint = (
+            anthropic_config.get("api_endpoint") if anthropic_config else None
+        )
+        logger.info(
+            f"Building advanced settings modal: existing_api_key={existing_api_key}, existing_endpoint={existing_endpoint}"
+        )
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_advanced_settings_modal(
+            team_id=team_id,
+            existing_api_key=existing_api_key,
+            existing_endpoint=existing_endpoint,
+        )
+
+        # Use views_push from modal, views_open from Home tab or messages
+        view_type = body.get("view", {}).get("type")
+        if view_type == "modal":
+            logger.info("Pushing advanced settings modal (from modal)...")
+            result = client.views_push(trigger_id=body["trigger_id"], view=modal)
+        else:
+            logger.info("Opening advanced settings modal (from Home tab/message)...")
+            result = client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"views result: ok={result.get('ok')}")
+        logger.info(f"Opened Advanced Settings modal for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open Advanced Settings modal: {e}", exc_info=True)
+
+
+@app.view("advanced_settings_submission")
+def handle_advanced_settings_submission(ack, body, client, view):
+    """Handle Advanced Settings form submission."""
+    import json
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    values = view.get("state", {}).get("values", {})
+
+    # Get API key value
+    api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
+    if api_key:
+        api_key = api_key.strip()
+
+    # Get API endpoint value
+    api_endpoint = (
+        values.get("api_endpoint_block", {})
+        .get("api_endpoint_input", {})
+        .get("value", "")
+    )
+    if api_endpoint:
+        api_endpoint = api_endpoint.strip()
+
+    # Save if any values provided
+    if team_id and (api_key or api_endpoint):
+        try:
+            config_client = get_config_client()
+            config_client.save_api_key(
+                slack_team_id=team_id,
+                api_key=api_key if api_key else None,
+                api_endpoint=api_endpoint if api_endpoint else None,
+            )
+            logger.info(f"Saved advanced settings for team {team_id}")
+        except Exception as e:
+            logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
+
+    # Close the modal (go back to integrations page)
+    ack()
+    logger.info(f"Advanced settings submission completed for team {team_id}")
+
+
+@app.view("integration_config_submission")
+def handle_integration_config_submission(ack, body, client, view):
+    """Handle integration configuration modal submission."""
+    import json
+
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    integration_id = private_metadata.get("integration_id")
+    field_names = private_metadata.get("field_names", [])
+
+    values = view.get("state", {}).get("values", {})
+
+    # Extract field values
+    config = {}
+    for field_id in field_names:
+        block_id = f"field_{field_id}"
+        action_id = f"input_{field_id}"
+
+        block_values = values.get(block_id, {})
+        field_value = block_values.get(action_id, {})
+
+        # Handle different field types
+        if "value" in field_value:
+            # Plain text input
+            val = field_value.get("value")
+            if val:
+                config[field_id] = val.strip()
+        elif "selected_option" in field_value:
+            # Select
+            selected = field_value.get("selected_option", {})
+            if selected:
+                config[field_id] = selected.get("value")
+        elif "selected_options" in field_value:
+            # Checkboxes (boolean)
+            selected = field_value.get("selected_options", [])
+            config[field_id] = len(selected) > 0
+
+    # Save the integration config
+    if team_id and integration_id and config:
+        try:
+            config_client = get_config_client()
+            success = config_client.save_integration_config(
+                slack_team_id=team_id,
+                integration_id=integration_id,
+                config=config,
+            )
+
+            if success:
+                logger.info(f"Saved {integration_id} config for team {team_id}")
+            else:
+                logger.error(f"Failed to save {integration_id} config")
+
+        except Exception as e:
+            logger.error(f"Error saving integration config: {e}", exc_info=True)
+
+    # Close the modal (clear from stack to return to page 2)
+    ack(response_action="clear")
+
+    # Try to refresh Home Tab if user is there
+    user_id = body.get("user", {}).get("id")
+    if user_id and team_id:
+        try:
+            config_client = get_config_client()
+            trial_info = config_client.get_trial_status(team_id)
+            configured = config_client.get_configured_integrations(team_id)
+            schemas = config_client.get_integration_schemas()
+
+            # Only refresh if home_tab module exists
+            try:
+                from home_tab import build_home_tab_view
+
+                home_view = build_home_tab_view(
+                    team_id=team_id,
+                    trial_info=trial_info,
+                    configured_integrations=configured,
+                    available_schemas=schemas,
+                )
+                client.views_publish(user_id=user_id, view=home_view)
+                logger.info(f"Refreshed Home Tab for user {user_id}")
+            except ImportError:
+                pass  # home_tab not yet created
+        except Exception as e:
+            logger.warning(f"Failed to refresh Home Tab: {e}")
+
+
+@app.event("app_home_opened")
+def handle_app_home_opened(client, event, context):
+    """Render the Home Tab when user opens it."""
+    user_id = event.get("user")
+    team_id = context.get("team_id")
+
+    if not team_id:
+        logger.warning("No team_id in app_home_opened event")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+        schemas = config_client.get_integration_schemas()
+
+        from home_tab import build_home_tab_view
+
+        view = build_home_tab_view(
+            team_id=team_id,
+            trial_info=trial_info,
+            configured_integrations=configured,
+            available_schemas=schemas,
+        )
+
+        client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Published Home Tab for user {user_id}, team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to publish Home Tab: {e}", exc_info=True)
+
+
+@app.action(re.compile(r"^home_(edit|add)_integration_.*"))
+def handle_home_integration_action(ack, body, client):
+    """Handle Edit/Connect buttons on Home Tab."""
+    ack()
+
+    action = body.get("actions", [{}])[0]
+    action_id = action.get("action_id", "")
+
+    # Parse action: home_edit_integration_datadog or home_add_integration_datadog
+    parts = action_id.split("_")
+    action_type = parts[1]  # "edit" or "add"
+    integration_id = "_".join(parts[3:])  # Handle IDs with underscores
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in home integration action")
+        return
+
+    try:
+        config_client = get_config_client()
+        onboarding = get_onboarding_modules()
+
+        # Get existing config if editing
+        existing_config = None
+        if action_type == "edit":
+            configured = config_client.get_configured_integrations(team_id)
+            existing_config = configured.get(integration_id, {})
+
+        # Use onboarding.get_integration_by_id() directly - no need for config-service schemas
+        modal = onboarding.build_integration_config_modal(
+            team_id=team_id,
+            integration_id=integration_id,
+            existing_config=existing_config,
+        )
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened {action_type} modal for {integration_id} from Home Tab")
+
+    except Exception as e:
+        logger.error(
+            f"Failed to open integration modal from Home Tab: {e}", exc_info=True
+        )
+
+
+@app.action("home_open_api_key_modal")
+def handle_home_api_key_modal(ack, body, client):
+    """Open API key modal from Home Tab."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in home_open_api_key_modal")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_api_key_modal(team_id, trial_info=trial_info)
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened API key modal from Home Tab for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open API key modal from Home Tab: {e}", exc_info=True)
+
+
+@app.action("mention_open_setup_wizard")
+def handle_mention_setup_wizard(ack, body, client):
+    """Open setup wizard when user clicks 'Configure IncidentFox' from channel mention."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in mention_open_setup_wizard")
+        return
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+
+        onboarding = get_onboarding_modules()
+        wizard_view = onboarding.build_integrations_page(
+            team_id=team_id,
+            configured=configured,
+            trial_info=trial_info,
+        )
+
+        client.views_open(trigger_id=body["trigger_id"], view=wizard_view)
+        logger.info(f"Opened setup wizard from channel mention for team {team_id}")
+
+    except Exception as e:
+        logger.error(
+            f"Failed to open setup wizard from channel mention: {e}", exc_info=True
+        )
+
+
+@app.event("member_joined_channel")
+def handle_member_joined_channel(event, client, context):
+    """
+    Handle when a member joins a channel.
+
+    Only sends a welcome message when the BOT itself joins a channel,
+    not when other users join.
+    """
+    user_id = event.get("user")
+    channel_id = event.get("channel")
+    team_id = event.get("team") or context.get("team_id", "unknown")
+
+    # Get bot's user ID
+    bot_user_id = context.get("bot_user_id")
+    if not bot_user_id:
+        try:
+            auth_response = client.auth_test()
+            bot_user_id = auth_response.get("user_id")
+        except Exception as e:
+            logger.warning(f"Failed to get bot user ID: {e}")
+            return
+
+    # Only send welcome when the BOT joins, not when other users join
+    if user_id != bot_user_id:
+        return
+
+    logger.info(f"🤖 Bot joined channel {channel_id} in team {team_id}")
+
+    # Send a short, glanceable welcome message
+    blocks = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    ":wave: *I'm here!*\n"
+                    ":zap: I'll auto-investigate alerts posted in this channel\n"
+                    ":speech_balloon: `@mention` me with questions, errors, or files"
+                ),
+            },
+            "accessory": {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "Configure",
+                    "emoji": True,
+                },
+                "action_id": "open_setup_wizard",
+            },
+        },
+    ]
+
+    try:
+        client.chat_postMessage(
+            channel=channel_id,
+            text="I'm here! I'll auto-investigate alerts and answer questions when @mentioned.",
+            blocks=blocks,
+        )
+        logger.info(f"Sent welcome message to channel {channel_id}")
+    except Exception as e:
+        logger.warning(f"Error sending welcome message: {e}")
 
 
 if __name__ == "__main__":
@@ -4119,6 +4922,40 @@ if __name__ == "__main__":
                     logger.warning(
                         f"Failed to provision workspace in config_service: {provision_error}"
                     )
+                    provision_result = None
+
+                # Send welcome DM to installer
+                installer_user_id = authed_user.get("id")
+                if installer_user_id and bot_token:
+                    try:
+                        from slack_sdk import WebClient
+
+                        dm_client = WebClient(token=bot_token)
+                        dm_response = dm_client.conversations_open(
+                            users=[installer_user_id]
+                        )
+                        dm_channel = dm_response.get("channel", {}).get("id")
+
+                        if dm_channel:
+                            onboarding = get_onboarding_modules()
+                            trial_info = (
+                                provision_result.get("trial_info")
+                                if provision_result
+                                else None
+                            )
+                            welcome_blocks = onboarding.build_welcome_message(
+                                trial_info=trial_info, team_name=team_name
+                            )
+                            dm_client.chat_postMessage(
+                                channel=dm_channel,
+                                text="Welcome to IncidentFox!",
+                                blocks=welcome_blocks,
+                            )
+                            logger.info(
+                                f"Sent welcome DM to installer {installer_user_id}"
+                            )
+                    except Exception as dm_error:
+                        logger.warning(f"Failed to send welcome DM: {dm_error}")
 
                 # Render custom success page with trial info
                 return render_template(
