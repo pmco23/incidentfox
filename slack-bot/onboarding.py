@@ -1709,12 +1709,12 @@ def build_integration_config_modal(
         field_names.append(field_id)
 
         # Make field optional if:
-        # 1. Integration is disabled (not enabled), OR
-        # 2. Field already has a value (editing scenario), OR
-        # 3. Field is not originally required
-        is_enabled = existing_config.get("enabled", True)
-        field_has_value = field_id in existing_config and existing_config.get(field_id)
-        make_optional = not is_enabled or field_has_value or not field_required
+        # 1. Field already has a value (editing scenario) - especially for secret fields, OR
+        # 2. Field is not originally required
+        # Note: We can't make fields optional based on enabled status because the user
+        # can change that checkbox in the modal itself
+        field_has_value = field_id in existing_config
+        make_optional = field_has_value or not field_required
 
         if field_type == "secret":
             # Secret fields: plain text input, don't pre-fill
