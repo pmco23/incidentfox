@@ -498,6 +498,26 @@ class ConfigServiceClient:
             if k != "anthropic" and v and isinstance(v, dict)
         }
 
+    def get_integration_config(
+        self, slack_team_id: str, integration_id: str
+    ) -> Optional[dict]:
+        """
+        Get configuration for a specific integration.
+
+        Args:
+            slack_team_id: Slack team ID
+            integration_id: Integration identifier (e.g., "anthropic", "datadog")
+
+        Returns:
+            Integration config dict or None if not configured
+        """
+        config = self.get_workspace_config(slack_team_id)
+        if not config:
+            return None
+
+        integrations = config.get("integrations", {})
+        return integrations.get(integration_id)
+
     def save_integration_config(
         self, slack_team_id: str, integration_id: str, config: dict
     ) -> bool:
