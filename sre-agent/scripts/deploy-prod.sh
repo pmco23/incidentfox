@@ -38,13 +38,13 @@ aws ecr get-login-password --region us-west-2 | docker login --username AWS --pa
 
 # Build and push multi-platform sre-agent image
 echo ""
-echo "3️⃣  Building multi-platform sre-agent image..."
+echo "3️⃣  Building sre-agent image..."
 # Generate immutable tag from git SHA
 IMAGE_TAG=$(git rev-parse --short HEAD)
 echo "   Image tag: $IMAGE_TAG"
 docker buildx create --use --name multiplatform 2>/dev/null || docker buildx use multiplatform
 docker buildx build \
-    --platform linux/amd64,linux/arm64 \
+    --platform linux/amd64 \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:${IMAGE_TAG} \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest \
     --push \
@@ -54,7 +54,7 @@ docker buildx build \
 echo ""
 echo "4️⃣  Building credential-resolver image..."
 docker buildx build \
-    --platform linux/amd64,linux/arm64 \
+    --platform linux/amd64 \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:${IMAGE_TAG} \
     -t 103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest \
     -f credential-proxy/Dockerfile \
