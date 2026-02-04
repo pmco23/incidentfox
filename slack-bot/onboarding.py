@@ -180,6 +180,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":grafana:",
         "icon_fallback": ":bar_chart:",
         "description": "Query dashboards, annotations, and Prometheus metrics.",
+        "video": {
+            "title": "How to Connect Grafana to IncidentFox",
+            "title_url": "https://vimeo.com/1161627016?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161627016?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161627016.jpg",
+            "alt_text": "Grafana setup tutorial",
+            "description": "Step-by-step guide to connecting your Grafana account",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into your Grafana instance\n"
