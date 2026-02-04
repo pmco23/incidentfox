@@ -172,16 +172,304 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             },
         ],
     },
-    # COMING SOON INTEGRATIONS
+    {
+        "id": "grafana",
+        "name": "Grafana",
+        "category": "observability",
+        "status": "active",
+        "icon": ":grafana:",
+        "icon_fallback": ":bar_chart:",
+        "description": "Query dashboards, annotations, and Prometheus metrics.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your Grafana instance\n"
+            "2. Go to *Administration* (gear icon) > *Service accounts*\n"
+            "3. Click *Add service account*, give it a name (e.g., 'IncidentFox')\n"
+            "4. Set the role to *Viewer* (or *Editor* if you need annotation access)\n"
+            "5. Click *Add service account token*, then *Generate token*\n"
+            "6. Copy the token and paste it below along with your Grafana URL"
+        ),
+        "docs_url": "https://grafana.com/docs/grafana/latest/developers/http_api/",
+        "context_prompt_placeholder": "e.g., 'Our main dashboards are in the SRE folder. We use Prometheus for metrics. Key dashboards: api-latency, error-rates, k8s-overview.'",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Token",
+                "type": "secret",
+                "required": True,
+                "placeholder": "glsa_...",
+                "hint": "Your Grafana service account token",
+            },
+            {
+                "id": "domain",
+                "name": "Grafana URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-org.grafana.net or https://grafana.yourcompany.com",
+                "hint": "Paste any Grafana dashboard URL or just the base URL",
+            },
+        ],
+    },
+    {
+        "id": "elasticsearch",
+        "name": "Elasticsearch",
+        "category": "observability",
+        "status": "active",
+        "icon": ":elasticsearch:",
+        "icon_fallback": ":mag:",
+        "description": "Query logs and search data from Elasticsearch or OpenSearch.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Get your Elasticsearch cluster URL (e.g., https://my-cluster.es.us-east-1.aws.found.io:9243)\n"
+            "2. Create an API key or use Basic auth credentials:\n"
+            "   • *Elastic Cloud*: Go to *Management* > *Security* > *API keys* > *Create API key*\n"
+            "   • *Self-hosted*: Use your existing username/password or create an API key\n"
+            "3. Paste your cluster URL and credentials below"
+        ),
+        "docs_url": "https://www.elastic.co/guide/en/elasticsearch/reference/current/rest-apis.html",
+        "context_prompt_placeholder": "e.g., 'Our logs are in the logs-* index. Use kubernetes.namespace for filtering. Error logs have level=error. Timestamps are in @timestamp field.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "Elasticsearch URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://my-cluster.es.us-east-1.aws.found.io:9243",
+                "hint": "Your Elasticsearch cluster URL (include port if needed)",
+            },
+            {
+                "id": "username",
+                "name": "Username",
+                "type": "string",
+                "required": False,
+                "placeholder": "elastic",
+                "hint": "Username for Basic auth (leave blank if using API key only)",
+            },
+            {
+                "id": "api_key",
+                "name": "Password or API Key",
+                "type": "secret",
+                "required": False,
+                "placeholder": "password or API key",
+                "hint": "Password for Basic auth, or encoded API key (id:key format)",
+            },
+            {
+                "id": "index_pattern",
+                "name": "Default Index Pattern",
+                "type": "string",
+                "required": False,
+                "placeholder": "logs-*",
+                "hint": "Default index pattern for log queries (optional)",
+            },
+        ],
+    },
     {
         "id": "datadog",
         "name": "Datadog",
         "category": "observability",
-        "status": "coming_soon",
+        "status": "active",
         "icon": ":datadog:",
         "icon_fallback": ":dog:",
         "description": "Query logs, metrics, and APM traces from Datadog.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your Datadog account\n"
+            "2. Go to *Organization Settings* > *API Keys*\n"
+            "3. Click *+ New Key*, name it 'IncidentFox', and copy the key\n"
+            "4. Go to *Application Keys* tab, click *+ New Key*, and copy it\n"
+            "5. Note your Datadog site (e.g., us5.datadoghq.com) from your browser URL\n"
+            "6. Paste your keys and site below"
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/",
+        "context_prompt_placeholder": "e.g., 'Our services use service:api-gateway tag. Production env uses env:prod. Error logs are status:error.'",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "your-api-key",
+                "hint": "Datadog API key from Organization Settings",
+            },
+            {
+                "id": "app_key",
+                "name": "Application Key",
+                "type": "secret",
+                "required": False,
+                "placeholder": "your-app-key",
+                "hint": "Datadog Application key (optional, for extended features)",
+            },
+            {
+                "id": "site",
+                "name": "Datadog Site",
+                "type": "select",
+                "required": True,
+                "options": [
+                    "datadoghq.com",
+                    "us3.datadoghq.com",
+                    "us5.datadoghq.com",
+                    "datadoghq.eu",
+                    "ap1.datadoghq.com",
+                    "ddog-gov.com",
+                ],
+                "placeholder": "Select your Datadog site",
+                "hint": "Check your browser URL to find your site",
+            },
+        ],
     },
+    {
+        "id": "prometheus",
+        "name": "Prometheus",
+        "category": "observability",
+        "status": "active",
+        "icon": ":prometheus:",
+        "icon_fallback": ":fire:",
+        "description": "Query metrics and alerts from Prometheus.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Get your Prometheus server URL\n"
+            "2. If authentication is required, include credentials in the URL or provide a bearer token\n"
+            "3. Paste your Prometheus URL below"
+        ),
+        "docs_url": "https://prometheus.io/docs/prometheus/latest/querying/api/",
+        "context_prompt_placeholder": "e.g., 'Key metrics: http_requests_total, container_cpu_usage_seconds_total. Use namespace label for filtering. Alerts are in prometheus-alerts.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "Prometheus URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://prometheus.example.com or http://localhost:9090",
+                "hint": "Your Prometheus server URL",
+            },
+            {
+                "id": "api_key",
+                "name": "Bearer Token",
+                "type": "secret",
+                "required": False,
+                "placeholder": "Optional bearer token",
+                "hint": "Bearer token for authentication (if required)",
+            },
+        ],
+    },
+    {
+        "id": "jaeger",
+        "name": "Jaeger",
+        "category": "observability",
+        "status": "active",
+        "icon": ":jaeger:",
+        "icon_fallback": ":mag:",
+        "description": "Search distributed traces and analyze latency.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Get your Jaeger Query UI URL (usually port 16686)\n"
+            "2. Paste the URL below"
+        ),
+        "docs_url": "https://www.jaegertracing.io/docs/apis/",
+        "context_prompt_placeholder": "e.g., 'Main services: api-gateway, user-service, order-service. Traces are tagged with env=production.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "Jaeger URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://jaeger.example.com or http://localhost:16686",
+                "hint": "Your Jaeger Query UI URL",
+            },
+        ],
+    },
+    {
+        "id": "kubernetes",
+        "name": "Kubernetes",
+        "category": "infra",
+        "status": "active",
+        "icon": ":kubernetes:",
+        "icon_fallback": ":wheel_of_dharma:",
+        "description": "Query pods, deployments, and cluster state.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Get your Kubernetes API server URL (e.g., from `kubectl cluster-info`)\n"
+            "2. Create a service account with read permissions:\n"
+            "   `kubectl create serviceaccount incidentfox -n default`\n"
+            "3. Get the service account token:\n"
+            "   `kubectl create token incidentfox -n default`\n"
+            "4. Paste the API server URL and token below"
+        ),
+        "docs_url": "https://kubernetes.io/docs/reference/kubernetes-api/",
+        "context_prompt_placeholder": "e.g., 'Production namespace is prod. Critical deployments: api, worker, web. Use app label for service identification.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "Kubernetes API URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://kubernetes.example.com:6443",
+                "hint": "Your Kubernetes API server URL",
+            },
+            {
+                "id": "api_key",
+                "name": "Service Account Token",
+                "type": "secret",
+                "required": True,
+                "placeholder": "eyJhbGciOiJSUzI1NiIs...",
+                "hint": "Service account token with read permissions",
+            },
+            {
+                "id": "namespace",
+                "name": "Default Namespace",
+                "type": "string",
+                "required": False,
+                "placeholder": "default",
+                "hint": "Default namespace for queries (optional)",
+            },
+        ],
+    },
+    {
+        "id": "github",
+        "name": "GitHub",
+        "category": "scm",
+        "status": "active",
+        "icon": ":github:",
+        "icon_fallback": ":octocat:",
+        "description": "Search code, PRs, commits, and deployments.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to GitHub *Settings* > *Developer settings* > *Personal access tokens* > *Tokens (classic)*\n"
+            "2. Click *Generate new token (classic)*\n"
+            "3. Select scopes: `repo` (for private repos) or `public_repo` (for public only)\n"
+            "4. Generate and copy the token\n"
+            "5. For GitHub Enterprise, also provide your enterprise URL"
+        ),
+        "docs_url": "https://docs.github.com/en/rest",
+        "context_prompt_placeholder": "e.g., 'Main repos: org/api, org/frontend. Production branch is main. Deployments are tracked via GitHub Actions.'",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "Personal Access Token",
+                "type": "secret",
+                "required": True,
+                "placeholder": "ghp_xxxxxxxxxxxx",
+                "hint": "GitHub personal access token with repo access",
+            },
+            {
+                "id": "domain",
+                "name": "GitHub Enterprise URL",
+                "type": "string",
+                "required": False,
+                "placeholder": "https://github.yourcompany.com/api/v3",
+                "hint": "Only for GitHub Enterprise (leave blank for github.com)",
+            },
+            {
+                "id": "default_org",
+                "name": "Default Organization",
+                "type": "string",
+                "required": False,
+                "placeholder": "your-org",
+                "hint": "Default organization for queries (optional)",
+            },
+        ],
+    },
+    # COMING SOON INTEGRATIONS
     {
         "id": "cloudwatch",
         "name": "CloudWatch",
@@ -219,42 +507,6 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "description": "Query EC2, ECS, Lambda, and other AWS services.",
     },
     {
-        "id": "github",
-        "name": "GitHub",
-        "category": "scm",
-        "status": "coming_soon",
-        "icon": ":github:",
-        "icon_fallback": ":octocat:",
-        "description": "Search code, PRs, and recent deployments.",
-    },
-    {
-        "id": "kubernetes",
-        "name": "Kubernetes",
-        "category": "infra",
-        "status": "coming_soon",
-        "icon": ":kubernetes:",
-        "icon_fallback": ":wheel_of_dharma:",
-        "description": "Query pods, deployments, and cluster state.",
-    },
-    {
-        "id": "prometheus",
-        "name": "Prometheus",
-        "category": "observability",
-        "status": "coming_soon",
-        "icon": ":prometheus:",
-        "icon_fallback": ":fire:",
-        "description": "Query metrics and alerts from Prometheus.",
-    },
-    {
-        "id": "grafana",
-        "name": "Grafana",
-        "category": "observability",
-        "status": "coming_soon",
-        "icon": ":grafana:",
-        "icon_fallback": ":bar_chart:",
-        "description": "Query dashboards and annotations.",
-    },
-    {
         "id": "splunk",
         "name": "Splunk",
         "category": "observability",
@@ -262,15 +514,6 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":splunk:",
         "icon_fallback": ":mag:",
         "description": "Query logs and metrics from Splunk.",
-    },
-    {
-        "id": "elasticsearch",
-        "name": "Elasticsearch",
-        "category": "observability",
-        "status": "coming_soon",
-        "icon": ":elasticsearch:",
-        "icon_fallback": ":mag:",
-        "description": "Query logs and search data from Elasticsearch.",
     },
     {
         "id": "opensearch",
@@ -823,6 +1066,140 @@ def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
         )
 
     return True, hostname, ""
+
+
+def extract_grafana_url(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Grafana base URL from URL or domain string.
+
+    Args:
+        input_str: URL (e.g., https://myorg.grafana.net/d/abc123/my-dashboard)
+                   or domain (e.g., myorg.grafana.net or grafana.mycompany.com)
+
+    Returns:
+        (is_valid, base_url, error_message)
+    """
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Grafana URL is required"
+
+    input_str = input_str.strip()
+
+    # If it doesn't start with http, add https://
+    if not input_str.startswith(("http://", "https://")):
+        input_str = f"https://{input_str}"
+
+    try:
+        parsed = urlparse(input_str)
+        hostname = parsed.hostname or parsed.netloc.split(":")[0]
+        port = parsed.port
+
+        if not hostname:
+            return False, "", "Could not parse Grafana URL"
+
+        # Build base URL (scheme + host + optional port)
+        scheme = parsed.scheme or "https"
+        if port and port not in (80, 443):
+            base_url = f"{scheme}://{hostname}:{port}"
+        else:
+            base_url = f"{scheme}://{hostname}"
+
+        return True, base_url, ""
+
+    except Exception:
+        return False, "", "Invalid URL format"
+
+
+def extract_elasticsearch_url(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Elasticsearch base URL from URL string.
+
+    Args:
+        input_str: URL (e.g., https://my-cluster.es.us-east-1.aws.found.io:9243)
+                   or domain (e.g., my-cluster.es.us-east-1.aws.found.io)
+
+    Returns:
+        (is_valid, base_url, error_message)
+    """
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Elasticsearch URL is required"
+
+    input_str = input_str.strip()
+
+    # If it doesn't start with http, add https://
+    if not input_str.startswith(("http://", "https://")):
+        input_str = f"https://{input_str}"
+
+    try:
+        parsed = urlparse(input_str)
+        hostname = parsed.hostname or parsed.netloc.split(":")[0]
+        port = parsed.port
+
+        if not hostname:
+            return False, "", "Could not parse Elasticsearch URL"
+
+        # Build base URL (scheme + host + optional port)
+        # Elasticsearch often uses non-standard ports (9200, 9243, etc.)
+        scheme = parsed.scheme or "https"
+        if port:
+            base_url = f"{scheme}://{hostname}:{port}"
+        else:
+            base_url = f"{scheme}://{hostname}"
+
+        return True, base_url, ""
+
+    except Exception:
+        return False, "", "Invalid URL format"
+
+
+def extract_generic_url(
+    input_str: str, service_name: str = "service"
+) -> tuple[bool, str, str]:
+    """
+    Extract and validate a generic service URL.
+
+    Used for Prometheus, Jaeger, Kubernetes, GitHub Enterprise, etc.
+
+    Args:
+        input_str: URL string
+        service_name: Name of the service for error messages
+
+    Returns:
+        (is_valid, base_url, error_message)
+    """
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", f"{service_name} URL is required"
+
+    input_str = input_str.strip()
+
+    # If it doesn't start with http, add https://
+    if not input_str.startswith(("http://", "https://")):
+        input_str = f"https://{input_str}"
+
+    try:
+        parsed = urlparse(input_str)
+        hostname = parsed.hostname or parsed.netloc.split(":")[0]
+        port = parsed.port
+
+        if not hostname:
+            return False, "", f"Could not parse {service_name} URL"
+
+        # Build base URL (scheme + host + optional port)
+        scheme = parsed.scheme or "https"
+        if port:
+            base_url = f"{scheme}://{hostname}:{port}"
+        else:
+            base_url = f"{scheme}://{hostname}"
+
+        return True, base_url, ""
+
+    except Exception:
+        return False, "", "Invalid URL format"
 
 
 def build_welcome_message(

@@ -24,6 +24,7 @@ INTEGRATION_LOGOS = {
     "cloudwatch": f"{ASSETS_BASE_URL}/integrations/cloudwatch.png",
     "prometheus": f"{ASSETS_BASE_URL}/integrations/prometheus.png",
     "grafana": f"{ASSETS_BASE_URL}/integrations/grafana.png",
+    "jaeger": f"{ASSETS_BASE_URL}/integrations/jaeger.png",
     "splunk": f"{ASSETS_BASE_URL}/integrations/splunk.png",
     "elasticsearch": f"{ASSETS_BASE_URL}/integrations/elasticsearch.png",
     "opensearch": f"{ASSETS_BASE_URL}/integrations/opensearch.png",
