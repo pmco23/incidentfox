@@ -10,6 +10,9 @@ from src.api.routes.github import router as github_router
 from src.api.routes.health import router as health_router
 from src.api.routes.integration_schemas import router as integration_schemas_router
 from src.api.routes.internal import router as internal_router
+from src.api.routes.k8s_clusters import admin_router as k8s_admin_router
+from src.api.routes.k8s_clusters import internal_router as k8s_internal_router
+from src.api.routes.k8s_clusters import router as k8s_clusters_router
 from src.api.routes.metrics import router as metrics_router
 from src.api.routes.remediation import router as remediation_router
 from src.api.routes.security import router as security_router
@@ -45,6 +48,9 @@ def create_app() -> FastAPI:
     app.include_router(tool_metadata_router)
     app.include_router(dependencies_router)
     app.include_router(visitor_router)
+    app.include_router(k8s_clusters_router)
+    app.include_router(k8s_internal_router)
+    app.include_router(k8s_admin_router)
     app.include_router(github_router)
 
     @app.middleware("http")
