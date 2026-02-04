@@ -422,7 +422,9 @@ static_resources:
             )
 
         # Get credential-resolver namespace (used for both configmap and env vars)
-        cred_resolver_ns = os.getenv("CREDENTIAL_RESOLVER_NAMESPACE", "incidentfox-prod")
+        cred_resolver_ns = os.getenv(
+            "CREDENTIAL_RESOLVER_NAMESPACE", "incidentfox-prod"
+        )
 
         # Fetch configured integrations (non-sensitive metadata for system prompt)
         configured_integrations = fetch_configured_integrations(
