@@ -696,6 +696,15 @@ async def datadog_proxy(path: str, request: Request):
     target_url = f"https://api.{site}/{path}"
     logger.info(f"Datadog proxy: forwarding to {target_url}")
 
+    # Debug: Log credential presence (not values) for troubleshooting
+    api_key = creds.get("api_key", "")
+    app_key = creds.get("app_key", "")
+    logger.info(
+        f"Datadog credentials: api_key={len(api_key)}chars, app_key={len(app_key)}chars, "
+        f"api_key_prefix={api_key[:4] if len(api_key) >= 4 else 'N/A'}..., "
+        f"app_key_prefix={app_key[:4] if len(app_key) >= 4 else 'N/A'}..."
+    )
+
     # Build auth headers
     auth_headers = build_auth_headers("datadog", creds)
 
