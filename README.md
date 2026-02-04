@@ -78,6 +78,34 @@ IncidentFox is **open source** (Apache 2.0). You can try it instantly in Slack, 
 
 ---
 
+## Integrations
+
+IncidentFox connects to your existing tools and infrastructure. No manual setup required — configure once and it works everywhere.
+
+### Available Now ✅
+
+| Category | Integrations |
+|----------|--------------|
+| **Logs & Metrics** | Coralogix · Grafana · Elasticsearch · Datadog · Prometheus · Jaeger |
+| **Incidents** | incident.io |
+| **Cloud & Infra** | Kubernetes |
+| **Dev Tools** | GitHub · Confluence |
+
+### Coming Soon 🚀
+
+| Category | Integrations |
+|----------|--------------|
+| **Logs & Metrics** | CloudWatch · Splunk · OpenSearch · New Relic · Honeycomb · Dynatrace · Chronosphere · VictoriaMetrics · Kloudfuse · Sentry · Snowflake |
+| **Incidents** | PagerDuty · Opsgenie · ServiceNow |
+| **Cloud & Infra** | AWS · GCP · Azure · Temporal |
+| **Dev Tools** | Jira · Linear · Notion · Glean |
+
+**Need an integration?** [Contact us](mailto:founders@incidentfox.ai) or contribute via [MCP protocol](#under-the-hood) — add new integrations in minutes.
+
+[Full integration docs →](docs/INTEGRATIONS.md)
+
+---
+
 ## Architecture Overview
 
 ```
