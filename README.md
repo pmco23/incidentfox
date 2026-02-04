@@ -26,6 +26,7 @@ IncidentFox is an **open-source AI SRE** that integrates with your observability
 ## Table of Contents
 
 - [What is IncidentFox?](#what-is-incidentfox)
+- [How We're Different](#how-were-different)
 - [Get Started](#get-started)
 - [Why IncidentFox](#why-incidentfox)
 - [Architecture Overview](#architecture-overview)
@@ -44,6 +45,35 @@ An **AI SRE** that helps root cause and propose mitigations for production on-ca
 **Slack-first** ([see screenshot above](#incidentfox)), but also works on web UI, GitHub, PagerDuty, and API.
 
 **Highly customizable** — set up in minutes, and it self-improves by automatically learning and persisting your team's context.
+
+---
+
+## How We're Different
+
+**AI SRE is not a new idea.** The problem? Most AI SREs don't actually work — they lack the context to debug *your* specific systems.
+
+### Context Is Everything
+
+Other tools ask you to manually configure integrations, write runbooks, and hope the AI figures it out. **IncidentFox does the opposite.**
+
+On setup, we analyze your codebase, Slack history, and past incidents to understand how your org actually works. Internal CI/CD system with weird quirks? Custom deployment tooling? We learn it automatically and build integrations that work out of the box.
+
+**No weeks of integration work. No building your own MCP servers.** We connect to the tools that actually matter for root cause — so you can skip straight to debugging.
+
+### Slack-Native UX
+
+We're opinionated: **you shouldn't leave Slack during an incident.**
+
+- Upload a Grafana screenshot → we analyze it
+- Attach a log file → we parse and correlate
+- All tool outputs, evidence, and reasoning → visible as Slack attachments
+- No new tabs. No context switching. Debug where you already work.
+
+### Powerful Agents, Secure by Default
+
+Our agents run in sandboxed environments with filesystem access — enabling code generation, script execution, and deep analysis. Security guardrails keep them focused on the task.
+
+**The result:** Higher accuracy, faster resolution, less time wasted on integration work.
 
 ---
 
@@ -178,12 +208,25 @@ The engineering that makes IncidentFox actually work in production:
 
 ## Enterprise Ready
 
-Security and compliance for production deployments:
+Security, compliance, and deep customization for production deployments.
+
+### Context at Scale
+
+Every team is different — different tech stacks, observability tools, incident patterns, and services. Enterprise unlocks **deep specialization**:
+
+| Feature | Description |
+|---------|-------------|
+| **Auto-Learn Your Org** | We analyze your codebase, Slack history, and past incidents to identify which internal tools matter most for debugging. Then we auto-build integrations. |
+| **Team-Specific Agents** | Each team gets agents tuned to their stack. Your payments team and your infra team have different needs — their agents reflect that. |
+| **Custom Prompts & Tools** | Auto-learned defaults, with full control to tune. Engineers can adjust prompts, add tools, and configure agents per team. |
+| **Context Compounds** | Every investigation makes IncidentFox smarter about your systems. Tribal knowledge gets captured, not lost. |
+
+### Security & Compliance
 
 | Feature | Description |
 |---------|-------------|
 | **SOC 2 Compliant** | Audited security controls, data handling, and access management |
-| **Claude Sandbox** | Isolated Kubernetes sandboxes for agent execution — no shared state between runs |
+| **Sandboxed Execution** | Isolated Kubernetes sandboxes for agent execution — no shared state between runs |
 | **Secrets Proxy** | Credentials never touch the agent. Envoy proxy injects secrets at request time. |
 | **Approval Workflows** | Critical changes (prompts, tools, configs) require review before deployment |
 | **SSO/OIDC** | Google, Azure AD, Okta — per-organization configuration |
