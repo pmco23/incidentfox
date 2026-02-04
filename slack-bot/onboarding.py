@@ -226,6 +226,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":elasticsearch:",
         "icon_fallback": ":mag:",
         "description": "Query logs and search data from Elasticsearch or OpenSearch.",
+        "video": {
+            "title": "How to Connect Elasticsearch to IncidentFox",
+            "title_url": "https://vimeo.com/1161634866?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161634866?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161634866.jpg",
+            "alt_text": "Elasticsearch setup tutorial",
+            "description": "Step-by-step guide to connecting your Elasticsearch cluster",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Get your Elasticsearch cluster URL (e.g., https://my-cluster.es.us-east-1.aws.found.io:9243)\n"
@@ -279,6 +287,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":datadog:",
         "icon_fallback": ":dog:",
         "description": "Query logs, metrics, and APM traces from Datadog.",
+        "video": {
+            "title": "How to Connect Datadog to IncidentFox",
+            "title_url": "https://vimeo.com/1161632406?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161632406?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161632406.jpg",
+            "alt_text": "Datadog setup tutorial",
+            "description": "Step-by-step guide to connecting your Datadog account",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into your Datadog account\n"
@@ -365,6 +381,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":jaeger:",
         "icon_fallback": ":mag:",
         "description": "Search distributed traces and analyze latency.",
+        "video": {
+            "title": "How to Connect Jaeger to IncidentFox",
+            "title_url": "https://vimeo.com/1161635936?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161635936?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161635936.jpg",
+            "alt_text": "Jaeger setup tutorial",
+            "description": "Step-by-step guide to connecting your Jaeger instance",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Get your Jaeger Query UI URL (usually port 16686)\n"
@@ -2178,8 +2202,7 @@ def build_integration_config_modal(
                     "alt_text", f"{integration_name} setup tutorial"
                 ),
                 "author_name": "IncidentFox",
-                "provider_name": "YouTube",
-                "provider_icon_url": "https://www.youtube.com/s/desktop/b3c2a2a0/img/favicon_144x144.png",
+                "provider_name": "🎬 Video",
             }
         )
         blocks.append({"type": "divider"})
