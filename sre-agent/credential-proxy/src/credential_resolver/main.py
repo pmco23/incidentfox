@@ -672,12 +672,23 @@ async def datadog_proxy(path: str, request: Request):
     tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
 
     # Get Datadog credentials (uses 'site' not 'domain')
+    # Datadog requires api_key, app_key, and site for most API calls
     creds = await get_credentials(tenant_id, team_id, "datadog")
     if not creds or not creds.get("site") or not creds.get("api_key"):
         logger.error(f"Datadog not configured for tenant={tenant_id}")
         raise HTTPException(
             status_code=404,
             detail="Datadog integration not configured",
+        )
+
+    if not creds.get("app_key"):
+        logger.error(
+            f"Datadog app_key missing for tenant={tenant_id}. "
+            "Most Datadog API endpoints require both api_key and app_key."
+        )
+        raise HTTPException(
+            status_code=404,
+            detail="Datadog integration incomplete: app_key required",
         )
 
     # Build Datadog API URL from site
@@ -709,6 +720,13 @@ async def datadog_proxy(path: str, request: Request):
                 params=query_params,
                 content=body,
             )
+
+            # Log non-2xx responses for debugging
+            if response.status_code >= 400:
+                logger.warning(
+                    f"Datadog API returned {response.status_code} for {target_url}: "
+                    f"{response.text[:500] if response.text else 'no body'}"
+                )
 
             return Response(
                 content=response.content,
