@@ -197,6 +197,115 @@ def get_integration_metadata(integration_id: str, creds: dict) -> dict:
     return {}
 
 
+# IMPORTANT: Route ordering matters in FastAPI/Starlette!
+# More specific routes MUST be declared BEFORE catch-all routes.
+# /confluence/{path:path} must come before /{path:path}
+
+
+@app.api_route(
+    "/confluence/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+async def confluence_proxy(path: str, request: Request):
+    """Reverse proxy for Confluence API requests.
+
+    Since Confluence URLs are customer-specific (e.g., mycompany.atlassian.net),
+    we can't use Envoy's static routing. Instead, this endpoint acts as a reverse
+    proxy that:
+    1. Validates JWT and extracts tenant context
+    2. Looks up the customer's Confluence URL and credentials
+    3. Forwards the request with Basic auth to their Confluence instance
+    4. Returns the response
+
+    Security: Credentials never leave this service.
+
+    Example:
+        Sandbox calls: http://credential-resolver:8002/confluence/wiki/rest/api/content
+        This proxies to: https://customer.atlassian.net/wiki/rest/api/content
+    """
+    import re
+
+    import httpx
+
+    logger.info(f"Confluence proxy: {request.method} /{path}")
+
+    # Validate JWT and extract tenant context
+    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
+
+    logger.info(
+        f"Confluence proxy: tenant={tenant_id}, team={team_id}, sandbox={sandbox_name}"
+    )
+
+    # Get Confluence credentials
+    # Config Service stores: domain (URL), email, api_key
+    creds = await get_credentials(tenant_id, team_id, "confluence")
+    if not creds or not creds.get("domain") or not creds.get("api_key"):
+        logger.error(f"Confluence not configured for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Confluence integration not configured",
+        )
+
+    # Build target URL from 'domain' field
+    # Domain may include paths like /wiki/home, extract just scheme + host
+    domain = creds.get("domain", "")
+    match = re.match(r"(https?://[^/]+)", domain)
+    if match:
+        confluence_url = match.group(1)
+    else:
+        confluence_url = domain.rstrip("/")
+
+    target_url = f"{confluence_url}/{path}"
+    logger.info(f"Confluence proxy: forwarding to {target_url}")
+
+    # Build auth headers
+    auth_headers = build_auth_headers("confluence", creds)
+
+    # Forward the request
+    # Copy relevant headers from original request
+    forward_headers = {
+        "Content-Type": request.headers.get("Content-Type", "application/json"),
+        "Accept": request.headers.get("Accept", "application/json"),
+        **auth_headers,
+    }
+
+    # Get query params
+    query_params = dict(request.query_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Get request body if present
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=forward_headers,
+                params=query_params,
+                content=body,
+            )
+
+            # Return the response with same status and content
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers={
+                    "Content-Type": response.headers.get(
+                        "Content-Type", "application/json"
+                    )
+                },
+            )
+
+    except httpx.TimeoutException:
+        logger.error(f"Confluence request timeout: {target_url}")
+        raise HTTPException(status_code=504, detail="Confluence request timed out")
+    except httpx.RequestError as e:
+        logger.error(f"Confluence request error: {e}")
+        raise HTTPException(status_code=502, detail=f"Confluence request failed: {e}")
+
+
 @app.api_route(
     "/check", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 )
@@ -373,110 +482,6 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
     # Default: Bearer token
     api_key = creds.get("api_key", "")
     return {"Authorization": f"Bearer {api_key}"}
-
-
-@app.api_route(
-    "/confluence/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-)
-async def confluence_proxy(path: str, request: Request):
-    """Reverse proxy for Confluence API requests.
-
-    Since Confluence URLs are customer-specific (e.g., mycompany.atlassian.net),
-    we can't use Envoy's static routing. Instead, this endpoint acts as a reverse
-    proxy that:
-    1. Validates JWT and extracts tenant context
-    2. Looks up the customer's Confluence URL and credentials
-    3. Forwards the request with Basic auth to their Confluence instance
-    4. Returns the response
-
-    Security: Credentials never leave this service.
-
-    Example:
-        Sandbox calls: http://credential-resolver:8002/confluence/wiki/rest/api/content
-        This proxies to: https://customer.atlassian.net/wiki/rest/api/content
-    """
-    import httpx
-
-    logger.info(f"Confluence proxy: {request.method} /{path}")
-
-    # Validate JWT and extract tenant context
-    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
-
-    logger.info(
-        f"Confluence proxy: tenant={tenant_id}, team={team_id}, sandbox={sandbox_name}"
-    )
-
-    # Get Confluence credentials
-    # Config Service stores: domain (URL), email, api_key
-    creds = await get_credentials(tenant_id, team_id, "confluence")
-    if not creds or not creds.get("domain") or not creds.get("api_key"):
-        logger.error(f"Confluence not configured for tenant={tenant_id}")
-        raise HTTPException(
-            status_code=404,
-            detail="Confluence integration not configured",
-        )
-
-    # Build target URL from 'domain' field
-    # Domain may include paths like /wiki/home, extract just scheme + host
-    import re
-
-    domain = creds.get("domain", "")
-    match = re.match(r"(https?://[^/]+)", domain)
-    if match:
-        confluence_url = match.group(1)
-    else:
-        confluence_url = domain.rstrip("/")
-
-    target_url = f"{confluence_url}/{path}"
-    logger.info(f"Confluence proxy: forwarding to {target_url}")
-
-    # Build auth headers
-    auth_headers = build_auth_headers("confluence", creds)
-
-    # Forward the request
-    # Copy relevant headers from original request
-    forward_headers = {
-        "Content-Type": request.headers.get("Content-Type", "application/json"),
-        "Accept": request.headers.get("Accept", "application/json"),
-        **auth_headers,
-    }
-
-    # Get query params
-    query_params = dict(request.query_params)
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # Get request body if present
-            body = None
-            if request.method in ["POST", "PUT", "PATCH"]:
-                body = await request.body()
-
-            response = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=forward_headers,
-                params=query_params,
-                content=body,
-            )
-
-            # Return the response with same status and content
-            return Response(
-                content=response.content,
-                status_code=response.status_code,
-                headers={
-                    "Content-Type": response.headers.get(
-                        "Content-Type", "application/json"
-                    )
-                },
-            )
-
-    except httpx.TimeoutException:
-        logger.error(f"Confluence request timeout: {target_url}")
-        raise HTTPException(status_code=504, detail="Confluence request timed out")
-    except httpx.RequestError as e:
-        logger.error(f"Confluence request error: {e}")
-        raise HTTPException(status_code=502, detail=f"Confluence request failed: {e}")
 
 
 if __name__ == "__main__":
