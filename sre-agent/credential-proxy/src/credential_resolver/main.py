@@ -418,10 +418,18 @@ async def confluence_proxy(path: str, request: Request):
         )
 
     # Build target URL from 'domain' field
-    confluence_url = creds.get("domain", "").rstrip("/")
-    if confluence_url.endswith("/wiki"):
-        confluence_url = confluence_url[:-5]
+    # Domain may include paths like /wiki/home, extract just scheme + host
+    import re
+
+    domain = creds.get("domain", "")
+    match = re.match(r"(https?://[^/]+)", domain)
+    if match:
+        confluence_url = match.group(1)
+    else:
+        confluence_url = domain.rstrip("/")
+
     target_url = f"{confluence_url}/{path}"
+    logger.info(f"Confluence proxy: forwarding to {target_url}")
 
     # Build auth headers
     auth_headers = build_auth_headers("confluence", creds)
