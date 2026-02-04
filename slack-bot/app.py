@@ -4703,8 +4703,8 @@ def handle_integration_config_submission(ack, body, client, view):
                 # Extract base URL from any Confluence page URL
                 elif integration_id == "confluence" and field_id == "domain":
                     onboarding = get_onboarding_modules()
-                    is_valid, parsed_url, error_msg = (
-                        onboarding.extract_confluence_url(val)
+                    is_valid, parsed_url, error_msg = onboarding.extract_confluence_url(
+                        val
                     )
                     if not is_valid:
                         validation_errors.append(error_msg)
