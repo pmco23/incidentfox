@@ -60,7 +60,9 @@ def main():
         # Add service/alert search terms
         search_terms = []
         if args.service:
-            search_terms.append(f'(title ~ "{args.service}" OR text ~ "{args.service}")')
+            search_terms.append(
+                f'(title ~ "{args.service}" OR text ~ "{args.service}")'
+            )
         if args.alert:
             search_terms.append(f'(title ~ "{args.alert}" OR text ~ "{args.alert}")')
 
@@ -79,7 +81,11 @@ def main():
         for result in results.get("results", []):
             page = format_page_result(result)
             # Add relevance score
-            page["relevance"] = "high" if args.service and args.service.lower() in page["title"].lower() else "medium"
+            page["relevance"] = (
+                "high"
+                if args.service and args.service.lower() in page["title"].lower()
+                else "medium"
+            )
             runbooks.append(page)
 
         # Output
@@ -103,12 +109,16 @@ def main():
             if args.alert:
                 search_desc.append(f"alert: {args.alert}")
 
-            print(f"\n📚 Found {len(runbooks)} runbook(s) for {', '.join(search_desc)}\n")
+            print(
+                f"\n📚 Found {len(runbooks)} runbook(s) for {', '.join(search_desc)}\n"
+            )
             if args.space:
                 print(f"   Space: {args.space}\n")
 
             if len(runbooks) == 0:
-                print("   ℹ️  No runbooks found. Consider searching for general documentation.")
+                print(
+                    "   ℹ️  No runbooks found. Consider searching for general documentation."
+                )
                 print()
             else:
                 for i, runbook in enumerate(runbooks, 1):

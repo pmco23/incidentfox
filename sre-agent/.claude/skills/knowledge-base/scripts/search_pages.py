@@ -59,7 +59,11 @@ def main():
 
         # Output
         if args.json:
-            print(json.dumps({"query": args.query, "total": len(pages), "pages": pages}, indent=2))
+            print(
+                json.dumps(
+                    {"query": args.query, "total": len(pages), "pages": pages}, indent=2
+                )
+            )
         else:
             print(f"\n🔍 Found {len(pages)} page(s) for query: {args.query}\n")
             if args.space:

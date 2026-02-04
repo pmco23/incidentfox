@@ -75,7 +75,7 @@ def main():
                 )
             )
         else:
-            print(f"\n🔍 CQL Search Results")
+            print("\n🔍 CQL Search Results")
             print(f"   Query: {args.cql}")
             print(f"   Found: {total_size} total, showing {len(pages)}\n")
 

@@ -24,7 +24,7 @@ def html_to_text(html: str) -> str:
     Handles Confluence macros and CDATA sections.
     """
     # Extract CDATA content (Confluence macros often use CDATA)
-    cdata_pattern = r'<!\[CDATA\[(.*?)\]\]>'
+    cdata_pattern = r"<!\[CDATA\[(.*?)\]\]>"
     cdata_matches = re.findall(cdata_pattern, html, re.DOTALL)
 
     # If we found CDATA content, use that (it's usually markdown or plain text)
@@ -32,9 +32,9 @@ def html_to_text(html: str) -> str:
         return "\n\n".join(cdata_matches)
 
     # Otherwise, strip HTML tags
-    text = re.sub(r'<[^>]+>', '', html)
+    text = re.sub(r"<[^>]+>", "", html)
     # Clean up multiple newlines
-    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
     return text.strip()
 
 
@@ -94,6 +94,7 @@ def main():
 
         # Get Confluence client for URL construction
         from confluence_client import get_confluence_client
+
         confluence = get_confluence_client()
         page_url = f"{confluence.url}/wiki{page.get('_links', {}).get('webui', '')}"
 

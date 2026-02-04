@@ -48,7 +48,9 @@ def get_confluence_client():
     try:
         from atlassian import Confluence
     except ImportError:
-        raise RuntimeError("atlassian-python-api not installed. Run: uv pip install atlassian-python-api")
+        raise RuntimeError(
+            "atlassian-python-api not installed. Run: uv pip install atlassian-python-api"
+        )
 
     # Try environment variables (local development)
     url = os.getenv("CONFLUENCE_URL")
