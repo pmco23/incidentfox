@@ -72,6 +72,15 @@ This agent uses a **progressive disclosure architecture** for optimal context ef
 │           ├── list_services.py    # List active services
 │           └── get_health.py       # Service health summary
 │
+├── knowledge-base/
+│   ├── SKILL.md                    # Confluence documentation search
+│   └── scripts/
+│       ├── search_pages.py         # General search
+│       ├── find_runbooks.py        # Find runbooks by service/alert
+│       ├── find_postmortems.py     # Find post-mortem docs
+│       ├── get_page.py             # Read full page content
+│       └── search_cql.py           # Advanced CQL search
+│
 └── remediation/
     ├── SKILL.md                    # Safe remediation methodology
     └── scripts/
