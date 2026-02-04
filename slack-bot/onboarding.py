@@ -346,6 +346,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":prometheus:",
         "icon_fallback": ":fire:",
         "description": "Query metrics and alerts from Prometheus.",
+        "video": {
+            "title": "How to Connect Prometheus to IncidentFox",
+            "title_url": "https://vimeo.com/1161637712?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161637712?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161637712.jpg",
+            "alt_text": "Prometheus setup tutorial",
+            "description": "Step-by-step guide to connecting your Prometheus server",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Get your Prometheus server URL\n"
