@@ -542,9 +542,103 @@ async def prometheus_proxy(path: str, request: Request):
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
 async def jaeger_proxy(path: str, request: Request):
-    """Reverse proxy for Jaeger API requests."""
-    # Jaeger auth is optional (many internal deployments are open)
-    return await generic_proxy("jaeger", path, request, require_api_key=False)
+    """Reverse proxy for Jaeger API requests.
+
+    Jaeger is often deployed with a /jaeger base path (common in OpenTelemetry demos
+    and Kubernetes deployments). If the domain doesn't already include /jaeger or
+    similar path, we prepend /jaeger to API requests.
+
+    Examples:
+        - Domain: http://jaeger.example.com -> forwards to http://jaeger.example.com/jaeger/api/...
+        - Domain: http://jaeger.example.com/jaeger -> forwards to http://jaeger.example.com/jaeger/api/...
+    """
+    import re
+
+    import httpx
+
+    logger.info(f"Jaeger proxy: {request.method} /{path}")
+
+    # Validate JWT and extract tenant context
+    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
+
+    # Get Jaeger credentials
+    creds = await get_credentials(tenant_id, team_id, "jaeger")
+    if not creds or not creds.get("domain"):
+        logger.error(f"Jaeger not configured for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Jaeger integration not configured",
+        )
+
+    # Build target URL from 'domain' field
+    domain = creds.get("domain", "")
+    match = re.match(r"(https?://[^/]+)(.*)", domain)
+    if match:
+        base_url = match.group(1)
+        existing_path = match.group(2).strip("/")
+    else:
+        if not domain.startswith(("http://", "https://")):
+            domain = f"http://{domain}"
+        base_url = domain.rstrip("/")
+        existing_path = ""
+
+    # Check if the domain already includes a base path like /jaeger
+    # If not, prepend /jaeger (common for OpenTelemetry demo deployments)
+    if existing_path:
+        # Domain already has a path (e.g., http://example.com/jaeger)
+        target_url = f"{base_url}/{existing_path}/{path}"
+    elif path.startswith("api/"):
+        # No existing path and requesting API - prepend /jaeger
+        # This handles the common case where Jaeger UI is at /jaeger/ui/
+        # and API is at /jaeger/api/
+        target_url = f"{base_url}/jaeger/{path}"
+    else:
+        # Other paths, forward as-is
+        target_url = f"{base_url}/{path}"
+
+    logger.info(f"Jaeger proxy: forwarding to {target_url}")
+
+    # Build auth headers (Jaeger typically doesn't need auth)
+    auth_headers = build_auth_headers("jaeger", creds)
+
+    forward_headers = {
+        "Content-Type": request.headers.get("Content-Type", "application/json"),
+        "Accept": request.headers.get("Accept", "application/json"),
+        **auth_headers,
+    }
+
+    query_params = dict(request.query_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=forward_headers,
+                params=query_params,
+                content=body,
+            )
+
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers={
+                    "Content-Type": response.headers.get(
+                        "Content-Type", "application/json"
+                    )
+                },
+            )
+
+    except httpx.TimeoutException:
+        logger.error(f"Jaeger request timeout: {target_url}")
+        raise HTTPException(status_code=504, detail="Jaeger request timed out")
+    except httpx.RequestError as e:
+        logger.error(f"Jaeger request error: {e}")
+        raise HTTPException(status_code=502, detail=f"Jaeger request failed: {e}")
 
 
 @app.api_route(
