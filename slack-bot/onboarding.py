@@ -381,6 +381,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":jaeger:",
         "icon_fallback": ":mag:",
         "description": "Search distributed traces and analyze latency.",
+        "video": {
+            "title": "How to Connect Jaeger to IncidentFox",
+            "title_url": "https://vimeo.com/1161635936?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161635936?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161635936.jpg",
+            "alt_text": "Jaeger setup tutorial",
+            "description": "Step-by-step guide to connecting your Jaeger instance",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Get your Jaeger Query UI URL (usually port 16686)\n"
