@@ -12,31 +12,30 @@ Examples:
 
 import argparse
 import json
+import re
 import sys
-from html.parser import HTMLParser
 
-from confluence_client import get_page_by_id, search_content
-
-
-class HTMLToText(HTMLParser):
-    """Simple HTML to text converter."""
-
-    def __init__(self):
-        super().__init__()
-        self.text = []
-
-    def handle_data(self, data):
-        self.text.append(data)
-
-    def get_text(self):
-        return "".join(self.text)
+from confluence_client import get_page_by_id, get_page_by_title
 
 
 def html_to_text(html: str) -> str:
-    """Convert HTML to plain text."""
-    parser = HTMLToText()
-    parser.feed(html)
-    return parser.get_text()
+    """Convert Confluence storage format HTML to plain text.
+
+    Handles Confluence macros and CDATA sections.
+    """
+    # Extract CDATA content (Confluence macros often use CDATA)
+    cdata_pattern = r'<!\[CDATA\[(.*?)\]\]>'
+    cdata_matches = re.findall(cdata_pattern, html, re.DOTALL)
+
+    # If we found CDATA content, use that (it's usually markdown or plain text)
+    if cdata_matches:
+        return "\n\n".join(cdata_matches)
+
+    # Otherwise, strip HTML tags
+    text = re.sub(r'<[^>]+>', '', html)
+    # Clean up multiple newlines
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
+    return text.strip()
 
 
 def main():
@@ -79,19 +78,8 @@ def main():
         if args.page_id:
             page = get_page_by_id(args.page_id)
         else:
-            # Search by title and space
-            cql = f'title = "{args.title}" AND space = "{args.space}" AND type = page'
-            results = search_content(cql=cql, limit=1)
-
-            if not results.get("results"):
-                print(
-                    f"❌ Error: Page not found: {args.title} in space {args.space}",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
-            page_id = results["results"][0]["id"]
-            page = get_page_by_id(page_id)
+            # Get by title and space
+            page = get_page_by_title(space=args.space, title=args.title)
 
         # Extract content
         body = page.get("body", {})
@@ -104,30 +92,31 @@ def main():
         else:
             content = html_to_text(html_content)
 
+        # Get Confluence client for URL construction
+        from confluence_client import get_confluence_client
+        confluence = get_confluence_client()
+        page_url = f"{confluence.url}/wiki{page.get('_links', {}).get('webui', '')}"
+
         # Output
         if args.json:
             output = {
                 "id": page.get("id"),
                 "title": page.get("title"),
-                "space": page.get("spaceId"),
+                "space": page.get("space", {}).get("key"),
                 "content": content,
-                "url": page.get("_links", {}).get("webui"),
+                "url": page_url,
                 "version": page.get("version", {}).get("number"),
-                "created": page.get("createdAt"),
-                "updated": page.get("lastUpdated"),
             }
             print(json.dumps(output, indent=2))
         else:
             print(f"\n📄 {page.get('title')}")
             print(f"   ID: {page.get('id')}")
-            if page.get("spaceId"):
-                print(f"   Space: {page.get('spaceId')}")
-            if page.get("_links", {}).get("webui"):
-                print(f"   URL: {page.get('_links', {}).get('webui')}")
+            if page.get("space", {}).get("key"):
+                print(f"   Space: {page.get('space', {}).get('key')}")
+            if page_url:
+                print(f"   URL: {page_url}")
             if page.get("version", {}).get("number"):
                 print(f"   Version: {page.get('version', {}).get('number')}")
-            if page.get("lastUpdated"):
-                print(f"   Last Updated: {page.get('lastUpdated')}")
             print("\n" + "=" * 80)
             print(content)
             print("=" * 80 + "\n")

@@ -10,8 +10,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 
 def get_config() -> dict[str, Any]:
     """Load configuration from standard locations."""
@@ -38,91 +36,46 @@ def get_config() -> dict[str, Any]:
     return config
 
 
-def get_api_url(endpoint: str) -> str:
-    """Get the Confluence API URL for an endpoint.
-
-    In production, this routes through the credential proxy.
-    """
-    base_url = os.getenv("CONFLUENCE_BASE_URL")
-    if not base_url:
-        # Fall back to direct API (for local development only)
-        confluence_url = os.getenv("CONFLUENCE_URL", "").rstrip("/")
-        if confluence_url:
-            base_url = f"{confluence_url}/wiki/api/v2"
-        else:
-            raise RuntimeError(
-                "No Confluence URL configured. Set CONFLUENCE_BASE_URL or CONFLUENCE_URL."
-            )
-
-    return f"{base_url.rstrip('/')}{endpoint}"
-
-
-def get_headers() -> dict[str, str]:
-    """Get headers for Confluence API requests.
-
-    The credential proxy will inject Authorization header.
-    """
-    config = get_config()
-
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "X-Tenant-Id": config.get("tenant_id") or "local",
-        "X-Team-Id": config.get("team_id") or "local",
-    }
-
-    # For local development, allow direct token usage
-    api_token = os.getenv("CONFLUENCE_API_TOKEN")
-    email = os.getenv("CONFLUENCE_EMAIL")
-    if api_token and email and not os.getenv("CONFLUENCE_BASE_URL"):
-        # Use basic auth for direct API access
-        import base64
-
-        auth_string = f"{email}:{api_token}"
-        b64_auth = base64.b64encode(auth_string.encode()).decode()
-        headers["Authorization"] = f"Basic {b64_auth}"
-
-    return headers
-
-
-def api_request(
-    method: str,
-    endpoint: str,
-    params: dict[str, Any] | None = None,
-    json_data: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Make a request to the Confluence API.
-
-    Args:
-        method: HTTP method
-        endpoint: API endpoint (e.g., "/search")
-        params: Query parameters
-        json_data: JSON body
+def get_confluence_client():
+    """Get Confluence client instance.
 
     Returns:
-        Parsed JSON response
+        Confluence client instance
 
     Raises:
-        RuntimeError: If the request fails
+        RuntimeError: If configuration is missing
     """
-    url = get_api_url(endpoint)
-    headers = get_headers()
+    try:
+        from atlassian import Confluence
+    except ImportError:
+        raise RuntimeError("atlassian-python-api not installed. Run: uv pip install atlassian-python-api")
 
-    with httpx.Client(timeout=60.0) as client:
-        response = client.request(
-            method=method,
-            url=url,
-            headers=headers,
-            params=params,
-            json=json_data,
+    # Try environment variables (local development)
+    url = os.getenv("CONFLUENCE_URL")
+    email = os.getenv("CONFLUENCE_EMAIL")
+    api_token = os.getenv("CONFLUENCE_API_TOKEN")
+
+    if not url:
+        raise RuntimeError(
+            "No Confluence URL configured. Set CONFLUENCE_URL environment variable."
         )
 
-        if response.status_code >= 400:
-            raise RuntimeError(
-                f"Confluence API error: {response.status_code} - {response.text}"
-            )
+    if not email or not api_token:
+        raise RuntimeError(
+            "No Confluence credentials configured. Set CONFLUENCE_EMAIL and CONFLUENCE_API_TOKEN."
+        )
 
-        return response.json()
+    # Remove trailing slash and /wiki if present
+    url = url.rstrip("/")
+    if url.endswith("/wiki"):
+        url = url[:-5]
+
+    return Confluence(
+        url=url,
+        username=email,
+        password=api_token,
+        cloud=True,
+    )
 
 
 def search_content(
@@ -140,52 +93,64 @@ def search_content(
     Returns:
         Search results
     """
-    params = {
-        "cql": cql,
-        "limit": limit,
-    }
-
-    if expand:
-        params["expand"] = expand
-
-    return api_request("GET", "/search", params=params)
+    confluence = get_confluence_client()
+    return confluence.cql(cql, limit=limit, expand=expand)
 
 
 def get_page_by_id(
     page_id: str,
-    body_format: str = "storage",
+    expand: str = "body.storage,version,space",
 ) -> dict[str, Any]:
     """Get a Confluence page by ID.
 
     Args:
         page_id: Page ID
-        body_format: Body format (storage, view, atlas_doc_format)
+        expand: Fields to expand
 
     Returns:
         Page data
     """
-    params = {
-        "body-format": body_format,
-    }
-
-    return api_request("GET", f"/pages/{page_id}", params=params)
+    confluence = get_confluence_client()
+    return confluence.get_page_by_id(page_id, expand=expand)
 
 
-def format_page_result(page: dict[str, Any]) -> dict[str, Any]:
-    """Format a page result for consistent output.
+def get_page_by_title(
+    space: str,
+    title: str,
+    expand: str = "body.storage,version,space",
+) -> dict[str, Any]:
+    """Get a Confluence page by title.
 
     Args:
-        page: Raw page data from API
+        space: Space key
+        title: Page title
+        expand: Fields to expand
+
+    Returns:
+        Page data
+    """
+    confluence = get_confluence_client()
+    return confluence.get_page_by_title(space=space, title=title, expand=expand)
+
+
+def format_page_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Format a CQL search result for consistent output.
+
+    Args:
+        result: Raw result from CQL search
 
     Returns:
         Formatted page data
     """
+    content = result.get("content", {})
+
     return {
-        "id": page.get("id"),
-        "title": page.get("title"),
-        "type": page.get("type"),
-        "space": page.get("spaceId"),
-        "url": page.get("_links", {}).get("webui"),
-        "created": page.get("createdAt"),
-        "updated": page.get("lastUpdated"),
+        "id": content.get("id"),
+        "title": content.get("title"),
+        "type": content.get("type"),
+        "space": content.get("space", {}).get("key") if content.get("space") else None,
+        "url": result.get("url"),
+        "excerpt": result.get("excerpt", ""),
+        "created": content.get("history", {}).get("createdDate"),
+        "updated": result.get("lastModified"),
     }

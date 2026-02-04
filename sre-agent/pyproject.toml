@@ -23,6 +23,7 @@ dependencies = [
     # VCS & Collaboration
     "PyGithub>=2.1.0",
     "slack-sdk>=3.27.0",
+    "atlassian-python-api>=3.41.0",  # Confluence integration
     
     # Logging & Search
     "elasticsearch>=8.0.0",
