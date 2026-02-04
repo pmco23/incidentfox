@@ -4703,8 +4703,8 @@ def handle_integration_config_submission(ack, body, client, view):
                 # Note: UI field is "domain" but backend expects "site" key
                 elif integration_id == "datadog" and field_id == "domain":
                     onboarding = get_onboarding_modules()
-                    is_valid, parsed_site, error_msg = (
-                        onboarding.extract_datadog_site(val)
+                    is_valid, parsed_site, error_msg = onboarding.extract_datadog_site(
+                        val
                     )
                     if not is_valid:
                         validation_errors.append(error_msg)
