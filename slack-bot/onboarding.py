@@ -1256,6 +1256,60 @@ def extract_datadog_site(input_str: str) -> tuple[bool, str, str]:
     )
 
 
+def extract_confluence_url(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Confluence base URL from any Confluence page URL.
+
+    Users may paste URLs like:
+    - https://myteam.atlassian.net/wiki/home
+    - https://myteam.atlassian.net/wiki/spaces/ENG/pages/123456
+    - https://myteam.atlassian.net
+
+    We extract just the base URL: https://myteam.atlassian.net
+
+    Args:
+        input_str: URL string (any Confluence page URL)
+
+    Returns:
+        (is_valid, base_url, error_message)
+    """
+    import re
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Confluence URL is required"
+
+    input_str = input_str.strip()
+
+    # If it doesn't start with http, add https://
+    if not input_str.startswith(("http://", "https://")):
+        input_str = f"https://{input_str}"
+
+    try:
+        parsed = urlparse(input_str)
+        hostname = parsed.hostname or parsed.netloc.split(":")[0]
+
+        if not hostname:
+            return False, "", "Could not parse Confluence URL"
+
+        # Validate it's an Atlassian domain
+        if not hostname.endswith(".atlassian.net"):
+            return (
+                False,
+                "",
+                f"Invalid Confluence URL: {hostname}. Expected an atlassian.net domain (e.g., myteam.atlassian.net)",
+            )
+
+        # Build base URL (just scheme + host, no path)
+        scheme = parsed.scheme or "https"
+        base_url = f"{scheme}://{hostname}"
+
+        return True, base_url, ""
+
+    except Exception:
+        return False, "", "Invalid URL format"
+
+
 def extract_generic_url(
     input_str: str, service_name: str = "service"
 ) -> tuple[bool, str, str]:
