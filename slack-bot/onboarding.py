@@ -279,6 +279,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":datadog:",
         "icon_fallback": ":dog:",
         "description": "Query logs, metrics, and APM traces from Datadog.",
+        "video": {
+            "title": "How to Connect Datadog to IncidentFox",
+            "title_url": "https://vimeo.com/1161632406?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161632406?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161632406.jpg",
+            "alt_text": "Datadog setup tutorial",
+            "description": "Step-by-step guide to connecting your Datadog account",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into your Datadog account\n"
