@@ -180,6 +180,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":grafana:",
         "icon_fallback": ":bar_chart:",
         "description": "Query dashboards, annotations, and Prometheus metrics.",
+        "video": {
+            "title": "How to Connect Grafana to IncidentFox",
+            "title_url": "https://vimeo.com/1161627016?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161627016?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161627016.jpg",
+            "alt_text": "Grafana setup tutorial",
+            "description": "Step-by-step guide to connecting your Grafana account",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Log into your Grafana instance\n"
@@ -276,9 +284,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
             "1. Log into your Datadog account\n"
             "2. Go to *Organization Settings* > *API Keys*\n"
             "3. Click *+ New Key*, name it 'IncidentFox', and copy the key\n"
-            "4. Go to *Application Keys* tab, click *+ New Key*, and copy it\n"
-            "5. Note your Datadog site (e.g., us5.datadoghq.com) from your browser URL\n"
-            "6. Paste your keys and site below"
+            "4. Go to *Application Keys* tab, click *+ New Key*\n"
+            "5. *Important:* Restrict the Application Key to these scopes only:\n"
+            "   • `logs_read_data` - Read log data\n"
+            "   • `logs_read_index_data` - Read log indexes\n"
+            "   • `timeseries_query` - Query metrics\n"
+            "   • `metrics_read` - View metrics\n"
+            "6. Copy the Application Key\n"
+            "7. Paste your keys and Datadog URL below (copy any URL from your Datadog browser tab)"
         ),
         "docs_url": "https://docs.datadoghq.com/api/latest/",
         "context_prompt_placeholder": "e.g., 'Our services use service:api-gateway tag. Production env uses env:prod. Error logs are status:error.'",
@@ -295,25 +308,17 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "id": "app_key",
                 "name": "Application Key",
                 "type": "secret",
-                "required": False,
+                "required": True,
                 "placeholder": "your-app-key",
-                "hint": "Datadog Application key (optional, for extended features)",
+                "hint": "Datadog Application key with read scopes (required for querying logs and metrics)",
             },
             {
-                "id": "site",
-                "name": "Datadog Site",
-                "type": "select",
+                "id": "domain",
+                "name": "Datadog URL",
+                "type": "string",
                 "required": True,
-                "options": [
-                    "datadoghq.com",
-                    "us3.datadoghq.com",
-                    "us5.datadoghq.com",
-                    "datadoghq.eu",
-                    "ap1.datadoghq.com",
-                    "ddog-gov.com",
-                ],
-                "placeholder": "Select your Datadog site",
-                "hint": "Check your browser URL to find your site",
+                "placeholder": "https://us5.datadoghq.com or https://app.datadoghq.eu",
+                "hint": "Paste any Datadog URL from your browser (we'll extract the site automatically)",
             },
         ],
     },
@@ -1153,6 +1158,70 @@ def extract_elasticsearch_url(input_str: str) -> tuple[bool, str, str]:
 
     except Exception:
         return False, "", "Invalid URL format"
+
+
+def extract_datadog_site(input_str: str) -> tuple[bool, str, str]:
+    """
+    Extract Datadog site from URL or domain string.
+
+    Args:
+        input_str: URL (e.g., https://us5.datadoghq.com/logs, https://app.datadoghq.eu/apm)
+                   or domain (e.g., us5.datadoghq.com, datadoghq.eu)
+
+    Returns:
+        (is_valid, site, error_message)
+        site is the normalized site value (e.g., "us5.datadoghq.com", "datadoghq.eu")
+    """
+    import re
+    from urllib.parse import urlparse
+
+    if not input_str:
+        return False, "", "Datadog URL is required"
+
+    input_str = input_str.strip()
+
+    # If it looks like a URL, parse it
+    if input_str.startswith(("http://", "https://")):
+        try:
+            parsed = urlparse(input_str)
+            hostname = parsed.hostname or parsed.netloc.split(":")[0]
+        except Exception:
+            return False, "", "Invalid URL format"
+    else:
+        # Treat as domain directly
+        hostname = input_str
+
+    if not hostname:
+        return False, "", "Could not parse Datadog URL"
+
+    # Strip "app." prefix if present (e.g., app.datadoghq.com -> datadoghq.com)
+    if hostname.startswith("app."):
+        hostname = hostname[4:]
+
+    # Valid Datadog sites
+    valid_sites = [
+        "datadoghq.com",
+        "us3.datadoghq.com",
+        "us5.datadoghq.com",
+        "datadoghq.eu",
+        "ap1.datadoghq.com",
+        "ddog-gov.com",
+    ]
+
+    # Check if hostname matches a valid site
+    if hostname in valid_sites:
+        return True, hostname, ""
+
+    # Check if hostname ends with a valid site (for subdomains)
+    for site in valid_sites:
+        if hostname.endswith(f".{site}") or hostname == site:
+            return True, site, ""
+
+    return (
+        False,
+        "",
+        f"Invalid Datadog site: {hostname}. Expected one of: {', '.join(valid_sites)}",
+    )
 
 
 def extract_generic_url(
@@ -2160,7 +2229,11 @@ def build_integration_config_modal(
         # 2. Field is not originally required
         # Note: We can't make fields optional based on enabled status because the user
         # can change that checkbox in the modal itself
-        field_has_value = field_id in existing_config
+        # Special case: Datadog stores 'site' but UI field is 'domain'
+        if int_id == "datadog" and field_id == "domain":
+            field_has_value = "site" in existing_config
+        else:
+            field_has_value = field_id in existing_config
         make_optional = field_has_value or not field_required
 
         if field_type == "secret":
@@ -2262,7 +2335,11 @@ def build_integration_config_modal(
 
         else:
             # Default: string field (plain text input, can pre-fill)
-            existing_value = existing_config.get(field_id, "")
+            # Special case: Datadog stores 'site' but UI field is 'domain'
+            if int_id == "datadog" and field_id == "domain":
+                existing_value = existing_config.get("site", "")
+            else:
+                existing_value = existing_config.get(field_id, "")
             element = {
                 "type": "plain_text_input",
                 "action_id": f"input_{field_id}",
