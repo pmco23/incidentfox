@@ -156,8 +156,22 @@ async def list_integrations(request: Request):
     )
 
     # Check which integrations are configured
+    # All active integrations from onboarding.py (excludes anthropic - that's the LLM provider)
+    ACTIVE_INTEGRATIONS = [
+        "coralogix",
+        "incident_io",
+        "confluence",
+        "grafana",
+        "elasticsearch",
+        "datadog",
+        "prometheus",
+        "jaeger",
+        "kubernetes",
+        "github",
+    ]
+
     available = []
-    for integration_id in ["anthropic", "coralogix", "confluence"]:
+    for integration_id in ACTIVE_INTEGRATIONS:
         creds = await get_credentials(tenant_id, team_id, integration_id)
         if is_integration_configured(integration_id, creds):
             # Return non-sensitive metadata only
@@ -168,12 +182,37 @@ async def list_integrations(request: Request):
 
 
 def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
-    """Check if an integration has valid credentials configured."""
+    """Check if an integration has valid credentials configured.
+
+    Each integration has different required fields based on its authentication method.
+    See slack-bot/onboarding.py for field definitions.
+    """
     if not creds:
         return False
-    if integration_id == "confluence":
-        # Config Service stores: domain (URL), email, api_key
+
+    # Integrations that require domain + api_key
+    if integration_id in ["confluence", "grafana", "kubernetes"]:
         return bool(creds.get("domain") and creds.get("api_key"))
+
+    # Datadog requires api_key + app_key + site (domain)
+    if integration_id == "datadog":
+        return bool(
+            creds.get("api_key") and creds.get("app_key") and creds.get("site")
+        )
+
+    # Elasticsearch: domain required, credentials optional (some clusters are open)
+    if integration_id == "elasticsearch":
+        return bool(creds.get("domain"))
+
+    # Prometheus/Jaeger: only domain required (auth optional)
+    if integration_id in ["prometheus", "jaeger"]:
+        return bool(creds.get("domain"))
+
+    # GitHub: api_key required (domain optional for GHE)
+    if integration_id == "github":
+        return bool(creds.get("api_key"))
+
+    # Default: api_key required (coralogix, incident_io, etc.)
     return bool(creds.get("api_key"))
 
 
@@ -184,16 +223,56 @@ def get_integration_metadata(integration_id: str, creds: dict) -> dict:
     Only return configuration metadata that helps the agent use the integration.
     """
     if integration_id == "confluence":
-        # Return domain URL (non-sensitive) so agent knows which Confluence instance
-        # Config Service stores URL in 'domain' field
+        # Return domain URL so agent knows which Confluence instance
         return {"url": creds.get("domain")}
+
     elif integration_id == "coralogix":
-        # Return domain/region (non-sensitive) for API endpoint construction
+        # Return domain/region for API endpoint construction
         return {
             "domain": creds.get("domain"),
             "region": creds.get("region"),
         }
-    # Default: just indicate it's configured
+
+    elif integration_id == "datadog":
+        # Return site for API endpoint construction
+        return {"site": creds.get("site")}
+
+    elif integration_id == "grafana":
+        # Return URL so agent knows which Grafana instance
+        return {"url": creds.get("domain")}
+
+    elif integration_id == "elasticsearch":
+        # Return URL and optional default index pattern
+        metadata = {"url": creds.get("domain")}
+        if creds.get("index_pattern"):
+            metadata["index_pattern"] = creds.get("index_pattern")
+        return metadata
+
+    elif integration_id == "prometheus":
+        # Return URL
+        return {"url": creds.get("domain")}
+
+    elif integration_id == "jaeger":
+        # Return URL
+        return {"url": creds.get("domain")}
+
+    elif integration_id == "kubernetes":
+        # Return URL and optional default namespace
+        metadata = {"url": creds.get("domain")}
+        if creds.get("namespace"):
+            metadata["namespace"] = creds.get("namespace")
+        return metadata
+
+    elif integration_id == "github":
+        # Return enterprise URL if configured (None means github.com)
+        metadata = {}
+        if creds.get("domain"):
+            metadata["url"] = creds.get("domain")
+        if creds.get("default_org"):
+            metadata["default_org"] = creds.get("default_org")
+        return metadata
+
+    # Default: just indicate it's configured (incident_io, etc.)
     return {}
 
 
@@ -346,17 +425,8 @@ async def ext_authz_check(request: Request, path: str = ""):
     # 3. Get credentials and validate based on integration type
     creds = await get_credentials(tenant_id, team_id, integration_id)
 
-    # Check if credentials are configured (integration-aware)
-    is_configured = False
-    if creds:
-        if integration_id == "confluence":
-            # Confluence should use direct credential fetch, not proxy injection
-            # but check for basic config anyway
-            is_configured = bool(creds.get("url") and creds.get("api_token"))
-        else:
-            is_configured = bool(creds.get("api_key"))
-
-    if not is_configured:
+    # Check if credentials are configured (uses shared logic)
+    if not is_integration_configured(integration_id, creds):
         logger.error(
             f"No credentials found for {integration_id} "
             f"(tenant={tenant_id}, team={team_id})"
@@ -444,6 +514,8 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
     Note: Some integrations (like Confluence) use direct credential fetch instead of
     proxy injection because their client libraries manage auth internally.
     """
+    import base64
+
     if integration_id == "anthropic":
         api_key = creds.get("api_key", "")
         headers = {"x-api-key": api_key}
@@ -467,9 +539,6 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
 
     elif integration_id == "confluence":
         # Confluence uses Basic auth (email:api_key base64 encoded)
-        # Config Service stores: email, api_key (not api_token)
-        import base64
-
         email = creds.get("email", "")
         api_key = creds.get("api_key", "")
         if email and api_key:
@@ -477,6 +546,52 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
             encoded = base64.b64encode(auth_string.encode()).decode()
             return {"Authorization": f"Basic {encoded}"}
         logger.warning("Confluence credentials incomplete for Basic auth")
+        return {}
+
+    elif integration_id == "datadog":
+        # Datadog uses two API keys in headers
+        return {
+            "DD-API-KEY": creds.get("api_key", ""),
+            "DD-APPLICATION-KEY": creds.get("app_key", ""),
+        }
+
+    elif integration_id == "elasticsearch":
+        # Elasticsearch uses Basic auth (username:password) or API key
+        username = creds.get("username", "")
+        api_key = creds.get("api_key", "")
+        if username and api_key:
+            # Basic auth mode
+            auth_string = f"{username}:{api_key}"
+            encoded = base64.b64encode(auth_string.encode()).decode()
+            return {"Authorization": f"Basic {encoded}"}
+        elif api_key:
+            # API key mode (already base64 encoded id:key format)
+            return {"Authorization": f"ApiKey {api_key}"}
+        # No auth (open cluster)
+        return {}
+
+    elif integration_id == "github":
+        # GitHub uses Bearer token
+        api_key = creds.get("api_key", "")
+        return {"Authorization": f"Bearer {api_key}"}
+
+    elif integration_id == "incident_io":
+        # incident.io uses Bearer token
+        api_key = creds.get("api_key", "")
+        return {"Authorization": f"Bearer {api_key}"}
+
+    elif integration_id in ["grafana", "prometheus", "kubernetes"]:
+        # These use Bearer token
+        api_key = creds.get("api_key", "")
+        if api_key:
+            return {"Authorization": f"Bearer {api_key}"}
+        return {}
+
+    elif integration_id == "jaeger":
+        # Jaeger typically doesn't need auth, but support Bearer if provided
+        api_key = creds.get("api_key", "")
+        if api_key:
+            return {"Authorization": f"Bearer {api_key}"}
         return {}
 
     # Default: Bearer token

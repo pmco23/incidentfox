@@ -28,12 +28,22 @@ if sandbox_jwt:
 
 **Problem**: Config Service stores fields with different names than what credential-resolver code expects.
 
-**Example - Confluence**:
-| Config Service | Code Expected (Wrong) | Fix |
-|----------------|----------------------|-----|
-| `domain` | `url` | Use `domain` |
-| `api_key` | `api_token` | Use `api_key` |
-| `email` | `email` | (correct) |
+**Config Service field names by integration** (from onboarding.py):
+
+| Integration | Required Fields | Optional Fields |
+|-------------|-----------------|-----------------|
+| coralogix | `api_key`, `domain` | |
+| incident_io | `api_key` | |
+| confluence | `api_key`, `email`, `domain` | |
+| grafana | `api_key`, `domain` | |
+| elasticsearch | `domain` | `username`, `api_key`, `index_pattern` |
+| datadog | `api_key`, `app_key`, `site`* | |
+| prometheus | `domain` | `api_key` |
+| jaeger | `domain` | |
+| kubernetes | `api_key`, `domain` | `namespace` |
+| github | `api_key` | `domain` (GHE), `default_org` |
+
+*Note: Datadog UI field is `domain`, but stored/retrieved as `site`
 
 **How to verify**: Check what Config Service actually returns:
 ```bash
@@ -153,8 +163,14 @@ Different integrations use different auth schemes:
 | Anthropic | API Key | `x-api-key: {api_key}` |
 | Coralogix | Bearer | `Authorization: Bearer {api_key}` |
 | Confluence | Basic | `Authorization: Basic {base64(email:api_key)}` |
+| Datadog | Two Keys | `DD-API-KEY: {api_key}`, `DD-APPLICATION-KEY: {app_key}` |
+| Elasticsearch | Basic/ApiKey | `Authorization: Basic {base64(user:pass)}` or `Authorization: ApiKey {key}` |
 | GitHub | Bearer | `Authorization: Bearer {token}` |
-| Datadog | API Key | `DD-API-KEY: {api_key}` |
+| Grafana | Bearer | `Authorization: Bearer {api_key}` |
+| incident.io | Bearer | `Authorization: Bearer {api_key}` |
+| Jaeger | Bearer (optional) | `Authorization: Bearer {api_key}` |
+| Kubernetes | Bearer | `Authorization: Bearer {api_key}` |
+| Prometheus | Bearer (optional) | `Authorization: Bearer {api_key}` |
 
 **Example - Basic auth**:
 ```python
@@ -256,6 +272,7 @@ When an integration isn't working:
 ## 10. Files to Touch for New Integration
 
 1. **credential-resolver/main.py**:
+   - `ACTIVE_INTEGRATIONS` list in `list_integrations()` - add new integration ID
    - `is_integration_configured()` - add field checks
    - `get_integration_metadata()` - add metadata extraction
    - `build_auth_headers()` - add auth header construction
