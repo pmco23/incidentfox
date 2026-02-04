@@ -1155,7 +1155,9 @@ def extract_elasticsearch_url(input_str: str) -> tuple[bool, str, str]:
         return False, "", "Invalid URL format"
 
 
-def extract_generic_url(input_str: str, service_name: str = "service") -> tuple[bool, str, str]:
+def extract_generic_url(
+    input_str: str, service_name: str = "service"
+) -> tuple[bool, str, str]:
     """
     Extract and validate a generic service URL.
 
