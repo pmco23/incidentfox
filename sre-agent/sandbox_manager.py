@@ -538,6 +538,9 @@ static_resources:
                                     {"name": "THREAD_ID", "value": thread_id},
                                     {"name": "SANDBOX_NAME", "value": sandbox_name},
                                     {"name": "NAMESPACE", "value": self.namespace},
+                                    # JWT for authenticating with credential-resolver
+                                    # (used by scripts that call credential-resolver directly)
+                                    {"name": "SANDBOX_JWT", "value": jwt_token},
                                 ],
                                 "resources": {
                                     "requests": {

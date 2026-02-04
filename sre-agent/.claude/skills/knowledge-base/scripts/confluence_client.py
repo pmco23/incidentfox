@@ -105,9 +105,15 @@ def get_headers() -> dict[str, str]:
         encoded = base64.b64encode(auth_string.encode()).decode()
         headers["Authorization"] = f"Basic {encoded}"
     else:
-        # Proxy mode - add tenant context for credential lookup
-        headers["X-Tenant-Id"] = config.get("tenant_id") or "local"
-        headers["X-Team-Id"] = config.get("team_id") or "local"
+        # Proxy mode - add JWT for authentication with credential-resolver
+        # The JWT contains tenant/team context and is validated by credential-resolver
+        sandbox_jwt = os.getenv("SANDBOX_JWT")
+        if sandbox_jwt:
+            headers["X-Sandbox-JWT"] = sandbox_jwt
+        else:
+            # Fallback to tenant headers (for local dev without JWT)
+            headers["X-Tenant-Id"] = config.get("tenant_id") or "local"
+            headers["X-Team-Id"] = config.get("team_id") or "local"
 
     return headers
 
