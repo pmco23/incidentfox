@@ -196,9 +196,7 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
 
     # Datadog requires api_key + app_key + site (domain)
     if integration_id == "datadog":
-        return bool(
-            creds.get("api_key") and creds.get("app_key") and creds.get("site")
-        )
+        return bool(creds.get("api_key") and creds.get("app_key") and creds.get("site"))
 
     # Elasticsearch: domain required, credentials optional (some clusters are open)
     if integration_id == "elasticsearch":
