@@ -172,7 +172,8 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
     if not creds:
         return False
     if integration_id == "confluence":
-        return bool(creds.get("url") and creds.get("api_token"))
+        # Config Service stores: domain (URL), email, api_key
+        return bool(creds.get("domain") and creds.get("api_key"))
     return bool(creds.get("api_key"))
 
 
@@ -183,8 +184,9 @@ def get_integration_metadata(integration_id: str, creds: dict) -> dict:
     Only return configuration metadata that helps the agent use the integration.
     """
     if integration_id == "confluence":
-        # Return URL (non-sensitive) so agent knows which Confluence instance
-        return {"url": creds.get("url")}
+        # Return domain URL (non-sensitive) so agent knows which Confluence instance
+        # Config Service stores URL in 'domain' field
+        return {"url": creds.get("domain")}
     elif integration_id == "coralogix":
         # Return domain/region (non-sensitive) for API endpoint construction
         return {
@@ -355,13 +357,14 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         return {"Authorization": f"Bearer {api_key}"}
 
     elif integration_id == "confluence":
-        # Confluence uses Basic auth (email:api_token base64 encoded)
+        # Confluence uses Basic auth (email:api_key base64 encoded)
+        # Config Service stores: email, api_key (not api_token)
         import base64
 
         email = creds.get("email", "")
-        api_token = creds.get("api_token", "")
-        if email and api_token:
-            auth_string = f"{email}:{api_token}"
+        api_key = creds.get("api_key", "")
+        if email and api_key:
+            auth_string = f"{email}:{api_key}"
             encoded = base64.b64encode(auth_string.encode()).decode()
             return {"Authorization": f"Basic {encoded}"}
         logger.warning("Confluence credentials incomplete for Basic auth")
@@ -405,16 +408,17 @@ async def confluence_proxy(path: str, request: Request):
     )
 
     # Get Confluence credentials
+    # Config Service stores: domain (URL), email, api_key
     creds = await get_credentials(tenant_id, team_id, "confluence")
-    if not creds or not creds.get("url") or not creds.get("api_token"):
+    if not creds or not creds.get("domain") or not creds.get("api_key"):
         logger.error(f"Confluence not configured for tenant={tenant_id}")
         raise HTTPException(
             status_code=404,
             detail="Confluence integration not configured",
         )
 
-    # Build target URL
-    confluence_url = creds.get("url", "").rstrip("/")
+    # Build target URL from 'domain' field
+    confluence_url = creds.get("domain", "").rstrip("/")
     if confluence_url.endswith("/wiki"):
         confluence_url = confluence_url[:-5]
     target_url = f"{confluence_url}/{path}"
