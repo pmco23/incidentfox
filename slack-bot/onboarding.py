@@ -226,6 +226,14 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon": ":elasticsearch:",
         "icon_fallback": ":mag:",
         "description": "Query logs and search data from Elasticsearch or OpenSearch.",
+        "video": {
+            "title": "How to Connect Elasticsearch to IncidentFox",
+            "title_url": "https://vimeo.com/1161634866?share=copy&fl=sv&fe=ci",
+            "video_url": "https://player.vimeo.com/video/1161634866?autoplay=1",
+            "thumbnail_url": "https://vumbnail.com/1161634866.jpg",
+            "alt_text": "Elasticsearch setup tutorial",
+            "description": "Step-by-step guide to connecting your Elasticsearch cluster",
+        },
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Get your Elasticsearch cluster URL (e.g., https://my-cluster.es.us-east-1.aws.found.io:9243)\n"
