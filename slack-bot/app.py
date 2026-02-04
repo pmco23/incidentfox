@@ -4639,6 +4639,66 @@ def handle_integration_config_submission(ack, body, client, view):
                         validation_errors.append(error_msg)
                     else:
                         config[field_id] = parsed_domain
+                # Special handling for Grafana URL field
+                elif integration_id == "grafana" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_grafana_url(val)
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
+                # Special handling for Elasticsearch URL field
+                elif integration_id == "elasticsearch" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_elasticsearch_url(val)
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
+                # Special handling for Prometheus URL field
+                elif integration_id == "prometheus" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_generic_url(val, "Prometheus")
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
+                # Special handling for Jaeger URL field
+                elif integration_id == "jaeger" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_generic_url(val, "Jaeger")
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
+                # Special handling for Kubernetes API URL field
+                elif integration_id == "kubernetes" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_generic_url(val, "Kubernetes")
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
+                # Special handling for GitHub Enterprise URL field
+                elif integration_id == "github" and field_id == "domain":
+                    onboarding = get_onboarding_modules()
+                    is_valid, parsed_url, error_msg = (
+                        onboarding.extract_generic_url(val, "GitHub Enterprise")
+                    )
+                    if not is_valid:
+                        validation_errors.append(error_msg)
+                    else:
+                        config[field_id] = parsed_url
                 else:
                     config[field_id] = val
             elif field_id in existing_config:
