@@ -14,11 +14,12 @@ IncidentFox is an **open-source AI SRE** that integrates with your observability
 
 **Built for production on-call** — handles log sampling, alert correlation, anomaly detection, and dependency mapping so you don't have to.
 
-<p align="center">
-  <img src="https://github.com/user-attachments/assets/b6892fe8-0a19-40f9-9d86-465aa3387108" width="600" alt="Slack Investigation">
-  <br>
-  <em>Investigate incidents directly from Slack</em>
-</p>
+<img width="1600" height="1000" alt="Frame 1" src="https://github.com/user-attachments/assets/b85a183c-fda4-4b5c-9089-501f58f966b8" />
+<img width="1600" height="1000" alt="Frame 2" src="https://github.com/user-attachments/assets/0f78795b-25c6-419d-bd1f-3b4b7d74d526" />
+<img width="1600" height="1000" alt="Frame 3" src="https://github.com/user-attachments/assets/a0c58bee-e3ca-47a9-82a5-0bfc788d3488" />
+<img width="1600" height="1000" alt="Frame 4" src="https://github.com/user-attachments/assets/b9ef9263-fbd4-4229-918d-e728385761f2" />
+<img width="1600" height="1000" alt="Frame 5" src="https://github.com/user-attachments/assets/f09be022-bc19-457e-acd4-a4e9b4af12a6" />
+<img width="1600" height="1000" alt="Frame 6" src="https://github.com/user-attachments/assets/00f3c017-b608-459c-8f1f-37f8cf66d1e2" />
 
 ---
 
