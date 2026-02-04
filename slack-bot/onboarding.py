@@ -2194,8 +2194,7 @@ def build_integration_config_modal(
                     "alt_text", f"{integration_name} setup tutorial"
                 ),
                 "author_name": "IncidentFox",
-                "provider_name": "YouTube",
-                "provider_icon_url": "https://www.youtube.com/s/desktop/b3c2a2a0/img/favicon_144x144.png",
+                "provider_name": "🎬 Video",
             }
         )
         blocks.append({"type": "divider"})
