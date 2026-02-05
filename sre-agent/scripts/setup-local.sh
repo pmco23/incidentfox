@@ -112,9 +112,23 @@ fi
 
 source "$ENV_FILE"
 
-if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo "❌ ANTHROPIC_API_KEY not set in .env"
-    exit 1
+# Check for at least one LLM API key based on provider
+if [ "${LLM_PROVIDER:-claude}" = "openhands" ]; then
+    # OpenHands provider - need at least one of: GEMINI, OPENAI, or ANTHROPIC
+    if [ -z "$GEMINI_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+        echo "❌ No LLM API key set in .env"
+        echo "   Set one of: GEMINI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+        exit 1
+    fi
+    echo "  ✓ LLM provider: openhands (model: ${LLM_MODEL:-default})"
+else
+    # Claude provider - requires ANTHROPIC_API_KEY
+    if [ -z "$ANTHROPIC_API_KEY" ]; then
+        echo "❌ ANTHROPIC_API_KEY not set in .env"
+        echo "   Required when using LLM_PROVIDER=claude (default)"
+        exit 1
+    fi
+    echo "  ✓ LLM provider: claude"
 fi
 
 kubectl create secret generic incidentfox-secrets \
@@ -153,6 +167,10 @@ kubectl create secret generic incidentfox-secrets \
     --from-literal=database-url="${DATABASE_URL:-}" \
     --from-literal=history-db-path="${HISTORY_DB_PATH:-~/.incidentfox/history.db}" \
     --from-literal=remediation-log-path="${REMEDIATION_LOG_PATH:-~/.incidentfox/logs/remediation.log}" \
+    --from-literal=llm-provider="${LLM_PROVIDER:-claude}" \
+    --from-literal=llm-model="${LLM_MODEL:-}" \
+    --from-literal=gemini-api-key="${GEMINI_API_KEY:-}" \
+    --from-literal=openai-api-key="${OPENAI_API_KEY:-}" \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "✅ Secrets created"
