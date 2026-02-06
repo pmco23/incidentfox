@@ -4,6 +4,12 @@
 
 namespace: incidentfox
 
+# gVisor sandbox isolation for secure code execution
+gvisor:
+  enabled: true
+  installerImage: "alpine:latest"
+  pauseImage: "gcr.io/google-containers/pause:3.2"
+
 global:
   imagePullPolicy: Always
   configService:
@@ -211,7 +217,7 @@ services:
   # Sandbox Router for routing to sandbox pods
   sandboxRouter:
     enabled: true
-    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-sandbox-router:staging"
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/sandbox-router:latest"
     replicas: 2
     hpa:
       enabled: true
