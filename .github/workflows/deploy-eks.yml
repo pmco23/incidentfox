@@ -22,13 +22,16 @@ on:
         options:
           - all
           - agent
-          - ai-pipeline
           - config-service
+          - credential-resolver
           - k8s-gateway
-          - knowledge-base
           - orchestrator
+          - sandbox-router
+          - slack-bot
           - ultimate-rag
           - web-ui
+          - ai-pipeline
+          - knowledge-base (deprecated)
       skip_deploy:
         description: 'Skip Helm deployment (build & push only)'
         required: false
@@ -48,32 +51,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [agent, ai-pipeline, config-service, k8s-gateway, knowledge-base, orchestrator, ultimate-rag, web-ui]
+        service: [agent, config-service, credential-resolver, k8s-gateway, orchestrator, sandbox-router, slack-bot, ultimate-rag, web-ui, ai-pipeline, "knowledge-base (deprecated)"]
         include:
           - service: agent
             context: ./unified-agent
             dockerfile: ./unified-agent/Dockerfile
             image: incidentfox-agent
-          - service: ai-pipeline
-            context: ./ai_pipeline
-            dockerfile: ./ai_pipeline/Dockerfile
-            image: incidentfox-ai-pipeline
           - service: config-service
             context: ./config_service
             dockerfile: ./config_service/Dockerfile
             image: incidentfox-config-service
+          - service: credential-resolver
+            context: ./sre-agent/credential-proxy
+            dockerfile: ./sre-agent/credential-proxy/Dockerfile
+            image: credential-resolver
           - service: k8s-gateway
             context: ./k8s_gateway
             dockerfile: ./k8s_gateway/Dockerfile
             image: incidentfox-k8s-gateway
-          - service: knowledge-base
-            context: ./knowledge_base
-            dockerfile: ./knowledge_base/Dockerfile
-            image: incidentfox-knowledge-base
           - service: orchestrator
             context: ./orchestrator
             dockerfile: ./orchestrator/Dockerfile
             image: incidentfox-orchestrator
+          - service: sandbox-router
+            context: ./sre-agent/sandbox-router
+            dockerfile: ./sre-agent/sandbox-router/Dockerfile
+            image: sandbox-router
+          - service: slack-bot
+            context: ./slack-bot
+            dockerfile: ./slack-bot/Dockerfile
+            image: incidentfox-slack-bot
           - service: ultimate-rag
             context: .
             dockerfile: ./ultimate_rag/Dockerfile
@@ -82,6 +89,14 @@ jobs:
             context: ./web_ui
             dockerfile: ./web_ui/Dockerfile
             image: incidentfox-web-ui
+          - service: ai-pipeline
+            context: ./ai_pipeline
+            dockerfile: ./ai_pipeline/Dockerfile
+            image: incidentfox-ai-pipeline
+          - service: "knowledge-base (deprecated)"
+            context: ./knowledge_base
+            dockerfile: ./knowledge_base/Dockerfile
+            image: incidentfox-knowledge-base
 
     steps:
       - name: Check if service should be built
@@ -224,6 +239,15 @@ jobs:
           # These are required by hardcoded Envoy configs in sandbox pods
           patch_resource service "sandbox-router-svc"
           patch_resource service "credential-resolver-svc"
+
+          # Delete LoadBalancer services with immutable fields (loadBalancerClass)
+          # These must be recreated by Helm with the correct spec
+          for svc in incidentfox-slack-bot; do
+            if kubectl get service "$svc" -n "$NS" &>/dev/null; then
+              echo "Deleting service/$svc (loadBalancerClass is immutable, Helm will recreate)..."
+              kubectl delete service "$svc" -n "$NS" --wait=false
+            fi
+          done
 
       - name: Deploy with Helm (no wait)
         working-directory: charts
