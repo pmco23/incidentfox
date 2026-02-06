@@ -88,6 +88,10 @@ externalSecrets:
       internalTokenRemoteRefKey: incidentfox/prod/orchestrator_internal_token
     langfuse:
       enabled: false  # Using OpenAI tracing UI instead
+    googleChat:
+      enabled: true
+    teams:
+      enabled: true
     # JWT secret for sandbox credential injection
     jwtSecret:
       enabled: true
