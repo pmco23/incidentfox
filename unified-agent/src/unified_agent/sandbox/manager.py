@@ -215,6 +215,10 @@ static_resources:
           http_protocol_options:
             allow_absolute_url: true
 
+          # Disable idle/request timeouts for long-running LLM streaming connections
+          stream_idle_timeout: 0s
+          request_timeout: 0s
+
           route_config:
             name: proxy_routes
             virtual_hosts:
@@ -230,6 +234,8 @@ static_resources:
                 route:
                   cluster: anthropic
                   auto_host_rewrite: true
+                  timeout: 0s
+                  idle_timeout: 0s
               # Coralogix API
               - match:
                   prefix: "/api/v1/dataprime/"
@@ -247,6 +253,8 @@ static_resources:
                 route:
                   cluster: anthropic
                   auto_host_rewrite: true
+                  timeout: 0s
+                  idle_timeout: 0s
 
           http_filters:
           - name: envoy.filters.http.ext_authz
