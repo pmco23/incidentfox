@@ -100,6 +100,16 @@ def _load_all_tools():
         pass
 
     try:
+        from . import blameless
+    except ImportError:
+        pass
+
+    try:
+        from . import firehydrant
+    except ImportError:
+        pass
+
+    try:
         from . import slack
     except ImportError:
         pass
