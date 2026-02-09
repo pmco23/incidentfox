@@ -1823,7 +1823,11 @@ def handle_mention(event, say, client, context):
 
     if thread_image_metadata:
         inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
-        overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+        overflow_meta = (
+            thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES]
+            if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES
+            else []
+        )
 
         # Download latest images as base64 for the LLM to see directly
         for meta in inline_meta:
@@ -2236,9 +2240,7 @@ def _run_auto_listen_investigation(event, client, context):
         logger.warning(f"Failed to fetch thread context: {e}")
 
     # Resolve mentions and extract attachments from triggering message
-    resolved_text, id_to_name_mapping = _resolve_mentions(
-        text, client, bot_user_id
-    )
+    resolved_text, id_to_name_mapping = _resolve_mentions(text, client, bot_user_id)
     images = _extract_images_from_event(event, client)
     file_attachments = _extract_file_attachments_from_event(event, client)
 
@@ -2256,17 +2258,13 @@ def _run_auto_listen_investigation(event, client, context):
 
     # Build enriched prompt with Slack context
     context_lines = ["\n### Slack Context"]
-    context_lines.append(
-        f"**Requested by:** {sender_name} (User ID: {user_id})"
-    )
+    context_lines.append(f"**Requested by:** {sender_name} (User ID: {user_id})")
 
     if id_to_name_mapping:
         context_lines.append("\n**User/Bot ID to Name Mapping:**")
         for uid, name in id_to_name_mapping.items():
             context_lines.append(f"- {name}: {uid}")
-        context_lines.append(
-            "\n**How to mention users/bots in your responses:**"
-        )
+        context_lines.append("\n**How to mention users/bots in your responses:**")
         context_lines.append(
             "To mention a user or bot in Slack, use this syntax: `<@USER_ID>`"
         )
@@ -2285,18 +2283,13 @@ def _run_auto_listen_investigation(event, client, context):
             else:
                 size_str = f"{size_bytes / 1024:.1f} KB"
             context_lines.append(f"- `attachments/{filename}` ({size_str})")
-        context_lines.append(
-            "\nYou can read these files using the Read tool."
-        )
+        context_lines.append("\nYou can read these files using the Read tool.")
 
     context_lines.append("\n**Including Images in Your Response:**")
-    context_lines.append(
-        "Use `![description](./path/to/image.png)` for images."
-    )
+    context_lines.append("Use `![description](./path/to/image.png)` for images.")
     context_lines.append("\n**Sharing Files with the User:**")
     context_lines.append(
-        "Use `[description](./path/to/file)` for files "
-        "(place at end of response)."
+        "Use `[description](./path/to/file)` for files " "(place at end of response)."
     )
 
     enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
@@ -2328,9 +2321,7 @@ def _run_auto_listen_investigation(event, client, context):
         else [
             {
                 "type": "context",
-                "elements": [
-                    {"type": "mrkdwn", "text": "⏳ Investigating..."}
-                ],
+                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
             }
         ]
     )
@@ -2359,9 +2350,7 @@ def _run_auto_listen_investigation(event, client, context):
         team_token = None
         try:
             config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(
-                team_id, channel_id
-            )
+            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
         except Exception as e:
             logger.warning(f"Failed to get team token: {e}")
 
@@ -2407,12 +2396,8 @@ def _run_auto_listen_investigation(event, client, context):
         )
 
         if response.status_code != 200:
-            error_detail = (
-                response.text[:200] if response.text else "Unknown error"
-            )
-            state.error = (
-                f"Server error ({response.status_code}): {error_detail}"
-            )
+            error_detail = response.text[:200] if response.text else "Unknown error"
+            state.error = f"Server error ({response.status_code}): {error_detail}"
             update_slack_message(client, state, team_id, final=True)
             return
 
@@ -2436,14 +2421,10 @@ def _run_auto_listen_investigation(event, client, context):
         save_investigation_snapshot(state)
 
     except requests.exceptions.ConnectionError:
-        state.error = (
-            "Could not connect to investigation service. Is it running?"
-        )
+        state.error = "Could not connect to investigation service. Is it running?"
         update_slack_message(client, state, team_id, final=True)
     except requests.exceptions.Timeout:
-        state.error = (
-            "Investigation timed out (5 min limit). Try a simpler query?"
-        )
+        state.error = "Investigation timed out (5 min limit). Try a simpler query?"
         update_slack_message(client, state, team_id, final=True)
     except Exception as e:
         logger.exception(f"Error during auto-listen investigation: {e}")
@@ -2467,9 +2448,7 @@ def handle_stop_listening(ack, body, client):
     # Suppress future nudges for this user in this thread
     _nudge_sent[(thread_ts, user_id)] = True
 
-    logger.info(
-        f"🔇 Auto-listen disabled for thread {thread_ts} by user {user_id}"
-    )
+    logger.info(f"🔇 Auto-listen disabled for thread {thread_ts} by user {user_id}")
 
     # Post a visible message in the thread
     client.chat_postMessage(
@@ -3039,7 +3018,11 @@ def handle_message(event, client, context):
 
         if thread_image_metadata:
             inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
-            overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+            overflow_meta = (
+                thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES]
+                if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES
+                else []
+            )
 
             for meta in inline_meta:
                 img = _download_slack_image(meta["file_info"], client)
@@ -3048,7 +3031,9 @@ def handle_message(event, client, context):
 
             for meta in overflow_meta:
                 file_info = meta["file_info"]
-                url = file_info.get("url_private_download") or file_info.get("url_private")
+                url = file_info.get("url_private_download") or file_info.get(
+                    "url_private"
+                )
                 if url:
                     thread_file_attachments.append(
                         {
@@ -3496,7 +3481,9 @@ def handle_message(event, client, context):
 
     # Auto-listen: if this thread has auto-listen enabled, trigger investigation directly
     if _auto_listen_threads.get((channel_id, thread_ts)):
-        logger.info(f"🔔 Auto-listen triggered for thread {thread_ts} by user {user_id}")
+        logger.info(
+            f"🔔 Auto-listen triggered for thread {thread_ts} by user {user_id}"
+        )
         _run_auto_listen_investigation(event, client, context)
         return
 
@@ -3669,7 +3656,11 @@ def handle_nudge_invoke(ack, body, client, context, respond):
 
     if thread_image_metadata:
         inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
-        overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+        overflow_meta = (
+            thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES]
+            if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES
+            else []
+        )
 
         for meta in inline_meta:
             img = _download_slack_image(meta["file_info"], client)
@@ -4002,7 +3993,9 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
 
     # Enable auto-listen for this thread
     _auto_listen_threads[(channel_id, thread_ts)] = True
-    logger.info(f"🔔 Auto-listen enabled for Coralogix thread {thread_ts} in {channel_id}")
+    logger.info(
+        f"🔔 Auto-listen enabled for Coralogix thread {thread_ts} in {channel_id}"
+    )
 
     try:
         # Get team token for config-driven agents
