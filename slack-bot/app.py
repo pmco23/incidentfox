@@ -1359,7 +1359,10 @@ def _download_slack_image(file_info: dict, client) -> dict | None:
     """
     Download an image from Slack and return its content as base64.
 
-    Images are small enough to send as base64 directly.
+    Enforces the Claude API's 5MB per-image limit. If the full-size image
+    exceeds that, falls back to Slack's pre-generated thumbnails (1024 → 720
+    → 480px) which are much smaller. Skips the image if even thumbnails
+    are too large.
 
     Args:
         file_info: File object from Slack event
@@ -1372,6 +1375,8 @@ def _download_slack_image(file_info: dict, client) -> dict | None:
 
     import requests
 
+    MAX_IMAGE_BYTES = 5 * 1024 * 1024  # Claude API limit: 5MB per image
+
     mimetype = file_info.get("mimetype", "")
     filename = file_info.get("name", "image")
 
@@ -1379,31 +1384,53 @@ def _download_slack_image(file_info: dict, client) -> dict | None:
     if not mimetype.startswith("image/"):
         return None
 
-    # Get the download URL (requires bot token)
+    # Build list of URLs to try: full-size first, then progressively smaller thumbnails
+    urls_to_try = []
+
     url_private = file_info.get("url_private_download") or file_info.get("url_private")
-    if not url_private:
+    if url_private:
+        urls_to_try.append(("full", url_private))
+
+    # Slack provides pre-generated thumbnails at various sizes
+    for thumb_key in ("thumb_1024", "thumb_720", "thumb_480"):
+        thumb_url = file_info.get(thumb_key)
+        if thumb_url:
+            urls_to_try.append((thumb_key, thumb_url))
+
+    if not urls_to_try:
         logger.warning(f"No download URL for image: {filename}")
         return None
 
-    try:
-        # Download the image using the bot token
-        response = requests.get(
-            url_private, headers={"Authorization": f"Bearer {client.token}"}, timeout=60
-        )
-        response.raise_for_status()
+    auth_headers = {"Authorization": f"Bearer {client.token}"}
 
-        # Convert to base64
-        image_data = base64.b64encode(response.content).decode("utf-8")
+    for variant, url in urls_to_try:
+        try:
+            response = requests.get(url, headers=auth_headers, timeout=60)
+            response.raise_for_status()
 
-        return {
-            "data": image_data,
-            "media_type": mimetype,
-            "filename": filename,
-            "size": len(response.content),
-        }
-    except Exception as e:
-        logger.error(f"Failed to download image {filename}: {e}")
-        return None
+            if len(response.content) <= MAX_IMAGE_BYTES:
+                image_data = base64.b64encode(response.content).decode("utf-8")
+                if variant != "full":
+                    logger.info(
+                        f"Image {filename} exceeded 5MB, using {variant} thumbnail "
+                        f"({len(response.content) / 1024 / 1024:.1f}MB)"
+                    )
+                return {
+                    "data": image_data,
+                    "media_type": mimetype,
+                    "filename": filename,
+                    "size": len(response.content),
+                }
+            else:
+                logger.info(
+                    f"Image {filename} ({variant}) is {len(response.content) / 1024 / 1024:.1f}MB, "
+                    f"exceeds 5MB limit, trying smaller variant..."
+                )
+        except Exception as e:
+            logger.warning(f"Failed to download image {filename} ({variant}): {e}")
+
+    logger.warning(f"All variants of image {filename} exceed 5MB, skipping inline")
+    return None
 
 
 def _get_file_attachment_metadata(file_info: dict, client) -> dict | None:
@@ -1835,20 +1862,8 @@ def handle_mention(event, say, client, context):
     # Merge thread file attachments with triggering message's
     file_attachments = thread_file_attachments + file_attachments
 
-    # Get the user's name who sent this message
-    sender_name = "Unknown User"
-    try:
-        user_response = client.users_info(user=user_id)
-        if user_response["ok"]:
-            user = user_response["user"]
-            profile = user.get("profile", {})
-            sender_name = (
-                profile.get("display_name")
-                or profile.get("real_name")
-                or user.get("name", "Unknown User")
-            )
-    except Exception as e:
-        logger.warning(f"Failed to get sender name for {user_id}: {e}")
+    # Get the user's name who sent this message (cached)
+    sender_name = _get_user_display_name(client, user_id)
 
     # Remove bot's own mention from the resolved text
     # This handles all cases: "@Bot say hi", "say @Bot hi", "say hi @Bot"
@@ -2153,6 +2168,11 @@ def _run_auto_listen_investigation(event, client, context):
     channel_id = event.get("channel")
     thread_ts = event.get("thread_ts")
     user_id = event.get("user")
+
+    if not user_id or not channel_id or not thread_ts:
+        logger.warning("Auto-listen triggered with missing fields, skipping")
+        return
+
     text = event.get("text", "")
     team_id = context.get("team_id") or "unknown"
 
@@ -2226,20 +2246,8 @@ def _run_auto_listen_investigation(event, client, context):
     images = thread_images + images
     file_attachments = thread_file_attachments + file_attachments
 
-    # Get the user's name
-    sender_name = "Unknown User"
-    try:
-        user_response = client.users_info(user=user_id)
-        if user_response["ok"]:
-            user = user_response["user"]
-            profile = user.get("profile", {})
-            sender_name = (
-                profile.get("display_name")
-                or profile.get("real_name")
-                or user.get("name", "Unknown User")
-            )
-    except Exception as e:
-        logger.warning(f"Failed to get sender name: {e}")
+    # Get the user's name (cached)
+    sender_name = _get_user_display_name(client, user_id)
 
     prompt_text = resolved_text.strip()
 
@@ -3067,20 +3075,8 @@ def handle_message(event, client, context):
         # Merge thread file attachments with triggering message's
         file_attachments = thread_file_attachments + file_attachments
 
-        # Get sender's name
-        sender_name = "Unknown User"
-        try:
-            user_response = client.users_info(user=user_id)
-            if user_response["ok"]:
-                user = user_response["user"]
-                profile = user.get("profile", {})
-                sender_name = (
-                    profile.get("display_name")
-                    or profile.get("real_name")
-                    or user.get("name", "Unknown User")
-                )
-        except Exception as e:
-            logger.warning(f"Failed to get sender name for {user_id}: {e}")
+        # Get sender's name (cached)
+        sender_name = _get_user_display_name(client, user_id)
 
         prompt_text = resolved_text.strip()
 
@@ -3477,12 +3473,19 @@ def handle_message(event, client, context):
     if subtype:
         return
 
+    # Skip bot messages (prevents infinite loop in auto-listen threads)
+    if event.get("bot_id"):
+        return
+
     # Only handle threaded messages (not top-level channel messages)
     thread_ts = event.get("thread_ts")
     if not thread_ts:
         return
 
     user_id = event.get("user")
+    if not user_id:
+        return
+
     channel_id = event.get("channel")
     text = event.get("text", "")
 
@@ -3615,28 +3618,18 @@ def handle_nudge_invoke(ack, body, client, context, respond):
     # Get team_id
     team_id = body.get("team", {}).get("id") or "unknown"
 
-    # Get the user's name
-    sender_name = "Unknown User"
-    try:
-        user_response = client.users_info(user=user_id)
-        if user_response["ok"]:
-            user = user_response["user"]
-            profile = user.get("profile", {})
-            sender_name = (
-                profile.get("display_name")
-                or profile.get("real_name")
-                or user.get("name", "Unknown User")
-            )
-    except Exception as e:
-        logger.warning(f"Failed to get sender name: {e}")
+    # Get the user's name (cached)
+    sender_name = _get_user_display_name(client, user_id)
 
     # Generate thread_id
     sanitized_thread_ts = thread_ts.replace(".", "-")
     sanitized_channel = channel_id.lower()
     thread_id = f"slack-{sanitized_channel}-{sanitized_thread_ts}"
 
-    # Fetch thread context (human messages since bot's last response)
+    # Fetch full thread context for nudge-triggered investigations
     thread_context_text = None
+    thread_image_metadata = []
+    thread_file_attachments = []
     bot_user_id = context.get("bot_user_id")
     if not bot_user_id:
         try:
@@ -3650,19 +3643,64 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         thread_replies = client.conversations_replies(
             channel=channel_id,
             ts=thread_ts,
-            limit=50,
+            limit=200,
         )
-        thread_context_text = _format_thread_context(
-            thread_replies.get("messages", []),
-            current_message_ts=thread_ts,  # Exclude the parent message trigger
-            bot_user_id=bot_user_id,
+        thread_context_text, thread_image_metadata, thread_file_attachments = (
+            _build_full_thread_context(
+                thread_replies.get("messages", []),
+                current_message_ts=thread_ts,  # Exclude the parent message trigger
+                bot_user_id=bot_user_id,
+                client=client,
+            )
         )
         if thread_context_text:
             logger.info(
-                f"Thread context enrichment added for nudge in thread {thread_ts}"
+                f"Full thread context loaded for nudge in thread {thread_ts} "
+                f"({len(thread_image_metadata)} images, {len(thread_file_attachments)} files)"
             )
     except Exception as e:
         logger.warning(f"Failed to fetch thread context for nudge: {e}")
+
+    # Process thread images: last 5 as base64, older ones as file attachments
+    images = []
+    file_attachments = thread_file_attachments
+    MAX_INLINE_THREAD_IMAGES = 5
+    overflow_image_context = ""
+
+    if thread_image_metadata:
+        inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
+        overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+
+        for meta in inline_meta:
+            img = _download_slack_image(meta["file_info"], client)
+            if img:
+                images.append(img)
+
+        for meta in overflow_meta:
+            file_info = meta["file_info"]
+            url = file_info.get("url_private_download") or file_info.get("url_private")
+            if url:
+                file_attachments.append(
+                    {
+                        "filename": meta["semantic_name"],
+                        "size": file_info.get("size", 0),
+                        "media_type": file_info.get("mimetype", "image/png"),
+                        "download_url": url,
+                        "auth_header": f"Bearer {client.token}",
+                    }
+                )
+
+        if overflow_meta:
+            lines = [
+                "\n**Earlier thread images (saved as files):**",
+                "These images from earlier in the thread have been saved to your workspace.",
+                "You can view them using the Read tool if needed:",
+            ]
+            for meta in overflow_meta:
+                lines.append(
+                    f"- `attachments/{meta['semantic_name']}` — from {meta['sender']} at {meta['time_str']}"
+                )
+            overflow_image_context = "\n".join(lines)
 
     # Build a simple prompt with context
     context_lines = ["\n### Slack Context"]
@@ -3674,9 +3712,12 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         "Use `[description](./path/to/file)` for files (place at end of response)."
     )
 
+    if overflow_image_context:
+        context_lines.append(overflow_image_context)
+
     enriched_prompt = text + "\n" + "\n".join(context_lines)
 
-    # Prepend thread context if available (human messages since last bot response)
+    # Prepend full thread context if available (all messages in the thread)
     if thread_context_text:
         enriched_prompt = thread_context_text + enriched_prompt
 
@@ -3769,6 +3810,35 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         if team_token:
             request_payload["team_token"] = team_token
 
+        # Add thread images if any
+        if images:
+            request_payload["images"] = [
+                {
+                    "type": "base64",
+                    "media_type": img["media_type"],
+                    "data": img["data"],
+                    "filename": img.get("filename", "image"),
+                }
+                for img in images
+            ]
+            logger.info(f"Sending {len(images)} thread image(s) to agent (nudge)")
+
+        # Add file attachments if any (thread files + overflow images)
+        if file_attachments:
+            request_payload["file_attachments"] = [
+                {
+                    "filename": att["filename"],
+                    "size": att["size"],
+                    "media_type": att["media_type"],
+                    "download_url": att["download_url"],
+                    "auth_header": att["auth_header"],
+                }
+                for att in file_attachments
+            ]
+            logger.info(
+                f"Sending {len(file_attachments)} file attachment(s) to agent (nudge)"
+            )
+
         response = requests.post(
             f"{SRE_AGENT_URL}/investigate",
             json=request_payload,
@@ -3842,20 +3912,8 @@ def handle_coralogix_investigate(ack, body, client, context, respond):
     # Get team_id
     team_id = body.get("team", {}).get("id") or "unknown"
 
-    # Get the user's name
-    sender_name = "Unknown User"
-    try:
-        user_response = client.users_info(user=user_id)
-        if user_response["ok"]:
-            user = user_response["user"]
-            profile = user.get("profile", {})
-            sender_name = (
-                profile.get("display_name")
-                or profile.get("real_name")
-                or user.get("name", "Unknown User")
-            )
-    except Exception as e:
-        logger.warning(f"Failed to get sender name: {e}")
+    # Get the user's name (cached)
+    sender_name = _get_user_display_name(client, user_id)
 
     # Generate thread_id
     sanitized_thread_ts = thread_ts.replace(".", "-")
