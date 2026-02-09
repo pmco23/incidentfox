@@ -130,6 +130,40 @@ SLACK_APP_MODE = os.environ.get("SLACK_APP_MODE", "socket")
 # Key format: "{team_id}:{channel_id}"
 _nudge_sent_channels: set = set()
 
+# LRU cache for Slack user display name lookups (avoids repeated API calls
+# when the same users keep chatting in the same thread)
+_user_name_cache: Dict[str, str] = {}
+_USER_NAME_CACHE_MAX = 200
+
+
+def _get_user_display_name(client, user_id: str) -> str:
+    """Look up a Slack user's display name, with in-memory LRU caching."""
+    if user_id in _user_name_cache:
+        return _user_name_cache[user_id]
+
+    try:
+        resp = client.users_info(user=user_id)
+        if resp["ok"]:
+            user = resp["user"]
+            profile = user.get("profile", {})
+            name = (
+                profile.get("display_name")
+                or profile.get("real_name")
+                or user.get("name", f"User_{user_id}")
+            )
+        else:
+            name = f"User_{user_id}"
+    except Exception:
+        name = f"User_{user_id}"
+
+    # Evict oldest entry if at capacity (dict preserves insertion order in 3.7+)
+    if len(_user_name_cache) >= _USER_NAME_CACHE_MAX:
+        oldest_key = next(iter(_user_name_cache))
+        del _user_name_cache[oldest_key]
+
+    _user_name_cache[user_id] = name
+    return name
+
 
 @dataclass
 class ThoughtSection:
@@ -322,6 +356,11 @@ def build_final_blocks(state: MessageState, client, team_id: str) -> list:
     # Get S3-hosted done icon URL
     done_url = get_asset_url("done")
 
+    # Check if auto-listen is active for this thread
+    auto_listen_active = _auto_listen_threads.get(
+        (state.channel_id, state.thread_ts), False
+    )
+
     return build_final_message(
         result_text=state.final_result or state.current_thought,
         thoughts=state.thoughts,
@@ -334,6 +373,8 @@ def build_final_blocks(state: MessageState, client, team_id: str) -> list:
         result_files=state.result_files,
         trigger_user_id=state.trigger_user_id,
         trigger_text=state.trigger_text,
+        auto_listen_channel_id=state.channel_id if auto_listen_active else None,
+        auto_listen_thread_ts=state.thread_ts if auto_listen_active else None,
     )
 
 
@@ -1460,69 +1501,127 @@ def _extract_file_attachments_from_event(event: dict, client) -> list:
     return attachments
 
 
-def _format_thread_context(messages, current_message_ts, bot_user_id=None):
+def _build_full_thread_context(messages, current_message_ts, bot_user_id, client):
     """
-    Format Slack thread messages since last bot response as context.
+    Build full thread context from ALL messages in the thread.
 
-    Filters to only human messages that occurred AFTER the bot's last response,
-    providing the agent with context about what was discussed between runs.
+    Includes every message (human and bot) with text, sender name, timestamp,
+    and attachment annotations. Collects image metadata and file attachment
+    metadata from non-triggering messages (images are NOT downloaded here —
+    the caller decides which to download as base64 vs save as files).
 
     Args:
         messages: List of thread messages from conversations.replies
-        current_message_ts: Timestamp of the current triggering message (to exclude)
-        bot_user_id: Bot's user ID to filter out its own messages
+        current_message_ts: Timestamp of the current triggering message
+        bot_user_id: Bot's user ID
+        client: Slack client (for user name lookups)
 
     Returns:
-        Formatted context string with <thread_context> tags, or None if no relevant messages
+        tuple: (formatted_text, thread_image_metadata, thread_file_attachments)
+        - formatted_text: Full thread history with <thread_context> tags, or None
+        - thread_image_metadata: List of dicts with Slack file info + semantic name
+          for images from non-triggering messages (not yet downloaded)
+        - thread_file_attachments: File attachment metadata from non-triggering messages
     """
     from datetime import datetime
 
-    # Find last bot message timestamp
-    last_bot_ts = "0"
-    for msg in messages:
-        if msg.get("bot_id") or (bot_user_id and msg.get("user") == bot_user_id):
-            msg_ts = msg.get("ts", "0")
-            if float(msg_ts) > float(last_bot_ts):
-                last_bot_ts = msg_ts
+    if not messages:
+        return None, [], []
 
-    relevant = []
+    # Check if there are any messages besides the triggering one
+    other_messages = [m for m in messages if m.get("ts") != current_message_ts]
+    if not other_messages:
+        return None, [], []
+
+    # Resolve user names via LRU-cached helper (avoids redundant API calls)
+    def get_name(uid):
+        return _get_user_display_name(client, uid)
+
+    context_parts = []
+    thread_image_metadata = []
+    thread_file_attachments = []
+
     for msg in messages:
         ts = msg.get("ts", "0")
+        is_trigger = ts == current_message_ts
+        is_bot = bool(msg.get("bot_id")) or (
+            bot_user_id and msg.get("user") == bot_user_id
+        )
 
-        # Skip the current triggering message
-        if ts == current_message_ts:
-            continue
-
-        # Skip bot messages
-        if msg.get("bot_id"):
-            continue
-        if bot_user_id and msg.get("user") == bot_user_id:
-            continue
-
-        # Only include messages AFTER the last bot response
-        if float(ts) <= float(last_bot_ts):
-            continue
+        # Format timestamp
+        try:
+            time_str = datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M")
+            date_prefix = datetime.fromtimestamp(float(ts)).strftime("%Y%m%d_%H%M")
+        except (ValueError, TypeError, OSError, OverflowError):
+            time_str = "??:??"
+            date_prefix = "unknown"
 
         text = msg.get("text", "").strip()
-        if not text:
-            continue
 
-        try:
-            time_str = datetime.fromtimestamp(float(ts)).strftime("%H:%M")
-        except (ValueError, TypeError):
-            time_str = "??:??"
+        # Determine sender name
+        if is_bot:
+            sender = "IncidentFox"
+            sender_slug = "IncidentFox"
+            # Truncate long bot responses to keep context manageable
+            # (agent already has its own responses in sandbox conversation history)
+            if len(text) > 500:
+                text = text[:500] + "... [response truncated]"
+        else:
+            uid = msg.get("user", "unknown")
+            sender = get_name(uid)
+            # Sanitize for filenames: keep alphanumeric, replace spaces with _
+            sender_slug = re.sub(r"[^a-zA-Z0-9]", "_", sender).strip("_") or uid
 
-        relevant.append(f"[{time_str}] <@{msg.get('user', 'unknown')}>: {text}")
+        trigger_marker = "  <<< THIS MESSAGE TRIGGERED YOU" if is_trigger else ""
 
-    if not relevant:
-        return None
+        line = f"[{time_str}] {sender}: {text}{trigger_marker}"
 
-    return (
+        # Annotate file attachments in the text
+        files = msg.get("files", [])
+        if files:
+            file_descs = []
+            for f in files:
+                name = f.get("name", "file")
+                mimetype = f.get("mimetype", "")
+                if mimetype.startswith("image/"):
+                    file_descs.append(f"{name} (image)")
+                else:
+                    file_descs.append(name)
+            line += f"\n  Attachments: {', '.join(file_descs)}"
+
+        context_parts.append(line)
+
+        # Collect image metadata and file attachments from non-triggering messages
+        # (triggering message's attachments are handled separately in the caller)
+        if not is_trigger:
+            for file_info in files:
+                mimetype = file_info.get("mimetype", "")
+                if mimetype.startswith("image/"):
+                    # Collect metadata for images (caller decides base64 vs file)
+                    original_name = file_info.get("name", "image")
+                    semantic_name = f"{date_prefix}_{sender_slug}_{original_name}"
+                    thread_image_metadata.append(
+                        {
+                            "file_info": file_info,
+                            "semantic_name": semantic_name,
+                            "sender": sender,
+                            "time_str": time_str,
+                        }
+                    )
+                else:
+                    # Non-image files: collect as file_attachment metadata
+                    attachment = _get_file_attachment_metadata(file_info, client)
+                    if attachment:
+                        thread_file_attachments.append(attachment)
+
+    formatted = (
         "<thread_context>\n"
-        "Messages in this thread since my last response:\n\n"
-        + "\n".join(relevant)
+        "Full conversation history in this thread:\n\n"
+        + "\n\n".join(context_parts)
         + "\n</thread_context>\n\n"
     )
+
+    return formatted, thread_image_metadata, thread_file_attachments
 
 
 def _resolve_mentions(text: str, client, bot_user_id: str):
@@ -1649,9 +1748,12 @@ def handle_mention(event, say, client, context):
             logger.warning(f"Failed to get bot user ID: {e}")
             bot_user_id = None
 
-    # Fetch thread context for follow-up messages (enriches prompt with
-    # human messages since the last bot response in the thread)
+    # Fetch full thread context when triggered in a thread.
+    # Loads ALL messages (human + bot) so the agent sees the complete conversation,
+    # and collects image metadata + file metadata from earlier messages in the thread.
     thread_context_text = None
+    thread_image_metadata = []
+    thread_file_attachments = []
     is_followup = event.get("thread_ts") is not None
 
     if is_followup:
@@ -1659,26 +1761,79 @@ def handle_mention(event, say, client, context):
             thread_replies = client.conversations_replies(
                 channel=channel_id,
                 ts=thread_ts,
-                limit=50,
+                limit=200,
             )
-            thread_context_text = _format_thread_context(
-                thread_replies.get("messages", []),
-                current_message_ts=event["ts"],
-                bot_user_id=bot_user_id,
+            thread_context_text, thread_image_metadata, thread_file_attachments = (
+                _build_full_thread_context(
+                    thread_replies.get("messages", []),
+                    current_message_ts=event["ts"],
+                    bot_user_id=bot_user_id,
+                    client=client,
+                )
             )
             if thread_context_text:
-                logger.info(f"Thread context enrichment added for thread {thread_ts}")
+                logger.info(
+                    f"Full thread context loaded for thread {thread_ts} "
+                    f"({len(thread_image_metadata)} images, {len(thread_file_attachments)} files from thread)"
+                )
         except Exception as e:
             logger.warning(f"Failed to fetch thread context: {e}")
 
     # Resolve all mentions (users and bots) to human-readable names
     resolved_text, id_to_name_mapping = _resolve_mentions(text, client, bot_user_id)
 
-    # Extract images from the event (downloaded as base64 - typically small)
+    # Extract images from the triggering event (downloaded as base64 - always inline)
     images = _extract_images_from_event(event, client)
 
-    # Extract file attachment metadata (not downloaded - uses proxy pattern for large files)
+    # Extract file attachment metadata from triggering event (not downloaded - uses proxy pattern)
     file_attachments = _extract_file_attachments_from_event(event, client)
+
+    # Process thread images: last 5 as base64 (LLM sees directly), older ones
+    # saved to sandbox as files with semantic filenames via the file_attachment proxy.
+    # Claude API allows up to 100 images but 32MB total request, so 5 is practical.
+    MAX_INLINE_THREAD_IMAGES = 5
+    overflow_image_context = ""
+
+    if thread_image_metadata:
+        inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
+        overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+
+        # Download latest images as base64 for the LLM to see directly
+        for meta in inline_meta:
+            img = _download_slack_image(meta["file_info"], client)
+            if img:
+                images.insert(0, img)  # Thread images before triggering message's
+
+        # Older images → file_attachment metadata (downloaded to sandbox with semantic names)
+        for meta in overflow_meta:
+            file_info = meta["file_info"]
+            url = file_info.get("url_private_download") or file_info.get("url_private")
+            if url:
+                thread_file_attachments.append(
+                    {
+                        "filename": meta["semantic_name"],
+                        "size": file_info.get("size", 0),
+                        "media_type": file_info.get("mimetype", "image/png"),
+                        "download_url": url,
+                        "auth_header": f"Bearer {client.token}",
+                    }
+                )
+
+        # Build context about overflow images so LLM knows where they are
+        if overflow_meta:
+            lines = [
+                "\n**Earlier thread images (saved as files):**",
+                "These images from earlier in the thread have been saved to your workspace.",
+                "You can view them using the Read tool if needed:",
+            ]
+            for meta in overflow_meta:
+                lines.append(
+                    f"- `attachments/{meta['semantic_name']}` — from {meta['sender']} at {meta['time_str']}"
+                )
+            overflow_image_context = "\n".join(lines)
+
+    # Merge thread file attachments with triggering message's
+    file_attachments = thread_file_attachments + file_attachments
 
     # Get the user's name who sent this message
     sender_name = "Unknown User"
@@ -1798,9 +1953,13 @@ def handle_mention(event, say, client, context):
     )
     context_lines.append("Only share files that are genuinely useful to the user.")
 
+    # Add context about overflow images saved as files in sandbox
+    if overflow_image_context:
+        context_lines.append(overflow_image_context)
+
     enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
 
-    # Prepend thread context if available (human messages since last bot response)
+    # Prepend full thread context if available (all messages in the thread)
     if thread_context_text:
         enriched_prompt = thread_context_text + enriched_prompt
 
@@ -1850,6 +2009,10 @@ def handle_mention(event, say, client, context):
         thread_ts=thread_ts,
         thread_id=thread_id,
     )
+
+    # Enable auto-listen for this thread (bot will respond to follow-ups without @mention)
+    _auto_listen_threads[(channel_id, thread_ts)] = True
+    logger.info(f"🔔 Auto-listen enabled for thread {thread_ts} in {channel_id}")
 
     try:
         # Get team token for config-driven agents
@@ -1966,6 +2129,337 @@ def handle_mention(event, say, client, context):
 # Track threads where we've already sent a nudge (one nudge per user per thread)
 # Key: (thread_ts, user_id), Value: True
 _nudge_sent: Dict[tuple, bool] = {}
+
+# Track threads where auto-listen is active (bot responds without @mention)
+# Key: (channel_id, thread_ts), Value: True
+_auto_listen_threads: Dict[tuple, bool] = {}
+
+
+def _run_auto_listen_investigation(event, client, context):
+    """
+    Trigger an investigation for a message in an auto-listen thread.
+    Called when a user sends a follow-up in a thread where the bot is actively
+    listening (without requiring an @mention).
+    """
+    channel_id = event.get("channel")
+    thread_ts = event.get("thread_ts")
+    user_id = event.get("user")
+    text = event.get("text", "")
+    team_id = context.get("team_id") or "unknown"
+
+    logger.info(
+        f"🔔 Auto-listen investigation: user={user_id}, "
+        f"thread={thread_ts}, text={text[:100]}"
+    )
+
+    # Check if trial has expired
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        if trial_info and trial_info.get("expired"):
+            logger.info(
+                f"Trial expired for team {team_id}, "
+                "skipping auto-listen investigation"
+            )
+            return
+    except Exception as e:
+        logger.error(f"Failed to check trial status: {e}")
+        return
+
+    # Generate thread_id for sre-agent
+    sanitized_thread_ts = thread_ts.replace(".", "-")
+    sanitized_channel = channel_id.lower()
+    thread_id = f"slack-{sanitized_channel}-{sanitized_thread_ts}"
+
+    # Get bot's user ID
+    bot_user_id = context.get("bot_user_id")
+    if not bot_user_id:
+        try:
+            auth_response = client.auth_test()
+            bot_user_id = auth_response.get("user_id")
+        except Exception as e:
+            logger.warning(f"Failed to get bot user ID: {e}")
+
+    # Fetch full thread context (all messages in the thread)
+    thread_context_text = None
+    thread_images = []
+    thread_file_attachments = []
+    try:
+        thread_replies = client.conversations_replies(
+            channel=channel_id,
+            ts=thread_ts,
+            limit=200,
+        )
+        thread_context_text, thread_images, thread_file_attachments = (
+            _build_full_thread_context(
+                thread_replies.get("messages", []),
+                current_message_ts=event["ts"],
+                bot_user_id=bot_user_id,
+                client=client,
+            )
+        )
+        if thread_context_text:
+            logger.info(
+                f"Thread context loaded ({len(thread_images)} images, "
+                f"{len(thread_file_attachments)} files)"
+            )
+    except Exception as e:
+        logger.warning(f"Failed to fetch thread context: {e}")
+
+    # Resolve mentions and extract attachments from triggering message
+    resolved_text, id_to_name_mapping = _resolve_mentions(
+        text, client, bot_user_id
+    )
+    images = _extract_images_from_event(event, client)
+    file_attachments = _extract_file_attachments_from_event(event, client)
+
+    # Merge thread attachments with triggering message attachments
+    images = thread_images + images
+    file_attachments = thread_file_attachments + file_attachments
+
+    # Get the user's name
+    sender_name = "Unknown User"
+    try:
+        user_response = client.users_info(user=user_id)
+        if user_response["ok"]:
+            user = user_response["user"]
+            profile = user.get("profile", {})
+            sender_name = (
+                profile.get("display_name")
+                or profile.get("real_name")
+                or user.get("name", "Unknown User")
+            )
+    except Exception as e:
+        logger.warning(f"Failed to get sender name: {e}")
+
+    prompt_text = resolved_text.strip()
+
+    if not prompt_text and not images and not file_attachments:
+        return  # Nothing to investigate
+
+    # Build enriched prompt with Slack context
+    context_lines = ["\n### Slack Context"]
+    context_lines.append(
+        f"**Requested by:** {sender_name} (User ID: {user_id})"
+    )
+
+    if id_to_name_mapping:
+        context_lines.append("\n**User/Bot ID to Name Mapping:**")
+        for uid, name in id_to_name_mapping.items():
+            context_lines.append(f"- {name}: {uid}")
+        context_lines.append(
+            "\n**How to mention users/bots in your responses:**"
+        )
+        context_lines.append(
+            "To mention a user or bot in Slack, use this syntax: `<@USER_ID>`"
+        )
+
+    if file_attachments:
+        context_lines.append("\n**File Attachments:**")
+        context_lines.append(
+            "The user attached the following files, which are being "
+            "downloaded into your workspace:"
+        )
+        for att in file_attachments:
+            filename = att["filename"]
+            size_bytes = att["size"]
+            if size_bytes >= 1024 * 1024:
+                size_str = f"{size_bytes / (1024 * 1024):.1f} MB"
+            else:
+                size_str = f"{size_bytes / 1024:.1f} KB"
+            context_lines.append(f"- `attachments/{filename}` ({size_str})")
+        context_lines.append(
+            "\nYou can read these files using the Read tool."
+        )
+
+    context_lines.append("\n**Including Images in Your Response:**")
+    context_lines.append(
+        "Use `![description](./path/to/image.png)` for images."
+    )
+    context_lines.append("\n**Sharing Files with the User:**")
+    context_lines.append(
+        "Use `[description](./path/to/file)` for files "
+        "(place at end of response)."
+    )
+
+    enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
+
+    # Prepend full thread context
+    if thread_context_text:
+        enriched_prompt = thread_context_text + enriched_prompt
+
+    # Post initial "Investigating..." message
+    from assets_config import get_asset_url
+
+    loading_url = get_asset_url("loading")
+
+    initial_blocks = (
+        [
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "image",
+                        "image_url": loading_url,
+                        "alt_text": "Loading",
+                    },
+                    {"type": "mrkdwn", "text": "Investigating..."},
+                ],
+            }
+        ]
+        if loading_url
+        else [
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": "⏳ Investigating..."}
+                ],
+            }
+        ]
+    )
+
+    try:
+        initial_response = client.chat_postMessage(
+            channel=channel_id,
+            thread_ts=thread_ts,
+            text="Investigating...",
+            blocks=initial_blocks,
+        )
+    except Exception as e:
+        logger.error(f"Failed to post auto-listen message: {e}")
+        return
+
+    message_ts = initial_response["ts"]
+
+    state = MessageState(
+        channel_id=channel_id,
+        message_ts=message_ts,
+        thread_ts=thread_ts,
+        thread_id=thread_id,
+    )
+
+    try:
+        team_token = None
+        try:
+            config_client = get_config_client()
+            team_token = config_client.get_team_token_for_channel(
+                team_id, channel_id
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get team token: {e}")
+
+        request_payload = {
+            "prompt": enriched_prompt,
+            "thread_id": thread_id,
+            "tenant_id": team_id,
+            "team_id": team_id,
+        }
+
+        if team_token:
+            request_payload["team_token"] = team_token
+
+        if images:
+            request_payload["images"] = [
+                {
+                    "type": "base64",
+                    "media_type": img["media_type"],
+                    "data": img["data"],
+                    "filename": img.get("filename", "image"),
+                }
+                for img in images
+            ]
+
+        if file_attachments:
+            request_payload["file_attachments"] = [
+                {
+                    "filename": att["filename"],
+                    "size": att["size"],
+                    "media_type": att["media_type"],
+                    "download_url": att["download_url"],
+                    "auth_header": att["auth_header"],
+                }
+                for att in file_attachments
+            ]
+
+        response = requests.post(
+            f"{SRE_AGENT_URL}/investigate",
+            json=request_payload,
+            stream=True,
+            timeout=300,
+            headers={"Accept": "text/event-stream"},
+        )
+
+        if response.status_code != 200:
+            error_detail = (
+                response.text[:200] if response.text else "Unknown error"
+            )
+            state.error = (
+                f"Server error ({response.status_code}): {error_detail}"
+            )
+            update_slack_message(client, state, team_id, final=True)
+            return
+
+        event_count = 0
+        for line in response.iter_lines(decode_unicode=True):
+            if line:
+                sse_event = parse_sse_event(line)
+                if sse_event:
+                    event_count += 1
+                    handle_stream_event(state, sse_event, client, team_id)
+
+        import time
+
+        _investigation_cache[state.message_ts] = state
+        _cache_timestamps[state.message_ts] = time.time()
+
+        if event_count == 0 and not state.error:
+            state.error = "No response received from agent"
+
+        update_slack_message(client, state, team_id, final=True)
+        save_investigation_snapshot(state)
+
+    except requests.exceptions.ConnectionError:
+        state.error = (
+            "Could not connect to investigation service. Is it running?"
+        )
+        update_slack_message(client, state, team_id, final=True)
+    except requests.exceptions.Timeout:
+        state.error = (
+            "Investigation timed out (5 min limit). Try a simpler query?"
+        )
+        update_slack_message(client, state, team_id, final=True)
+    except Exception as e:
+        logger.exception(f"Error during auto-listen investigation: {e}")
+        state.error = f"Unexpected error: {str(e)}"
+        update_slack_message(client, state, team_id, final=True)
+
+
+@app.action("stop_listening")
+def handle_stop_listening(ack, body, client):
+    """Handle 'Stop listening' button click."""
+    ack()
+
+    value = json.loads(body["actions"][0]["value"])
+    channel_id = value["channel_id"]
+    thread_ts = value["thread_ts"]
+    user_id = body["user"]["id"]
+
+    # Disable auto-listen for this thread
+    _auto_listen_threads.pop((channel_id, thread_ts), None)
+
+    # Suppress future nudges for this user in this thread
+    _nudge_sent[(thread_ts, user_id)] = True
+
+    logger.info(
+        f"🔇 Auto-listen disabled for thread {thread_ts} by user {user_id}"
+    )
+
+    # Post a visible message in the thread
+    client.chat_postMessage(
+        channel=channel_id,
+        thread_ts=thread_ts,
+        text="🔇 Stopped listening in this thread. @mention me to re-enable.",
+    )
 
 
 def fetch_incidentio_alert_details(
@@ -2267,6 +2761,10 @@ Use all available tools to gather context about this issue."""
         thread_id=thread_id,
     )
 
+    # Enable auto-listen for this thread (users can follow up without @mention)
+    _auto_listen_threads[(channel_id, thread_ts)] = True
+    logger.info(f"🔔 Auto-listen enabled for alert thread {thread_ts} in {channel_id}")
+
     try:
         # Get team token for config-driven agents
         # Uses channel-based routing with fallback to workspace-based routing
@@ -2478,16 +2976,87 @@ def handle_message(event, client, context):
                 logger.warning(f"Failed to get bot user ID: {e}")
                 bot_user_id = None
 
+        # Fetch full thread context for DM threads
+        thread_context_text = None
+        thread_image_metadata = []
+        thread_file_attachments = []
+        is_dm_thread = event.get("thread_ts") is not None
+
+        if is_dm_thread:
+            try:
+                thread_replies = client.conversations_replies(
+                    channel=channel_id,
+                    ts=thread_ts,
+                    limit=200,
+                )
+                thread_context_text, thread_image_metadata, thread_file_attachments = (
+                    _build_full_thread_context(
+                        thread_replies.get("messages", []),
+                        current_message_ts=event["ts"],
+                        bot_user_id=bot_user_id,
+                        client=client,
+                    )
+                )
+                if thread_context_text:
+                    logger.info(
+                        f"Full DM thread context loaded for thread {thread_ts} "
+                        f"({len(thread_image_metadata)} images, {len(thread_file_attachments)} files)"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to fetch DM thread context: {e}")
+
         # Resolve mentions in DM text (if any)
         resolved_text, id_to_name_mapping = _resolve_mentions(
             dm_text, client, bot_user_id
         )
 
-        # Extract images from the event
+        # Extract images from the triggering event (always inline)
         images = _extract_images_from_event(event, client)
 
-        # Extract file attachments
+        # Extract file attachments from the triggering event
         file_attachments = _extract_file_attachments_from_event(event, client)
+
+        # Process thread images: last 5 as base64, older ones saved as files
+        MAX_INLINE_THREAD_IMAGES = 5
+        overflow_image_context = ""
+
+        if thread_image_metadata:
+            inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
+            overflow_meta = thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES] if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES else []
+
+            for meta in inline_meta:
+                img = _download_slack_image(meta["file_info"], client)
+                if img:
+                    images.insert(0, img)
+
+            for meta in overflow_meta:
+                file_info = meta["file_info"]
+                url = file_info.get("url_private_download") or file_info.get("url_private")
+                if url:
+                    thread_file_attachments.append(
+                        {
+                            "filename": meta["semantic_name"],
+                            "size": file_info.get("size", 0),
+                            "media_type": file_info.get("mimetype", "image/png"),
+                            "download_url": url,
+                            "auth_header": f"Bearer {client.token}",
+                        }
+                    )
+
+            if overflow_meta:
+                lines = [
+                    "\n**Earlier thread images (saved as files):**",
+                    "These images from earlier in the thread have been saved to your workspace.",
+                    "You can view them using the Read tool if needed:",
+                ]
+                for meta in overflow_meta:
+                    lines.append(
+                        f"- `attachments/{meta['semantic_name']}` — from {meta['sender']} at {meta['time_str']}"
+                    )
+                overflow_image_context = "\n".join(lines)
+
+        # Merge thread file attachments with triggering message's
+        file_attachments = thread_file_attachments + file_attachments
 
         # Get sender's name
         sender_name = "Unknown User"
@@ -2554,7 +3123,15 @@ def handle_message(event, client, context):
             "If you generate files, share them using: `[description](./path/to/file.csv)`"
         )
 
+        # Add context about overflow images saved as files in sandbox
+        if overflow_image_context:
+            context_lines.append(overflow_image_context)
+
         enriched_prompt = prompt_text + "\n" + "\n".join(context_lines)
+
+        # Prepend full thread context if available (all messages in the DM thread)
+        if thread_context_text:
+            enriched_prompt = thread_context_text + enriched_prompt
 
         # Post initial message
         from assets_config import get_asset_url
@@ -2905,6 +3482,12 @@ def handle_message(event, client, context):
     if bot_user_id and f"<@{bot_user_id}>" in text:
         return
 
+    # Auto-listen: if this thread has auto-listen enabled, trigger investigation directly
+    if _auto_listen_threads.get((channel_id, thread_ts)):
+        logger.info(f"🔔 Auto-listen triggered for thread {thread_ts} by user {user_id}")
+        _run_auto_listen_investigation(event, client, context)
+        return
+
     # Skip if we've already sent a nudge to this user in this thread
     if _nudge_sent.get((thread_ts, user_id)):
         return
@@ -3118,6 +3701,10 @@ def handle_nudge_invoke(ack, body, client, context, respond):
         trigger_text=text,
     )
 
+    # Enable auto-listen for this thread
+    _auto_listen_threads[(channel_id, thread_ts)] = True
+    logger.info(f"🔔 Auto-listen enabled for thread {thread_ts} in {channel_id}")
+
     # Call sre-agent with SSE streaming
     try:
         # Get team token for config-driven agents
@@ -3312,6 +3899,10 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         trigger_user_id=user_id,
         trigger_text=original_text,
     )
+
+    # Enable auto-listen for this thread
+    _auto_listen_threads[(channel_id, thread_ts)] = True
+    logger.info(f"🔔 Auto-listen enabled for Coralogix thread {thread_ts} in {channel_id}")
 
     try:
         # Get team token for config-driven agents
@@ -5740,6 +6331,7 @@ def register_all_handlers(bolt_app):
     # Action handlers (string patterns)
     bolt_app.action("nudge_invoke")(handle_nudge_invoke)
     bolt_app.action("nudge_dismiss")(handle_nudge_dismiss)
+    bolt_app.action("stop_listening")(handle_stop_listening)
     bolt_app.action("coralogix_investigate")(handle_coralogix_investigate)
     bolt_app.action("coralogix_dismiss")(handle_coralogix_dismiss)
     bolt_app.action("feedback_positive")(handle_positive_feedback)
