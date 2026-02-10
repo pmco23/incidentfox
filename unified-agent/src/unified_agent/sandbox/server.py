@@ -23,10 +23,13 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -90,6 +93,10 @@ _session_lock = asyncio.Lock()
 # Sandbox manager (lazy initialized, used when USE_GVISOR=true)
 _sandbox_manager: Optional[SandboxManager] = None
 
+# File proxy: token -> download info mapping
+_file_download_tokens: Dict[str, dict] = {}
+_FILE_TOKEN_TTL_SECONDS = 3600  # 1 hour
+
 
 def _is_sandbox_mode() -> bool:
     """Check if running in sandbox manager mode (creates gVisor pods)."""
@@ -104,6 +111,133 @@ def _get_sandbox_manager() -> SandboxManager:
         image = os.getenv("SANDBOX_IMAGE") or os.getenv("UNIFIED_AGENT_IMAGE")
         _sandbox_manager = SandboxManager(namespace=namespace, image=image)
     return _sandbox_manager
+
+
+def _create_file_download_token(
+    download_url: str, auth_header: str, filename: str, size: int
+) -> str:
+    """Create a secure download token for file proxy."""
+    token = secrets.token_urlsafe(32)
+    _file_download_tokens[token] = {
+        "download_url": download_url,
+        "auth_header": auth_header,
+        "filename": filename,
+        "size": size,
+        "created_at": time.time(),
+    }
+    return token
+
+
+def _cleanup_expired_tokens():
+    """Remove expired download tokens."""
+    current_time = time.time()
+    expired = [
+        token
+        for token, info in _file_download_tokens.items()
+        if current_time - info["created_at"] > _FILE_TOKEN_TTL_SECONDS
+    ]
+    for token in expired:
+        del _file_download_tokens[token]
+
+
+def _get_proxy_base_url() -> str:
+    """
+    Get the base URL for file proxy that sandbox can access.
+
+    In K8s production: http://unified-agent-svc.<namespace>.svc.cluster.local:8888
+    Local dev: http://host.docker.internal:8888
+    """
+    proxy_url = os.getenv("FILE_PROXY_URL")
+    if proxy_url:
+        return proxy_url
+
+    if os.getenv("ROUTER_LOCAL_PORT"):
+        return "http://host.docker.internal:8888"
+
+    server_namespace = os.getenv("SERVER_NAMESPACE", os.getenv("NAMESPACE", "default"))
+    return f"http://unified-agent-svc.{server_namespace}.svc.cluster.local:8888"
+
+
+def _download_files_from_proxy(
+    file_downloads: list[dict], thread_id: str
+) -> list[str]:
+    """
+    Download file attachments from the proxy server into the sandbox filesystem.
+
+    Files are saved to /workspace/attachments/{filename}
+    """
+    def format_size(bytes_val: int) -> str:
+        if bytes_val >= 1024 * 1024:
+            return f"{bytes_val / (1024 * 1024):.1f} MB"
+        elif bytes_val >= 1024:
+            return f"{bytes_val / 1024:.1f} KB"
+        return f"{bytes_val} bytes"
+
+    attachments_dir = Path("/workspace/attachments")
+    attachments_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_paths = []
+    for download in file_downloads:
+        safe_filename = Path(download["filename"]).name
+        if not safe_filename:
+            safe_filename = "unnamed_file"
+
+        file_path = attachments_dir / safe_filename
+
+        # Handle duplicate filenames
+        counter = 1
+        original_stem = file_path.stem
+        original_suffix = file_path.suffix
+        while file_path.exists():
+            file_path = attachments_dir / f"{original_stem}_{counter}{original_suffix}"
+            counter += 1
+
+        error_path = attachments_dir / f"{file_path.name}.error"
+
+        try:
+            proxy_url = download["proxy_url"]
+            logger.info(
+                f"[SANDBOX] Downloading {download['filename']} "
+                f"({format_size(download['size'])}) from proxy..."
+            )
+
+            with httpx.Client(timeout=httpx.Timeout(300.0)) as client:
+                with client.stream("GET", proxy_url) as response:
+                    if response.status_code != 200:
+                        error_msg = f"HTTP {response.status_code}"
+                        logger.warning(
+                            f"[SANDBOX] Failed to download {download['filename']}: {error_msg}"
+                        )
+                        error_path.write_text(
+                            f"Download failed for: {download['filename']}\n"
+                            f"Error: {error_msg}\n"
+                        )
+                        continue
+
+                    bytes_written = 0
+                    with open(file_path, "wb") as f:
+                        for chunk in response.iter_bytes(chunk_size=65536):
+                            f.write(chunk)
+                            bytes_written += len(chunk)
+
+            saved_paths.append(str(file_path))
+            logger.info(
+                f"[SANDBOX] Saved: {file_path} ({format_size(bytes_written)})"
+            )
+
+        except Exception as e:
+            logger.warning(f"[SANDBOX] Failed to download {download['filename']}: {e}")
+            try:
+                error_path.write_text(
+                    f"Download failed for: {download['filename']}\n"
+                    f"Error: {str(e)}\n"
+                    f"\nThe file could not be downloaded. "
+                    f"Please ask the user to re-upload or share the content directly.\n"
+                )
+            except Exception:
+                pass
+
+    return saved_paths
 
 
 async def _async_stream_response(response):
@@ -237,14 +371,35 @@ class ImageData(BaseModel):
     filename: Optional[str] = None
 
 
+class FileDownloadData(BaseModel):
+    """File download info for proxy-based download (sent to sandbox pod)."""
+
+    token: str
+    filename: str
+    size: int
+    media_type: str
+    proxy_url: str
+
+
 class ExecuteRequest(BaseModel):
     """Request to execute an investigation."""
 
     prompt: str
     thread_id: Optional[str] = None
     images: Optional[List[ImageData]] = None
+    file_downloads: Optional[List[FileDownloadData]] = None
     agent: Optional[str] = None  # Specific agent to use (default: root)
     max_turns: Optional[int] = None
+
+
+class FileAttachment(BaseModel):
+    """File attachment metadata from slack-bot for proxy-based download."""
+
+    filename: str
+    size: int
+    media_type: str
+    download_url: str
+    auth_header: str
 
 
 class InvestigateRequest(BaseModel):
@@ -261,9 +416,7 @@ class InvestigateRequest(BaseModel):
     team_id: Optional[str] = None  # Slack team_id
     team_token: Optional[str] = None  # Team token for config loading
     images: Optional[List[ImageData]] = None
-    file_attachments: Optional[List[Dict[str, Any]]] = (
-        None  # File metadata (not used yet)
-    )
+    file_attachments: Optional[List[FileAttachment]] = None
 
 
 class InterruptRequest(BaseModel):
@@ -299,6 +452,76 @@ async def health():
         "team_id": config.team_id,
         "config_loaded": config.team_config is not None,
     }
+
+
+@app.get("/proxy/files/{token}")
+async def proxy_file_download(token: str):
+    """
+    File proxy endpoint - streams files from external sources (e.g., Slack).
+
+    Allows sandboxes to download files without having access to actual credentials.
+    Tokens are single-use and expire after 1 hour.
+    """
+    _cleanup_expired_tokens()
+
+    if token not in _file_download_tokens:
+        raise HTTPException(
+            status_code=404, detail="Download token not found or expired"
+        )
+
+    token_info = _file_download_tokens[token]
+    download_url = token_info["download_url"]
+    auth_header = token_info["auth_header"]
+    filename = token_info["filename"]
+
+    logger.info(f"[PROXY] Downloading file: {filename}")
+
+    async def stream_file():
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+                async with client.stream(
+                    "GET", download_url, headers={"Authorization": auth_header}
+                ) as response:
+                    if response.status_code != 200:
+                        raise HTTPException(
+                            status_code=response.status_code,
+                            detail=f"Failed to download from source: {response.status_code}",
+                        )
+
+                    bytes_streamed = 0
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        bytes_streamed += len(chunk)
+                        yield chunk
+
+                    logger.info(
+                        f"[PROXY] Completed streaming {filename}: {bytes_streamed} bytes"
+                    )
+
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504, detail="Timeout downloading file from source"
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"[PROXY] Error streaming {filename}: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"Error downloading file: {str(e)}"
+            )
+
+    # Delete token after starting download (single-use)
+    del _file_download_tokens[token]
+
+    # Sanitize filename for Content-Disposition header (prevent header injection)
+    safe_filename = filename.replace('"', '\\"').replace("\r", "").replace("\n", "")
+
+    return StreamingResponse(
+        stream_file(),
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+        },
+    )
 
 
 @app.get("/config")
@@ -398,6 +621,15 @@ async def execute(request: ExecuteRequest):
     session.reset_interrupt()
     session.is_running = True
 
+    # Download file attachments from proxy BEFORE starting agent
+    if request.file_downloads:
+        logger.info(
+            f"Downloading {len(request.file_downloads)} file(s) for thread {thread_id}"
+        )
+        file_download_dicts = [fd.model_dump() for fd in request.file_downloads]
+        saved_paths = _download_files_from_proxy(file_download_dicts, thread_id)
+        logger.info(f"Downloaded {len(saved_paths)} file(s): {saved_paths}")
+
     # Build images list for multimodal input
     images_list = None
     if request.images:
@@ -488,11 +720,36 @@ async def _investigate_direct(request: InvestigateRequest):
         # Reload config to pick up new team token
         reload_config()
 
+    # In direct mode, process file_attachments locally (create download tokens
+    # so the download logic in /execute can handle them)
+    file_downloads = None
+    if request.file_attachments:
+        proxy_base_url = _get_proxy_base_url()
+        file_downloads = []
+        for att in request.file_attachments:
+            token = _create_file_download_token(
+                download_url=att.download_url,
+                auth_header=att.auth_header,
+                filename=att.filename,
+                size=att.size,
+            )
+            file_downloads.append(
+                FileDownloadData(
+                    token=token,
+                    filename=att.filename,
+                    size=att.size,
+                    media_type=att.media_type,
+                    proxy_url=f"{proxy_base_url}/proxy/files/{token}",
+                )
+            )
+            logger.info(f"Created download token for {att.filename} ({att.size} bytes)")
+
     # Forward to execute with compatible fields
     execute_request = ExecuteRequest(
         prompt=request.prompt,
         thread_id=request.thread_id,
         images=request.images,
+        file_downloads=file_downloads,
     )
     return await execute(execute_request)
 
@@ -504,6 +761,30 @@ async def _investigate_via_sandbox(request: InvestigateRequest):
     team_id = request.team_id or os.getenv("INCIDENTFOX_TEAM_ID", "default")
 
     manager = _get_sandbox_manager()
+
+    # Process file attachments: create download tokens for sandbox to fetch via proxy
+    file_downloads = None
+    if request.file_attachments:
+        proxy_base_url = _get_proxy_base_url()
+        file_downloads = []
+        for att in request.file_attachments:
+            token = _create_file_download_token(
+                download_url=att.download_url,
+                auth_header=att.auth_header,
+                filename=att.filename,
+                size=att.size,
+            )
+            file_downloads.append(
+                {
+                    "token": token,
+                    "filename": att.filename,
+                    "size": att.size,
+                    "media_type": att.media_type,
+                    "proxy_url": f"{proxy_base_url}/proxy/files/{token}",
+                }
+            )
+            logger.info(f"Created download token for {att.filename} ({att.size} bytes)")
+        logger.info(f"Total {len(file_downloads)} file download(s) prepared")
 
     async def stream():
         try:
@@ -543,7 +824,11 @@ async def _investigate_via_sandbox(request: InvestigateRequest):
                 [img.model_dump() for img in request.images] if request.images else None
             )
             response = await asyncio.to_thread(
-                manager.execute_in_sandbox, sandbox_info, request.prompt, images
+                manager.execute_in_sandbox,
+                sandbox_info,
+                request.prompt,
+                images,
+                file_downloads,
             )
 
             # Forward SSE stream from sandbox pod

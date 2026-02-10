@@ -180,17 +180,19 @@ static_resources:
               - "127.0.0.1:8001"
               - "localhost"
               routes:
-              # Anthropic API paths
+              # LLM API paths → credential-resolver LLM proxy
               - match:
                   prefix: "/v1/"
                 route:
-                  cluster: anthropic
-                  auto_host_rewrite: true
+                  cluster: credential_resolver_llm
+                  timeout: 0s
+                  idle_timeout: 0s
               - match:
                   prefix: "/api/event_logging/"
                 route:
-                  cluster: anthropic
-                  auto_host_rewrite: true
+                  cluster: credential_resolver_llm
+                  timeout: 0s
+                  idle_timeout: 0s
               # Coralogix API paths
               - match:
                   prefix: "/api/v1/dataprime/"
@@ -203,7 +205,7 @@ static_resources:
                   cluster: coralogix_us2
                   auto_host_rewrite: true
 
-            # Direct host routing (for HTTP_PROXY mode if used)
+            # Direct host routing → LLM proxy (for HTTP_PROXY mode if used)
             - name: anthropic
               domains:
               - "api.anthropic.com"
@@ -212,8 +214,9 @@ static_resources:
               - match:
                   prefix: "/"
                 route:
-                  cluster: anthropic
-                  auto_host_rewrite: true
+                  cluster: credential_resolver_llm
+                  timeout: 0s
+                  idle_timeout: 0s
 
             - name: coralogix_us2
               domains:
@@ -261,6 +264,9 @@ static_resources:
                     patterns:
                     - exact: "authorization"
                     - exact: "x-api-key"
+                    - exact: "x-tenant-id"
+                    - exact: "x-team-id"
+                    - exact: "x-llm-model"
               failure_mode_allow: false
 
           - name: envoy.filters.http.router
@@ -282,7 +288,21 @@ static_resources:
                 address: credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local
                 port_value: 8002
 
-  # Anthropic API
+  # LLM proxy - credential-resolver handles translation + routing
+  - name: credential_resolver_llm
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    load_assignment:
+      cluster_name: credential_resolver_llm
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local
+                port_value: 8002
+
+  # Anthropic API (kept for direct API calls from credential-resolver's pass-through)
   - name: anthropic
     type: LOGICAL_DNS
     dns_lookup_family: V4_ONLY

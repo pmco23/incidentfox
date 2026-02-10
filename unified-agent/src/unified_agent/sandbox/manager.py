@@ -889,6 +889,7 @@ static_resources:
         sandbox_info: SandboxInfo,
         prompt: str,
         images: Optional[list] = None,
+        file_downloads: Optional[list] = None,
     ) -> requests.Response:
         """
         Execute an investigation in the sandbox via Router (streaming).
@@ -897,6 +898,7 @@ static_resources:
             sandbox_info: Sandbox information
             prompt: Investigation prompt
             images: Optional list of image dicts
+            file_downloads: Optional list of file download info for sandbox to fetch via proxy
 
         Returns:
             Streaming requests.Response
@@ -915,6 +917,8 @@ static_resources:
         payload = {"prompt": prompt, "thread_id": sandbox_info.thread_id}
         if images:
             payload["images"] = images
+        if file_downloads:
+            payload["file_downloads"] = file_downloads
 
         try:
             response = requests.post(

@@ -5696,6 +5696,266 @@ def handle_advanced_settings_submission(ack, body, client, view):
     logger.info(f"Advanced settings submission completed for team {team_id}")
 
 
+# =============================================================================
+# AI MODEL SELECTION HANDLERS
+# =============================================================================
+
+def _detect_provider_from_model(model: str) -> Optional[str]:
+    """Detect provider ID from a LiteLLM model string.
+
+    Delegates to onboarding.detect_provider_from_model (single source of truth).
+    """
+    onboarding = get_onboarding_modules()
+    return onboarding.detect_provider_from_model(model)
+
+
+@app.action("home_open_ai_model_selector")
+def handle_open_ai_model_selector(ack, body, client):
+    """Open the AI model provider selection modal from Home Tab."""
+    ack()
+
+    team_id = body.get("team", {}).get("id")
+    if not team_id:
+        logger.error("No team_id in home_open_ai_model_selector")
+        return
+
+    try:
+        config_client = get_config_client()
+        llm_config = config_client.get_integration_config(team_id, "llm") or {}
+        current_model = llm_config.get("model", "")
+
+        current_provider = _detect_provider_from_model(current_model) if current_model else None
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_provider_select_modal(
+            team_id=team_id,
+            current_model=current_model,
+            current_provider=current_provider,
+        )
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(f"Opened AI model selector for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to open AI model selector: {e}", exc_info=True)
+
+
+@app.view("ai_provider_select_submission")
+def handle_ai_provider_select_submission(ack, body, client, view):
+    """Handle provider selection (Step 1) -> push provider config modal (Step 2)."""
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    values = view.get("state", {}).get("values", {})
+
+    selected_provider = (
+        values.get("provider_block", {})
+        .get("ai_provider_select", {})
+        .get("selected_option", {})
+        .get("value")
+    )
+
+    if not selected_provider:
+        ack(
+            response_action="errors",
+            errors={"provider_block": "Please select a provider."},
+        )
+        return
+
+    try:
+        config_client = get_config_client()
+
+        # Get existing provider config (API key, etc.)
+        existing_provider_config = (
+            config_client.get_integration_config(team_id, selected_provider) or {}
+        )
+
+        # Get existing model
+        llm_config = config_client.get_integration_config(team_id, "llm") or {}
+        existing_model = llm_config.get("model", "")
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_provider_config_modal(
+            team_id=team_id,
+            provider_id=selected_provider,
+            existing_provider_config=existing_provider_config,
+            existing_model=existing_model,
+        )
+
+        # Push Step 2 onto the modal stack
+        ack(response_action="push", view=modal)
+        logger.info(
+            f"Pushed provider config modal for {selected_provider}, team {team_id}"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to push provider config modal: {e}", exc_info=True)
+        ack()  # Close gracefully
+
+
+@app.view("ai_model_config_submission")
+def handle_ai_model_config_submission(ack, body, client, view):
+    """Handle AI model config submission (Step 2): validate key + save provider + model."""
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    team_id = private_metadata.get("team_id")
+    provider_id = private_metadata.get("provider_id")
+    field_names = private_metadata.get("field_names", [])
+    values = view.get("state", {}).get("values", {})
+
+    # 1. Extract model ID
+    model_id = (
+        values.get("field_model_id", {})
+        .get("input_model_id", {})
+        .get("value", "")
+    )
+    if model_id:
+        model_id = model_id.strip()
+    if not model_id:
+        ack(
+            response_action="errors",
+            errors={"field_model_id": "Model ID is required."},
+        )
+        return
+
+    import re
+
+    if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._/:@\-]*$", model_id):
+        ack(
+            response_action="errors",
+            errors={
+                "field_model_id": "Invalid model ID. Use letters, numbers, hyphens, slashes, dots, colons, or underscores."
+            },
+        )
+        return
+
+    # 2. Extract provider-specific fields
+    config_client = get_config_client()
+    try:
+        existing_provider_config = (
+            config_client.get_integration_config(team_id, provider_id) or {}
+        )
+    except Exception:
+        existing_provider_config = {}
+
+    provider_config = {}
+    for field_id in field_names:
+        block_id = f"field_{field_id}"
+        action_id = f"input_{field_id}"
+        field_value = values.get(block_id, {}).get(action_id, {})
+
+        if "value" in field_value:
+            val = field_value.get("value")
+            if val:
+                provider_config[field_id] = val.strip()
+            elif field_id in existing_provider_config:
+                # Secret field left blank — preserve existing value
+                provider_config[field_id] = existing_provider_config[field_id]
+        elif "selected_option" in field_value:
+            selected = field_value.get("selected_option", {})
+            if selected:
+                provider_config[field_id] = selected.get("value")
+            elif field_id in existing_provider_config:
+                provider_config[field_id] = existing_provider_config[field_id]
+        elif "selected_options" in field_value:
+            # Checkboxes (boolean)
+            selected = field_value.get("selected_options", [])
+            provider_config[field_id] = len(selected) > 0
+
+    # 3. Validate API key via live test request
+    onboarding = get_onboarding_modules()
+    validation_config = {**existing_provider_config, **provider_config}
+    is_valid, error_msg = onboarding.validate_provider_api_key(
+        provider_id, validation_config
+    )
+
+    if not is_valid:
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Validation Failed"},
+            "close": {"type": "plain_text", "text": "Go Back"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":x: *API key validation failed*\n\n{error_msg}",
+                    },
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": "Please go back and check your credentials.",
+                        }
+                    ],
+                },
+            ],
+        }
+        ack(response_action="push", view=error_modal)
+        return
+
+    # 4. Save provider config (API key + provider-specific fields)
+    try:
+        if provider_id not in ("anthropic", "llm") and provider_config:
+            config_client.save_integration_config(
+                slack_team_id=team_id,
+                integration_id=provider_id,
+                config=provider_config,
+            )
+            logger.info(f"Saved {provider_id} provider config for team {team_id}")
+
+        # 5. Save LLM model preference
+        config_client.save_integration_config(
+            slack_team_id=team_id,
+            integration_id="llm",
+            config={"model": model_id},
+        )
+        logger.info(f"Saved llm model={model_id} for team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to save AI model config: {e}", exc_info=True)
+        error_modal = {
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "Save Failed"},
+            "close": {"type": "plain_text", "text": "Try Again"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":x: *Failed to save:* {str(e)[:300]}",
+                    },
+                }
+            ],
+        }
+        ack(response_action="push", view=error_modal)
+        return
+
+    # 6. Success — close the modal stack
+    ack()
+    logger.info(
+        f"AI model config saved: provider={provider_id}, model={model_id}, team={team_id}"
+    )
+
+    # 7. Refresh Home Tab
+    user_id = body.get("user", {}).get("id")
+    if user_id and team_id:
+        try:
+            from home_tab import build_home_tab_view
+
+            trial_info = config_client.get_trial_status(team_id)
+            configured = config_client.get_configured_integrations(team_id)
+
+            home_view = build_home_tab_view(
+                team_id=team_id,
+                trial_info=trial_info,
+                configured_integrations=configured,
+            )
+            client.views_publish(user_id=user_id, view=home_view)
+            logger.info(f"Refreshed Home Tab after AI model config for {user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to refresh Home Tab: {e}")
+
+
 @app.view("integration_config_submission")
 def handle_integration_config_submission(ack, body, client, view):
     """Handle integration configuration modal submission."""

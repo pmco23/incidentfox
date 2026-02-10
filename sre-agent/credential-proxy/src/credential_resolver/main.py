@@ -132,6 +132,70 @@ def load_env_credentials() -> dict[str, dict]:
             "api_key": os.getenv("GITLAB_TOKEN"),
             "domain": os.getenv("GITLAB_URL"),
         },
+        # LLM model preference (per-tenant model selection)
+        "llm": {
+            "model": os.getenv("LLM_MODEL"),
+        },
+        # LLM providers (for multi-model support via LLM proxy)
+        "openai": {
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+        "gemini": {
+            "api_key": os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+        },
+        "openrouter": {
+            "api_key": os.getenv("OPENROUTER_API_KEY"),
+        },
+        "deepseek": {
+            "api_key": os.getenv("DEEPSEEK_API_KEY"),
+        },
+        "azure": {
+            "api_key": os.getenv("AZURE_API_KEY"),
+            "api_base": os.getenv("AZURE_API_BASE"),
+            "api_version": os.getenv("AZURE_API_VERSION", "2024-06-01"),
+        },
+        "azure_ai": {
+            "api_key": os.getenv("AZURE_AI_API_KEY"),
+            "api_base": os.getenv("AZURE_AI_API_BASE"),
+        },
+        "bedrock": {
+            "api_key": os.getenv("AWS_BEARER_TOKEN_BEDROCK"),
+            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID"),
+            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY"),
+            "aws_region_name": os.getenv("AWS_REGION", "us-east-1"),
+        },
+        "mistral": {
+            "api_key": os.getenv("MISTRAL_API_KEY"),
+        },
+        "cohere": {
+            "api_key": os.getenv("COHERE_API_KEY"),
+        },
+        "together_ai": {
+            "api_key": os.getenv("TOGETHER_API_KEY"),
+        },
+        "groq": {
+            "api_key": os.getenv("GROQ_API_KEY"),
+        },
+        "fireworks_ai": {
+            "api_key": os.getenv("FIREWORKS_API_KEY"),
+        },
+        "xai": {
+            "api_key": os.getenv("XAI_API_KEY"),
+        },
+        "moonshot": {
+            "api_key": os.getenv("MOONSHOT_API_KEY"),
+        },
+        "minimax": {
+            "api_key": os.getenv("MINIMAX_API_KEY"),
+        },
+        "vertex_ai": {
+            "project": os.getenv("VERTEX_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT"),
+            "location": os.getenv("VERTEX_LOCATION", "us-central1"),
+            "service_account_json": os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"),
+        },
+        "ollama": {
+            "host": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
+        },
     }
 
 
@@ -323,6 +387,30 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
     # GitLab: api_key required (domain optional, defaults to gitlab.com)
     if integration_id == "gitlab":
         return bool(creds.get("api_key"))
+
+    # LLM model preference
+    if integration_id == "llm":
+        return bool(creds.get("model"))
+
+    # LLM providers (api_key based)
+    if integration_id in [
+        "openai", "gemini", "openrouter", "deepseek",
+        "mistral", "cohere", "together_ai", "groq", "fireworks_ai",
+        "xai", "moonshot", "minimax",
+    ]:
+        return bool(creds.get("api_key"))
+    if integration_id == "azure":
+        return bool(creds.get("api_key") and creds.get("api_base"))
+    if integration_id == "azure_ai":
+        return bool(creds.get("api_key") and creds.get("api_base"))
+    if integration_id == "bedrock":
+        has_api_key = bool(creds.get("api_key"))
+        has_iam = bool(creds.get("aws_access_key_id") and creds.get("aws_secret_access_key"))
+        return has_api_key or has_iam
+    if integration_id == "vertex_ai":
+        return bool(creds.get("project"))
+    if integration_id == "ollama":
+        return bool(creds.get("host"))
 
     # Default: api_key required (coralogix, incident_io, etc.)
     return bool(creds.get("api_key"))
@@ -1297,6 +1385,13 @@ async def gitlab_proxy(path: str, request: Request):
         raise HTTPException(status_code=502, detail=f"GitLab request failed: {e}")
 
 
+# LLM proxy routes: /v1/messages, /v1/messages/count_tokens, /api/event_logging/*
+# Must be registered BEFORE the catch-all /{path:path} route
+from .llm_proxy import router as llm_router
+
+app.include_router(llm_router)
+
+
 @app.api_route(
     "/check", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 )
@@ -1351,6 +1446,16 @@ async def ext_authz_check(request: Request, path: str = ""):
     # 4. Build auth headers and return them as HTTP response headers
     # Envoy's ext_authz will forward these based on allowed_upstream_headers config
     headers_to_add = build_auth_headers(integration_id, creds)
+
+    # 5. Add tenant context headers (needed by LLM proxy and other internal services)
+    headers_to_add["x-tenant-id"] = tenant_id
+    headers_to_add["x-team-id"] = team_id
+
+    # 6. Add LLM model override if configured
+    llm_model = os.getenv("LLM_MODEL", "")
+    if llm_model:
+        headers_to_add["x-llm-model"] = llm_model
+
     logger.info(
         f"Injecting headers for {integration_id}: {list(headers_to_add.keys())}"
     )
@@ -1542,6 +1647,19 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         # GitLab uses PRIVATE-TOKEN header
         api_key = creds.get("api_key", "")
         return {"PRIVATE-TOKEN": api_key}
+
+    elif integration_id in [
+        "openai", "gemini", "openrouter", "deepseek",
+        "azure", "azure_ai", "mistral", "cohere", "together_ai", "groq", "fireworks_ai",
+        "xai", "moonshot", "minimax",
+    ]:
+        # LLM providers use Bearer token
+        api_key = creds.get("api_key", "")
+        return {"Authorization": f"Bearer {api_key}"}
+
+    elif integration_id in ["ollama", "bedrock", "vertex_ai"]:
+        # Ollama/Bedrock/Vertex AI don't use HTTP auth headers
+        return {}
 
     # Default: Bearer token
     api_key = creds.get("api_key", "")

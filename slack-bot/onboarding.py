@@ -27,7 +27,61 @@ CATEGORIES = {
     "cloud": {"name": "Cloud", "emoji": ":cloud:"},
     "scm": {"name": "Dev Tools", "emoji": ":hammer_and_wrench:"},
     "infra": {"name": "Infra", "emoji": ":wrench:"},
+    "llm": {"name": "AI Models", "emoji": ":robot_face:"},
 }
+
+# Provider definitions for the AI Model selector dropdown.
+# (provider_id, display_name, default_model_placeholder, short_description)
+LLM_PROVIDERS = [
+    ("anthropic", "Anthropic (Claude)", "claude-sonnet-4-20250514", "Default — uses IncidentFox key or your own"),
+    ("openai", "OpenAI", "openai/gpt-4o", "GPT-4o, o3, o1 models"),
+    ("openrouter", "OpenRouter", "openrouter/openai/gpt-4o", "200+ models via one key"),
+    ("gemini", "Google Gemini", "gemini/gemini-2.5-flash", "Direct Gemini API"),
+    ("deepseek", "DeepSeek", "deepseek/deepseek-chat", "DeepSeek models"),
+    ("azure", "Azure OpenAI", "azure/my-gpt4o-deployment", "Azure-hosted OpenAI"),
+    ("azure_ai", "Azure AI Foundry", "azure_ai/my-model", "Serverless deployments"),
+    ("bedrock", "Amazon Bedrock", "bedrock/anthropic.claude-sonnet-4-20250514-v1:0", "AWS managed models"),
+    ("vertex_ai", "Google Vertex AI", "vertex_ai/gemini-2.5-flash", "GCP managed models"),
+    ("xai", "xAI (Grok)", "xai/grok-3", "Grok models"),
+    ("mistral", "Mistral AI", "mistral/mistral-large-latest", "Mistral models"),
+    ("together_ai", "Together AI", "together_ai/meta-llama/Llama-3-70b", "Open-source models"),
+    ("groq", "Groq", "groq/llama-3.3-70b-versatile", "Ultra-fast inference"),
+    ("fireworks_ai", "Fireworks AI", "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "Fast open-source"),
+    ("moonshot", "Moonshot AI (Kimi)", "moonshot/moonshot-v1-8k", "Kimi models"),
+    ("minimax", "MiniMax", "minimax/MiniMax-Text-01", "MiniMax models"),
+    ("ollama", "Ollama (Local)", "ollama/llama3", "Local models"),
+    ("cohere", "Cohere", "cohere/command-r-plus", "Command R+ models"),
+]
+
+# Additional model-prefix → provider aliases for models that don't use
+# the standard "provider/" prefix (e.g. "claude-sonnet-..." → anthropic).
+_EXTRA_MODEL_PREFIX_ALIASES = {
+    "claude": "anthropic",
+    "gpt-": "openai",
+    "o1-": "openai",
+    "o3-": "openai",
+    "command-r": "cohere",
+    "or:": "openrouter",
+}
+
+# Built from LLM_PROVIDERS + extra aliases — single source of truth.
+_MODEL_PREFIX_TO_PROVIDER = {
+    **{pid + "/": pid for pid, _, _, _ in LLM_PROVIDERS if pid != "anthropic"},
+    **_EXTRA_MODEL_PREFIX_ALIASES,
+}
+
+
+def detect_provider_from_model(model: str) -> Optional[str]:
+    """Detect provider ID from a LiteLLM model string.
+
+    Uses the prefix mapping derived from LLM_PROVIDERS.
+    """
+    m = model.lower()
+    for prefix, provider in _MODEL_PREFIX_TO_PROVIDER.items():
+        if m.startswith(prefix):
+            return provider
+    return None
+
 
 # All supported integrations
 # status: "active" = can configure now, "coming_soon" = show but not configurable
@@ -556,6 +610,483 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "required": False,
                 "hint": "Uncheck for self-hosted GitLab with self-signed certificates",
                 "default": True,
+            },
+        ],
+    },
+    # LLM MODEL INTEGRATIONS
+    {
+        "id": "llm",
+        "name": "AI Model",
+        "category": "llm",
+        "status": "active",
+        "icon": ":brain:",
+        "icon_fallback": ":robot_face:",
+        "description": "Choose which LLM model the agent uses (GPT-4o, Gemini, DeepSeek, etc.)",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Choose a model from the supported list\n"
+            "2. Make sure you have an API key for the provider configured\n"
+            "3. The agent will use this model for all interactions"
+        ),
+        "fields": [
+            {
+                "id": "model",
+                "name": "Model ID",
+                "type": "string",
+                "required": True,
+                "placeholder": "openrouter/openai/gpt-4o",
+                "hint": (
+                    "LiteLLM-compatible model ID. Examples: "
+                    "openai/gpt-4o, gemini/gemini-2.5-flash, "
+                    "openrouter/anthropic/claude-sonnet-4, "
+                    "deepseek/deepseek-chat, ollama/llama3"
+                ),
+            },
+        ],
+    },
+    {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "category": "llm",
+        "status": "active",
+        "icon": ":electric_plug:",
+        "icon_fallback": ":electric_plug:",
+        "description": "Access 200+ models (GPT-4o, Gemini, Llama, etc.) via one API key.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Sign up at https://openrouter.ai/\n"
+            "2. Go to Keys and create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://openrouter.ai/docs",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-or-v1-...",
+                "hint": "Your OpenRouter API key",
+            },
+        ],
+    },
+    {
+        "id": "gemini",
+        "name": "Google Gemini",
+        "category": "llm",
+        "status": "active",
+        "icon": ":google:",
+        "icon_fallback": ":sparkles:",
+        "description": "Google Gemini API for direct access to Gemini models.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://aistudio.google.com/apikey\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://ai.google.dev/docs",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "AIza...",
+                "hint": "Your Google AI / Gemini API key",
+            },
+        ],
+    },
+    {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "category": "llm",
+        "status": "active",
+        "icon": ":mag:",
+        "icon_fallback": ":mag:",
+        "description": "DeepSeek API for direct access to DeepSeek models.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://platform.deepseek.com/\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://platform.deepseek.com/docs",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-...",
+                "hint": "Your DeepSeek API key",
+            },
+        ],
+    },
+    {
+        "id": "xai",
+        "name": "xAI (Grok)",
+        "category": "llm",
+        "status": "active",
+        "icon": ":x:",
+        "icon_fallback": ":robot_face:",
+        "description": "xAI API for Grok models (Grok-3, Grok-3-mini).",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://console.x.ai/\n"
+            "2. Create an API key\n"
+            "3. Enter your API key below"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "xAI API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "xai-...",
+                "hint": "API key from console.x.ai",
+            },
+        ],
+    },
+    {
+        "id": "moonshot",
+        "name": "Moonshot AI (Kimi)",
+        "category": "llm",
+        "status": "active",
+        "icon": ":crescent_moon:",
+        "icon_fallback": ":robot_face:",
+        "description": "Moonshot AI API for Kimi models (moonshot-v1-8k, kimi-k2.5).",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://platform.moonshot.cn/\n"
+            "2. Create an API key\n"
+            "3. Enter your API key below"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "Moonshot API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-...",
+                "hint": "API key from platform.moonshot.cn",
+            },
+        ],
+    },
+    {
+        "id": "minimax",
+        "name": "MiniMax",
+        "category": "llm",
+        "status": "active",
+        "icon": ":small_blue_diamond:",
+        "icon_fallback": ":robot_face:",
+        "description": "MiniMax API for MiniMax-Text models.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://www.minimax.chat/\n"
+            "2. Create an API key\n"
+            "3. Enter your API key below"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "MiniMax API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-api-...",
+                "hint": "API key from api.minimax.chat",
+            },
+        ],
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama",
+        "category": "llm",
+        "status": "active",
+        "icon": ":llama:",
+        "icon_fallback": ":computer:",
+        "description": "Run local LLM models via Ollama (Llama, Mistral, etc.)",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Install Ollama: https://ollama.ai/\n"
+            "2. Pull a model: `ollama pull llama3`\n"
+            "3. Enter your Ollama server URL below"
+        ),
+        "fields": [
+            {
+                "id": "host",
+                "name": "Ollama Host URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "http://localhost:11434",
+                "hint": "URL of your Ollama server",
+            },
+        ],
+    },
+    {
+        "id": "azure",
+        "name": "Azure OpenAI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":azure:",
+        "icon_fallback": ":cloud:",
+        "description": "Azure-hosted OpenAI models with enterprise compliance.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to Azure Portal > Azure OpenAI\n"
+            "2. Create or select a resource\n"
+            "3. Deploy a model (e.g., gpt-4o)\n"
+            "4. Copy the endpoint URL and API key"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Azure OpenAI API key",
+            },
+            {
+                "id": "api_base",
+                "name": "Endpoint URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-resource.openai.azure.com",
+                "hint": "Your Azure OpenAI resource endpoint",
+            },
+            {
+                "id": "api_version",
+                "name": "API Version",
+                "type": "string",
+                "required": False,
+                "placeholder": "2024-06-01",
+                "hint": "Azure API version (default: 2024-06-01)",
+            },
+        ],
+    },
+    {
+        "id": "azure_ai",
+        "name": "Azure AI Foundry",
+        "category": "llm",
+        "status": "active",
+        "icon": ":azure:",
+        "icon_fallback": ":cloud:",
+        "description": "Azure AI Foundry serverless deployments (GPT-4o, Phi, Llama, DeepSeek, etc.)",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to Azure AI Foundry > Models > Deploy a serverless model\n"
+            "2. Copy the endpoint URL and API key from the deployment\n"
+            "3. Enter them below"
+        ),
+        "docs_url": "https://learn.microsoft.com/en-us/azure/ai-foundry/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Azure AI Foundry deployment API key",
+            },
+            {
+                "id": "api_base",
+                "name": "Endpoint URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-model.eastus2.models.ai.azure.com",
+                "hint": "Serverless model deployment endpoint URL",
+            },
+        ],
+    },
+    {
+        "id": "bedrock",
+        "name": "Amazon Bedrock",
+        "category": "llm",
+        "status": "active",
+        "icon": ":aws:",
+        "icon_fallback": ":cloud:",
+        "description": "AWS Bedrock for managed LLM inference (Claude, Llama, Titan, etc.)",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "*Option A (recommended):* Bedrock API Key\n"
+            "1. Go to AWS Console → Amazon Bedrock → API keys\n"
+            "2. Generate a new API key\n"
+            "3. Paste the key (starts with ABSK) below\n\n"
+            "*Option B:* IAM Access Keys\n"
+            "1. Create an IAM user with `bedrock:InvokeModel` permission\n"
+            "2. Generate access keys and enter them below"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "Bedrock API Key",
+                "type": "secret",
+                "required": False,
+                "placeholder": "ABSK...",
+                "hint": "Bedrock API key (simplest option — just one key)",
+            },
+            {
+                "id": "aws_access_key_id",
+                "name": "AWS Access Key ID",
+                "type": "secret",
+                "required": False,
+                "placeholder": "AKIA...",
+                "hint": "IAM access key (alternative to Bedrock API key)",
+            },
+            {
+                "id": "aws_secret_access_key",
+                "name": "AWS Secret Access Key",
+                "type": "secret",
+                "required": False,
+                "hint": "IAM secret key (required with access key ID)",
+            },
+            {
+                "id": "aws_region_name",
+                "name": "AWS Region",
+                "type": "string",
+                "required": False,
+                "placeholder": "us-east-1",
+                "hint": "AWS region where Bedrock is enabled",
+            },
+        ],
+    },
+    {
+        "id": "vertex_ai",
+        "name": "Google Vertex AI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":google:",
+        "icon_fallback": ":cloud:",
+        "description": "Google Cloud Vertex AI — Gemini, Claude, Llama, Mistral and more via GCP.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Enable Vertex AI in your GCP project\n"
+            "2. Request access for desired models in Model Garden\n"
+            "3. Create a service account with Vertex AI User role\n"
+            "4. Enter your project ID and (optionally) service account JSON"
+        ),
+        "fields": [
+            {
+                "id": "project",
+                "name": "GCP Project ID",
+                "type": "string",
+                "required": True,
+                "placeholder": "my-gcp-project",
+                "hint": "Your Google Cloud project ID",
+            },
+            {
+                "id": "location",
+                "name": "Region",
+                "type": "string",
+                "required": False,
+                "placeholder": "us-central1",
+                "hint": "GCP region (default: us-central1)",
+            },
+            {
+                "id": "service_account_json",
+                "name": "Service Account JSON",
+                "type": "secret",
+                "required": False,
+                "hint": "Service account key JSON (optional if using workload identity)",
+            },
+        ],
+    },
+    {
+        "id": "mistral",
+        "name": "Mistral AI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":wind_blowing_face:",
+        "icon_fallback": ":wind_blowing_face:",
+        "description": "Mistral AI models (Mistral Large, Codestral, etc.)",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Sign up at https://console.mistral.ai/\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://docs.mistral.ai/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Your Mistral AI API key",
+            },
+        ],
+    },
+    {
+        "id": "cohere",
+        "name": "Cohere",
+        "category": "llm",
+        "status": "active",
+        "icon": ":dna:",
+        "icon_fallback": ":dna:",
+        "description": "Cohere models (Command R+, Embed, etc.)",
+        "docs_url": "https://docs.cohere.com/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Your Cohere API key",
+            },
+        ],
+    },
+    {
+        "id": "together_ai",
+        "name": "Together AI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":handshake:",
+        "icon_fallback": ":handshake:",
+        "description": "Together AI — open-source models (Llama, Mixtral, etc.) with fast inference.",
+        "docs_url": "https://docs.together.ai/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Your Together AI API key",
+            },
+        ],
+    },
+    {
+        "id": "groq",
+        "name": "Groq",
+        "category": "llm",
+        "status": "active",
+        "icon": ":zap:",
+        "icon_fallback": ":zap:",
+        "description": "Groq ultra-fast inference for Llama, Mixtral, and other models.",
+        "docs_url": "https://console.groq.com/docs",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Your Groq API key",
+            },
+        ],
+    },
+    {
+        "id": "fireworks_ai",
+        "name": "Fireworks AI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":fireworks:",
+        "icon_fallback": ":sparkler:",
+        "description": "Fireworks AI for fast open-source model inference.",
+        "docs_url": "https://docs.fireworks.ai/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "hint": "Your Fireworks AI API key",
             },
         ],
     },
@@ -1297,6 +1828,201 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
     if not (api_key.startswith("sk-ant-") or api_key.startswith("sk-")):
         return False, "Invalid API key format. Anthropic keys start with sk-ant-"
 
+    return True, ""
+
+
+def validate_provider_api_key(
+    provider_id: str, config: dict
+) -> tuple[bool, str]:
+    """
+    Validate API credentials for a provider via a lightweight test request.
+
+    Makes a real HTTP call to verify the key works at config time.
+    Returns (is_valid, error_message).
+    """
+    import re as _re
+
+    import requests as req
+
+    def _sanitize(msg: str) -> str:
+        """Remove potential API key values from error messages."""
+        msg = _re.sub(r"sk-ant-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        msg = _re.sub(r"sk-or-v1-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        msg = _re.sub(r"sk-[a-zA-Z0-9_-]{20,}", "[REDACTED]", msg)
+        msg = _re.sub(r"AIza[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        msg = _re.sub(r"xai-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        msg = _re.sub(r"ABSK[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        msg = _re.sub(r"glpat-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
+        return msg
+
+    api_key = config.get("api_key", "")
+
+    # --- Providers with complex auth: format-check only ---
+    if provider_id == "bedrock":
+        has_auth = api_key or (
+            config.get("aws_access_key_id") and config.get("aws_secret_access_key")
+        )
+        if not has_auth:
+            return False, "Provide either a Bedrock API key or AWS access key + secret."
+        return True, ""
+
+    if provider_id == "vertex_ai":
+        if not config.get("project"):
+            return False, "GCP Project ID is required."
+        return True, ""
+
+    if provider_id == "ollama":
+        host = config.get("host", "http://localhost:11434")
+        try:
+            resp = req.get(f"{host.rstrip('/')}/api/tags", timeout=5)
+            if resp.status_code == 200:
+                return True, ""
+            return (
+                False,
+                f"Ollama returned HTTP {resp.status_code}: {resp.text[:200]}",
+            )
+        except Exception as e:
+            return False, f"Cannot reach Ollama at {host}: {str(e)[:200]}"
+
+    # --- Azure / Azure AI: format-check ---
+    if provider_id in ("azure", "azure_ai"):
+        if not api_key:
+            return False, f"API key is required for {provider_id}."
+        api_base = config.get("api_base", "")
+        if not api_base:
+            return False, f"Endpoint URL is required for {provider_id}."
+        if not api_base.startswith("https://"):
+            return False, "Endpoint URL must start with https://"
+        return True, ""
+
+    # --- Anthropic: live test ---
+    if provider_id == "anthropic":
+        if not api_key:
+            return True, ""  # OK to not have a key (uses IncidentFox default)
+        if not (api_key.startswith("sk-ant-") or api_key.startswith("sk-")):
+            return False, "Invalid Anthropic key format. Keys start with sk-ant-"
+        try:
+            resp = req.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-20250514",
+                    "max_tokens": 1,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                return True, ""
+            try:
+                body = resp.json()
+                err_msg = body.get("error", {}).get("message", resp.text[:300])
+            except Exception:
+                err_msg = resp.text[:300]
+            return False, f"Anthropic API error ({resp.status_code}): {err_msg}"
+        except Exception as e:
+            return False, f"Cannot reach Anthropic API: {str(e)[:200]}"
+
+    # --- OpenRouter ---
+    if provider_id == "openrouter":
+        if not api_key:
+            return False, "OpenRouter API key is required."
+        try:
+            resp = req.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            return (
+                False,
+                f"OpenRouter API error ({resp.status_code}): {resp.text[:300]}",
+            )
+        except Exception as e:
+            return False, f"Cannot reach OpenRouter: {str(e)[:200]}"
+
+    # --- OpenAI-compatible providers: GET /v1/models ---
+    PROVIDER_ENDPOINTS = {
+        "openai": "https://api.openai.com/v1/models",
+        "deepseek": "https://api.deepseek.com/v1/models",
+        "xai": "https://api.x.ai/v1/models",
+        "mistral": "https://api.mistral.ai/v1/models",
+        "together_ai": "https://api.together.xyz/v1/models",
+        "groq": "https://api.groq.com/openai/v1/models",
+        "fireworks_ai": "https://api.fireworks.ai/inference/v1/models",
+        "moonshot": "https://api.moonshot.ai/v1/models",
+        "minimax": "https://api.minimax.io/v1/models",
+    }
+
+    if provider_id == "gemini":
+        if not api_key:
+            return False, "Gemini API key is required."
+        try:
+            resp = req.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                headers={"x-goog-api-key": api_key},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            try:
+                body = resp.json()
+                err_msg = (
+                    body.get("error", {}).get("message", "") or resp.text[:300]
+                )
+            except Exception:
+                err_msg = resp.text[:300]
+            return False, f"Gemini API error ({resp.status_code}): {err_msg}"
+        except Exception as e:
+            return False, f"Cannot reach Gemini API: {str(e)[:200]}"
+
+    if provider_id == "cohere":
+        if not api_key:
+            return False, "Cohere API key is required."
+        try:
+            resp = req.get(
+                "https://api.cohere.com/v2/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            return (
+                False,
+                f"Cohere API error ({resp.status_code}): {resp.text[:300]}",
+            )
+        except Exception as e:
+            return False, f"Cannot reach Cohere API: {str(e)[:200]}"
+
+    endpoint = PROVIDER_ENDPOINTS.get(provider_id)
+    if endpoint:
+        if not api_key:
+            return False, f"API key is required for {provider_id}."
+        try:
+            resp = req.get(
+                endpoint,
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=5,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            try:
+                body = resp.json()
+                err_msg = (
+                    body.get("error", {}).get("message", "") or resp.text[:300]
+                )
+            except Exception:
+                err_msg = resp.text[:300]
+            return False, f"API error ({resp.status_code}): {err_msg}"
+        except Exception as e:
+            return False, f"Cannot reach provider API: {str(e)[:200]}"
+
+    # Unknown provider — skip validation
     return True, ""
 
 
@@ -2332,6 +3058,329 @@ def build_advanced_settings_modal(
         "callback_id": "advanced_settings_submission",
         "private_metadata": private_metadata,
         "title": {"type": "plain_text", "text": "Advanced Settings"},
+        "submit": {"type": "plain_text", "text": "Save"},
+        "close": {"type": "plain_text", "text": "Back"},
+        "blocks": blocks,
+    }
+
+
+def build_provider_select_modal(
+    team_id: str,
+    current_model: str = None,
+    current_provider: str = None,
+) -> Dict[str, Any]:
+    """
+    Build Step 1: Provider selection modal for AI model config.
+
+    Shows a static_select dropdown with all supported LLM providers.
+    """
+    blocks = []
+
+    # Current model display
+    if current_model:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":robot_face: *Current model:* `{current_model}`",
+                },
+            }
+        )
+        blocks.append({"type": "divider"})
+
+    blocks.append(
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    "*Choose an AI Provider*\n"
+                    "Select the provider you want to use, then configure the model and API key."
+                ),
+            },
+        }
+    )
+
+    # Build static_select options from LLM_PROVIDERS
+    options = []
+    initial_option = None
+    for provider_id, display_name, _prefix, desc in LLM_PROVIDERS:
+        option = {
+            "text": {"type": "plain_text", "text": display_name},
+            "description": {"type": "plain_text", "text": desc[:75]},
+            "value": provider_id,
+        }
+        options.append(option)
+        if current_provider and provider_id == current_provider:
+            initial_option = option
+
+    element = {
+        "type": "static_select",
+        "action_id": "ai_provider_select",
+        "placeholder": {"type": "plain_text", "text": "Select a provider..."},
+        "options": options,
+    }
+    if initial_option:
+        element["initial_option"] = initial_option
+
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "provider_block",
+            "element": element,
+            "label": {"type": "plain_text", "text": "AI Provider"},
+        }
+    )
+
+    # Anthropic note
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":bulb: *Anthropic (Claude)* is the default and uses IncidentFox's API key. Choose another provider to use your own key.",
+                }
+            ],
+        }
+    )
+
+    private_metadata = json.dumps({"team_id": team_id})
+
+    return {
+        "type": "modal",
+        "callback_id": "ai_provider_select_submission",
+        "private_metadata": private_metadata,
+        "title": {"type": "plain_text", "text": "AI Model"},
+        "submit": {"type": "plain_text", "text": "Next"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": blocks,
+    }
+
+
+def build_provider_config_modal(
+    team_id: str,
+    provider_id: str,
+    existing_provider_config: Optional[Dict] = None,
+    existing_model: str = None,
+) -> Dict[str, Any]:
+    """
+    Build Step 2: Provider-specific config modal with model ID + API key fields.
+
+    Reuses field definitions from the provider's INTEGRATIONS entry.
+    """
+    existing_provider_config = existing_provider_config or {}
+
+    # Look up the provider's INTEGRATIONS entry for its fields
+    provider_schema = get_integration_by_id(provider_id)
+    if not provider_schema:
+        return {
+            "type": "modal",
+            "callback_id": "ai_model_config_error",
+            "title": {"type": "plain_text", "text": "Error"},
+            "close": {"type": "plain_text", "text": "Close"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f":warning: Provider `{provider_id}` not found.",
+                    },
+                }
+            ],
+        }
+
+    provider_name = provider_schema.get("name", provider_id)
+
+    # Find the model prefix hint for this provider
+    model_placeholder = ""
+    for pid, _name, prefix, _desc in LLM_PROVIDERS:
+        if pid == provider_id:
+            model_placeholder = prefix
+            break
+
+    blocks = []
+
+    # Header
+    logo_url = get_integration_logo_url(provider_id)
+    header_block = {
+        "type": "section",
+        "text": {
+            "type": "mrkdwn",
+            "text": f":robot_face: *Configure {provider_name}*",
+        },
+    }
+    if logo_url:
+        header_block["accessory"] = {
+            "type": "image",
+            "image_url": logo_url,
+            "alt_text": provider_name,
+        }
+    blocks.append(header_block)
+
+    # Model ID input (always first)
+    model_element = {
+        "type": "plain_text_input",
+        "action_id": "input_model_id",
+        "placeholder": {
+            "type": "plain_text",
+            "text": model_placeholder or "provider/model-name",
+        },
+    }
+    if existing_model:
+        model_element["initial_value"] = existing_model
+
+    blocks.append(
+        {
+            "type": "input",
+            "block_id": "field_model_id",
+            "element": model_element,
+            "label": {"type": "plain_text", "text": "Model ID"},
+            "hint": {
+                "type": "plain_text",
+                "text": f"LiteLLM model ID. Example: {model_placeholder}",
+            },
+        }
+    )
+
+    blocks.append({"type": "divider"})
+
+    # Provider-specific fields (API key, endpoint, etc.)
+    field_names = []
+    if provider_id not in ("anthropic", "llm"):
+        fields = provider_schema.get("fields", [])
+        for field_def in fields:
+            field_id = field_def["id"]
+            field_name = field_def.get("name", field_id)
+            field_type = field_def.get("type", "string")
+            field_hint = field_def.get("hint", "")
+            field_required = field_def.get("required", False)
+            field_placeholder = field_def.get("placeholder", "")
+
+            field_names.append(field_id)
+            field_has_value = field_id in existing_provider_config
+            make_optional = field_has_value or not field_required
+
+            if field_type == "secret":
+                hint_text = field_hint
+                if field_has_value:
+                    hint_text = (
+                        f"{field_hint} (already set — leave blank to keep)"
+                        if field_hint
+                        else "Already set — leave blank to keep"
+                    )
+                input_block = {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": make_optional,
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": f"input_{field_id}",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": field_placeholder or "Enter value...",
+                        },
+                    },
+                    "label": {"type": "plain_text", "text": field_name},
+                }
+                if hint_text:
+                    input_block["hint"] = {"type": "plain_text", "text": hint_text}
+                blocks.append(input_block)
+            elif field_type == "boolean":
+                default_val = field_def.get("default", False)
+                current_val = existing_provider_config.get(field_id, default_val)
+                initial_options = []
+                if current_val:
+                    initial_options = [
+                        {
+                            "text": {"type": "plain_text", "text": field_name},
+                            "value": "true",
+                        }
+                    ]
+                checkbox_block = {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": True,
+                    "element": {
+                        "type": "checkboxes",
+                        "action_id": f"input_{field_id}",
+                        "options": [
+                            {
+                                "text": {"type": "plain_text", "text": field_name},
+                                "value": "true",
+                            }
+                        ],
+                    },
+                    "label": {"type": "plain_text", "text": field_name},
+                }
+                if initial_options:
+                    checkbox_block["element"]["initial_options"] = initial_options
+                blocks.append(checkbox_block)
+            else:
+                # String field
+                existing_value = existing_provider_config.get(field_id, "")
+                element = {
+                    "type": "plain_text_input",
+                    "action_id": f"input_{field_id}",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": field_placeholder or "Enter value...",
+                    },
+                }
+                if existing_value:
+                    element["initial_value"] = str(existing_value)
+                input_block = {
+                    "type": "input",
+                    "block_id": f"field_{field_id}",
+                    "optional": make_optional,
+                    "element": element,
+                    "label": {"type": "plain_text", "text": field_name},
+                }
+                if field_hint:
+                    input_block["hint"] = {"type": "plain_text", "text": field_hint}
+                blocks.append(input_block)
+    else:
+        # Anthropic: show info that default key is used
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": ":lock: Using IncidentFox's Anthropic API key (zero data retention). You can configure your own key in *Advanced Settings*.",
+                    }
+                ],
+            }
+        )
+
+    # Security note
+    blocks.append({"type": "divider"})
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": ":lock: Credentials are encrypted and stored securely.",
+                }
+            ],
+        }
+    )
+
+    private_metadata = json.dumps(
+        {
+            "team_id": team_id,
+            "provider_id": provider_id,
+            "field_names": field_names,
+        }
+    )
+
+    return {
+        "type": "modal",
+        "callback_id": "ai_model_config_submission",
+        "private_metadata": private_metadata,
+        "title": {"type": "plain_text", "text": provider_name[:24]},
         "submit": {"type": "plain_text", "text": "Save"},
         "close": {"type": "plain_text", "text": "Back"},
         "blocks": blocks,

@@ -101,6 +101,59 @@ def build_home_tab_view(
 
     blocks.append({"type": "divider"})
 
+    # AI Model section
+    blocks.append(
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "AI Model"},
+        }
+    )
+
+    llm_config = configured_integrations.get("llm", {})
+    current_model = llm_config.get("model", "")
+
+    if current_model:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f":robot_face: *Current model:* `{current_model}`",
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Change Model",
+                        "emoji": True,
+                    },
+                    "action_id": "home_open_ai_model_selector",
+                },
+            }
+        )
+    else:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": ":robot_face: *Using default:* `claude-sonnet-4-20250514`",
+                },
+                "accessory": {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Change Model",
+                        "emoji": True,
+                    },
+                    "action_id": "home_open_ai_model_selector",
+                    "style": "primary",
+                },
+            }
+        )
+
+    blocks.append({"type": "divider"})
+
     # Connected integrations section
     blocks.append(
         {
@@ -117,6 +170,9 @@ def build_home_tab_view(
         for int_id, config in configured_integrations.items():
             # Get integration info from INTEGRATIONS
             integration = get_integration_by_id(int_id)
+            # Skip LLM integrations — they're shown in the AI Model section
+            if integration and integration.get("category") == "llm":
+                continue
             name = integration.get("name") if integration else int_id.title()
             description = integration.get("description", "") if integration else ""
             logo_url = get_integration_logo_url(int_id)
@@ -217,7 +273,9 @@ def build_home_tab_view(
     active_integrations = [
         i
         for i in INTEGRATIONS
-        if i.get("status") == "active" and i.get("id") not in configured_integrations
+        if i.get("status") == "active"
+        and i.get("id") not in configured_integrations
+        and i.get("category") != "llm"  # LLM handled in AI Model section
     ]
 
     if active_integrations:
