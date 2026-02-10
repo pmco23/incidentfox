@@ -1095,10 +1095,46 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "id": "cloudwatch",
         "name": "CloudWatch",
         "category": "observability",
-        "status": "coming_soon",
+        "status": "active",
         "icon": ":cloudwatch:",
         "icon_fallback": ":cloud:",
         "description": "Query AWS CloudWatch logs and metrics.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your AWS console\n"
+            "2. Go to *IAM* > *Users* > select or create a user\n"
+            "3. Attach the *CloudWatchReadOnlyAccess* policy\n"
+            "4. Go to *Security credentials* tab > *Create access key*\n"
+            "5. Copy the Access Key ID and Secret Access Key below"
+        ),
+        "docs_url": "https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/",
+        "context_prompt_placeholder": "e.g., 'Our Lambda logs are in /aws/lambda/api-handler. Production is in us-east-1. Error logs contain level=ERROR.'",
+        "fields": [
+            {
+                "id": "aws_access_key_id",
+                "name": "AWS Access Key ID",
+                "type": "secret",
+                "required": True,
+                "placeholder": "AKIA...",
+                "hint": "IAM access key with CloudWatch read permissions",
+            },
+            {
+                "id": "aws_secret_access_key",
+                "name": "AWS Secret Access Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "your-secret-key",
+                "hint": "IAM secret access key",
+            },
+            {
+                "id": "region",
+                "name": "AWS Region",
+                "type": "string",
+                "required": False,
+                "placeholder": "us-east-1",
+                "hint": "Default AWS region (leave blank for us-east-1)",
+            },
+        ],
     },
     {
         "id": "pagerduty",
@@ -1188,19 +1224,83 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "id": "opensearch",
         "name": "OpenSearch",
         "category": "observability",
-        "status": "coming_soon",
+        "status": "active",
         "icon": ":opensearch:",
         "icon_fallback": ":mag:",
         "description": "Query logs and search data from OpenSearch.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your AWS console or OpenSearch dashboard\n"
+            "2. Navigate to your OpenSearch domain\n"
+            "3. Copy the domain endpoint URL\n"
+            "4. Create or use an existing master user with read access\n"
+            "5. Enter the endpoint and credentials below"
+        ),
+        "docs_url": "https://docs.aws.amazon.com/opensearch-service/latest/developerguide/",
+        "context_prompt_placeholder": "e.g., 'Our application logs are in the app-logs-* index pattern. Error logs have level field set to ERROR. Timestamps are in @timestamp.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "OpenSearch Endpoint URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://search-my-domain-abc123.us-east-1.es.amazonaws.com",
+                "hint": "Your OpenSearch domain endpoint URL",
+            },
+            {
+                "id": "username",
+                "name": "Username",
+                "type": "string",
+                "required": False,
+                "placeholder": "admin",
+                "hint": "Master user name (if using fine-grained access control)",
+            },
+            {
+                "id": "password",
+                "name": "Password",
+                "type": "secret",
+                "required": False,
+                "placeholder": "your-password",
+                "hint": "Master user password",
+            },
+        ],
     },
     {
         "id": "newrelic",
         "name": "New Relic",
         "category": "observability",
-        "status": "coming_soon",
+        "status": "active",
         "icon": ":newrelic:",
         "icon_fallback": ":chart:",
         "description": "Query APM, logs, and infrastructure metrics.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your New Relic account\n"
+            "2. Click your name (bottom-left) > *API Keys*\n"
+            "3. Click *Create a key*, select *User* key type\n"
+            "4. Give it a name (e.g., 'IncidentFox') and click *Create*\n"
+            "5. Copy the API key and your Account ID (found in *Administration* > *Access management*)"
+        ),
+        "docs_url": "https://docs.newrelic.com/docs/apis/intro-apis/new-relic-api-keys/",
+        "context_prompt_placeholder": "e.g., 'Our main app is called api-gateway in New Relic. Production transactions use appName=api-gateway-prod. Key metrics are response time and error rate.'",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "User API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "NRAK-...",
+                "hint": "New Relic User API key (starts with NRAK-)",
+            },
+            {
+                "id": "account_id",
+                "name": "Account ID",
+                "type": "string",
+                "required": True,
+                "placeholder": "1234567",
+                "hint": "Your New Relic account ID (found under Administration > Access management)",
+            },
+        ],
     },
     {
         "id": "honeycomb",
@@ -1428,10 +1528,45 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "id": "jira",
         "name": "Jira",
         "category": "scm",
-        "status": "coming_soon",
+        "status": "active",
         "icon": ":jira:",
         "icon_fallback": ":ticket:",
-        "description": "Query issues and project data.",
+        "description": "Create, search, and manage Jira issues and epics.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into your Atlassian account\n"
+            "2. Go to *https://id.atlassian.com/manage-profile/security/api-tokens*\n"
+            "3. Click *Create API token*, label it 'IncidentFox'\n"
+            "4. Copy the token, your Jira URL, and email below"
+        ),
+        "docs_url": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
+        "context_prompt_placeholder": "e.g., 'Our incident project key is OPS. Bug tickets use type=Bug. Post-mortems are labeled with post-mortem tag.'",
+        "fields": [
+            {
+                "id": "domain",
+                "name": "Jira URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-company.atlassian.net",
+                "hint": "Your Jira Cloud instance URL",
+            },
+            {
+                "id": "email",
+                "name": "Email",
+                "type": "string",
+                "required": True,
+                "placeholder": "you@company.com",
+                "hint": "Email associated with your Atlassian account",
+            },
+            {
+                "id": "api_key",
+                "name": "API Token",
+                "type": "secret",
+                "required": True,
+                "placeholder": "your-api-token",
+                "hint": "Atlassian API token from id.atlassian.com",
+            },
+        ],
     },
     {
         "id": "linear",
@@ -2578,11 +2713,15 @@ def build_help_message() -> list:
 # =============================================================================
 
 
+INTEGRATIONS_PER_PAGE = 10
+
+
 def build_integrations_page(
     team_id: str,
     category_filter: str = "all",
     configured: Optional[Dict] = None,
     trial_info: Optional[Dict] = None,
+    page: int = 0,
 ) -> Dict[str, Any]:
     """
     Build the integrations page with category filters and integration cards.
@@ -2592,6 +2731,7 @@ def build_integrations_page(
         category_filter: Category to filter by (default: "all")
         configured: Dict of already configured integrations {id: config}
         trial_info: Trial status info
+        page: Page number for pagination (0-indexed)
 
     Returns:
         Slack modal view object
@@ -2665,14 +2805,35 @@ def build_integrations_page(
         i for i in integrations if i.get("status") == "coming_soon"
     ]
 
-    # Active integrations section
+    # Active integrations section with pagination
     if active_integrations:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "*Available Now*"},
-            }
-        )
+        total_active = len(active_integrations)
+        total_pages = (
+            total_active + INTEGRATIONS_PER_PAGE - 1
+        ) // INTEGRATIONS_PER_PAGE
+        page = min(page, total_pages - 1)  # Clamp to valid range
+
+        start_idx = page * INTEGRATIONS_PER_PAGE
+        end_idx = min(start_idx + INTEGRATIONS_PER_PAGE, total_active)
+        page_integrations = active_integrations[start_idx:end_idx]
+
+        if total_pages > 1:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Available Now* — Page {page + 1}/{total_pages}",
+                    },
+                }
+            )
+        else:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "*Available Now*"},
+                }
+            )
 
         # Get done.png URL for status indicator
         from assets_config import get_asset_url
@@ -2680,7 +2841,7 @@ def build_integrations_page(
         done_url = get_asset_url("done")
 
         # Create integration cards with logos
-        for idx, integration in enumerate(active_integrations):
+        for idx, integration in enumerate(page_integrations):
             int_id = integration["id"]
             name = integration["name"]
             icon = integration.get("icon_fallback", ":gear:")
@@ -2781,11 +2942,48 @@ def build_integrations_page(
                     del blocks[-1]["accessory"]["style"]
 
             # Add divider between integrations (not after the last one)
-            if idx < len(active_integrations) - 1:
+            if idx < len(page_integrations) - 1:
                 blocks.append({"type": "divider"})
 
-    # Coming soon integrations section
-    if coming_soon_integrations:
+        # Pagination buttons
+        if total_pages > 1:
+            pagination_elements = []
+            if page > 0:
+                pagination_elements.append(
+                    {
+                        "type": "button",
+                        "action_id": "integrations_prev_page",
+                        "text": {
+                            "type": "plain_text",
+                            "text": ":arrow_left: Previous",
+                            "emoji": True,
+                        },
+                    }
+                )
+            if page < total_pages - 1:
+                pagination_elements.append(
+                    {
+                        "type": "button",
+                        "action_id": "integrations_next_page",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "Next :arrow_right:",
+                            "emoji": True,
+                        },
+                    }
+                )
+            if pagination_elements:
+                blocks.append({"type": "divider"})
+                blocks.append({"type": "actions", "elements": pagination_elements})
+
+    # Coming soon integrations section (only on last page of active integrations)
+    total_pages = (
+        (len(active_integrations) + INTEGRATIONS_PER_PAGE - 1) // INTEGRATIONS_PER_PAGE
+        if active_integrations
+        else 1
+    )
+    is_last_page = page >= total_pages - 1
+    if coming_soon_integrations and is_last_page:
         blocks.append({"type": "divider"})
         blocks.append(
             {
@@ -2896,6 +3094,7 @@ def build_integrations_page(
         {
             "team_id": team_id,
             "category_filter": category_filter,
+            "page": page,
         }
     )
 
@@ -3713,8 +3912,9 @@ def build_integration_config_modal(
             )
         blocks.append({"type": "divider"})
 
-    # Track field names for submission handler
+    # Track field names and secret field IDs for submission handler
     field_names = []
+    secret_fields = []
 
     # Generate form fields from schema
     fields = schema.get("fields", [])
@@ -3741,28 +3941,36 @@ def build_integration_config_modal(
         make_optional = field_has_value or not field_required
 
         if field_type == "secret":
-            # Secret fields: plain text input, don't pre-fill
-            # Always optional when editing (field_has_value) to avoid forcing re-entry
+            # Secret fields: show redacted value if configured, otherwise empty
+            secret_fields.append(field_id)
             hint_text = field_hint
-            if field_has_value:
+            existing_value = existing_config.get(field_id)
+            if field_has_value and existing_value:
+                redacted = "*" * len(str(existing_value))
                 hint_text = (
                     f"{field_hint} (already configured - leave blank to keep existing)"
                     if field_hint
                     else "Already configured - leave blank to keep existing value"
                 )
+            else:
+                redacted = None
+
+            element = {
+                "type": "plain_text_input",
+                "action_id": f"input_{field_id}",
+                "placeholder": {
+                    "type": "plain_text",
+                    "text": field_placeholder or "Enter value...",
+                },
+            }
+            if redacted:
+                element["initial_value"] = redacted
 
             input_block = {
                 "type": "input",
                 "block_id": f"field_{field_id}",
                 "optional": make_optional,
-                "element": {
-                    "type": "plain_text_input",
-                    "action_id": f"input_{field_id}",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": field_placeholder or "Enter value...",
-                    },
-                },
+                "element": element,
                 "label": {"type": "plain_text", "text": field_name},
             }
             if hint_text:
@@ -3937,6 +4145,7 @@ def build_integration_config_modal(
             "team_id": team_id,
             "integration_id": int_id,
             "field_names": all_field_names,
+            "secret_fields": secret_fields,
             "category_filter": category_filter,
             "entry_point": entry_point,
         }

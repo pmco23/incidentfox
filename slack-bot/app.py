@@ -5342,13 +5342,14 @@ def handle_filter_category(ack, body, client):
         if github_installation:
             configured["github"] = {"enabled": True, "_github_linked": True}
 
-        # Rebuild the integrations page with new category filter
+        # Rebuild the integrations page with new category filter (reset to page 0)
         onboarding = get_onboarding_modules()
         modal = onboarding.build_integrations_page(
             team_id=team_id,
             category_filter=category,
             configured=configured,
             trial_info=trial_info,
+            page=0,
         )
 
         # Update the current modal view
@@ -5360,6 +5361,52 @@ def handle_filter_category(ack, body, client):
 
     except Exception as e:
         logger.error(f"Failed to filter integrations: {e}", exc_info=True)
+
+
+@app.action(re.compile(r"^integrations_(prev|next)_page$"))
+def handle_integrations_pagination(ack, body, client):
+    """Handle pagination buttons on integrations page."""
+    ack()
+
+    action_id = body.get("actions", [{}])[0].get("action_id", "")
+    view = body.get("view", {})
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+
+    team_id = private_metadata.get("team_id") or body.get("team", {}).get("id")
+    category_filter = private_metadata.get("category_filter", "all")
+    current_page = private_metadata.get("page", 0)
+
+    if action_id == "integrations_next_page":
+        page = current_page + 1
+    else:
+        page = max(0, current_page - 1)
+
+    try:
+        config_client = get_config_client()
+        configured = config_client.get_configured_integrations(team_id)
+        trial_info = config_client.get_trial_status(team_id)
+
+        github_installation = config_client.get_linked_github_installation(team_id)
+        if github_installation:
+            configured["github"] = {"enabled": True, "_github_linked": True}
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_integrations_page(
+            team_id=team_id,
+            category_filter=category_filter,
+            configured=configured,
+            trial_info=trial_info,
+            page=page,
+        )
+
+        client.views_update(
+            view_id=view.get("id"),
+            view=modal,
+        )
+        logger.info(f"Paginated integrations to page {page}")
+
+    except Exception as e:
+        logger.error(f"Failed to paginate integrations: {e}", exc_info=True)
 
 
 @app.view("integrations_page")
@@ -5965,6 +6012,7 @@ def handle_integration_config_submission(ack, body, client, view):
     team_id = private_metadata.get("team_id")
     integration_id = private_metadata.get("integration_id")
     field_names = private_metadata.get("field_names", [])
+    secret_fields = set(private_metadata.get("secret_fields", []))
 
     values = view.get("state", {}).get("values", {})
 
@@ -5993,6 +6041,16 @@ def handle_integration_config_submission(ack, body, client, view):
             val = field_value.get("value")
             if val:
                 val = val.strip()
+
+                # Secret fields: if value is all asterisks, user didn't change it
+                # Preserve the existing value instead of saving the redacted mask
+                if (
+                    field_id in secret_fields
+                    and val == "*" * len(val)
+                    and field_id in existing_config
+                ):
+                    config[field_id] = existing_config[field_id]
+                    continue
 
                 # Special handling for Coralogix domain field
                 if integration_id == "coralogix" and field_id == "domain":
@@ -6720,6 +6778,9 @@ def register_all_handlers(bolt_app):
         handle_configure_integration
     )
     bolt_app.action(re.compile(r"^filter_category_.*"))(handle_filter_category)
+    bolt_app.action(re.compile(r"^integrations_(prev|next)_page$"))(
+        handle_integrations_pagination
+    )
     bolt_app.action(re.compile(r"^home_(edit|add)_integration_.*"))(
         handle_home_integration_action
     )
