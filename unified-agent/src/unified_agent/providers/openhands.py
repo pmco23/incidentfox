@@ -143,7 +143,14 @@ def _extract_files_from_text(text: str) -> tuple[str, list]:
     files = []
 
     image_extensions = {
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".svg",
+        ".bmp",
+        ".ico",
     }
 
     for match in re.finditer(pattern, text):
@@ -151,7 +158,9 @@ def _extract_files_from_text(text: str) -> tuple[str, list]:
         path_str = match.group(2)
 
         # Skip external URLs and anchors
-        if path_str.startswith(("http://", "https://", "mailto:", "tel:", "data:", "#")):
+        if path_str.startswith(
+            ("http://", "https://", "mailto:", "tel:", "data:", "#")
+        ):
             continue
 
         # Resolve path

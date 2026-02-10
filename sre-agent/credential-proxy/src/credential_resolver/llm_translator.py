@@ -113,18 +113,22 @@ def _convert_message(msg: dict) -> list[dict]:
         elif block_type == "image":
             source = block.get("source", {})
             if source.get("type") == "url":
-                text_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": source["url"]},
-                })
+                text_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": source["url"]},
+                    }
+                )
             elif source.get("type") == "base64":
                 media_type = source.get("media_type", "image/png")
                 data = source.get("data", "")
                 data_uri = f"data:{media_type};base64,{data}"
-                text_parts.append({
-                    "type": "image_url",
-                    "image_url": {"url": data_uri},
-                })
+                text_parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_uri},
+                    }
+                )
 
         elif block_type == "tool_use":
             tool_uses.append(block)
@@ -166,21 +170,23 @@ def _convert_message(msg: dict) -> list[dict]:
 
         # Tool uses without text (assistant message)
         if tool_uses and not text_parts:
-            out.append({
-                "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": tu.get("id", f"toolu_{uuid4().hex[:24]}"),
-                        "type": "function",
-                        "function": {
-                            "name": tu["name"],
-                            "arguments": _safe_json_dumps(tu.get("input", {})),
-                        },
-                    }
-                    for tu in tool_uses
-                ],
-            })
+            out.append(
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": tu.get("id", f"toolu_{uuid4().hex[:24]}"),
+                            "type": "function",
+                            "function": {
+                                "name": tu["name"],
+                                "arguments": _safe_json_dumps(tu.get("input", {})),
+                            },
+                        }
+                        for tu in tool_uses
+                    ],
+                }
+            )
 
     # Tool results — each becomes a separate "tool" role message
     for tr in tool_results:
@@ -188,14 +194,17 @@ def _convert_message(msg: dict) -> list[dict]:
         if isinstance(tool_content, list):
             # Extract text from content blocks
             tool_content = "\n".join(
-                block.get("text", "") for block in tool_content
+                block.get("text", "")
+                for block in tool_content
                 if block.get("type") == "text"
             )
-        out.append({
-            "role": "tool",
-            "tool_call_id": tr.get("tool_use_id", ""),
-            "content": str(tool_content) if tool_content else "",
-        })
+        out.append(
+            {
+                "role": "tool",
+                "tool_call_id": tr.get("tool_use_id", ""),
+                "content": str(tool_content) if tool_content else "",
+            }
+        )
 
     return out if out else [{"role": role, "content": ""}]
 
@@ -221,7 +230,10 @@ def _is_client_tool(tool: dict) -> bool:
     name = tool.get("name", "")
     # Server tools have specific patterns — filter them out
     server_tools = {
-        "web_search", "computer", "text_editor", "bash",
+        "web_search",
+        "computer",
+        "text_editor",
+        "bash",
     }
     tool_type = tool.get("type", "")
     if tool_type in ("computer_20241022", "text_editor_20241022", "bash_20241022"):
@@ -281,12 +293,14 @@ def openai_to_anthropic_response(response: dict, model_name: str) -> dict:
     # Tool calls (may be None from model_dump())
     for tc in message.get("tool_calls") or []:
         func = tc.get("function", {})
-        content.append({
-            "type": "tool_use",
-            "id": tc.get("id", f"toolu_{uuid4().hex[:24]}"),
-            "name": func.get("name", ""),
-            "input": _safe_json_loads(func.get("arguments", "{}")),
-        })
+        content.append(
+            {
+                "type": "tool_use",
+                "id": tc.get("id", f"toolu_{uuid4().hex[:24]}"),
+                "name": func.get("name", ""),
+                "input": _safe_json_loads(func.get("arguments", "{}")),
+            }
+        )
 
     # If no content at all, add empty text
     if not content:

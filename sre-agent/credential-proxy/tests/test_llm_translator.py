@@ -3,15 +3,13 @@
 import json
 
 import pytest
-
 from credential_resolver.llm_translator import (
+    _convert_tool_choice,
+    _map_stop_reason,
     anthropic_to_openai_request,
     openai_error_to_anthropic,
     openai_to_anthropic_response,
-    _convert_tool_choice,
-    _map_stop_reason,
 )
-
 
 # ---------------------------------------------------------------------------
 # Request translation: Anthropic → OpenAI

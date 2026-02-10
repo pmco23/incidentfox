@@ -116,24 +116,39 @@ class StreamTranslator:
 
         # Close any open content block
         if self._block_type is not None:
-            events.append(self._format_sse("content_block_stop", {
-                "type": "content_block_stop",
-                "index": self._block_index,
-            }))
+            events.append(
+                self._format_sse(
+                    "content_block_stop",
+                    {
+                        "type": "content_block_stop",
+                        "index": self._block_index,
+                    },
+                )
+            )
             self._block_type = None
 
         # message_delta with stop_reason and usage
         stop_reason = _map_stop_reason(self._finish_reason)
-        events.append(self._format_sse("message_delta", {
-            "type": "message_delta",
-            "delta": {"stop_reason": stop_reason},
-            "usage": self._usage,
-        }))
+        events.append(
+            self._format_sse(
+                "message_delta",
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": stop_reason},
+                    "usage": self._usage,
+                },
+            )
+        )
 
         # message_stop
-        events.append(self._format_sse("message_stop", {
-            "type": "message_stop",
-        }))
+        events.append(
+            self._format_sse(
+                "message_stop",
+                {
+                    "type": "message_stop",
+                },
+            )
+        )
 
         return events
 
@@ -147,28 +162,43 @@ class StreamTranslator:
 
         # If we're in a tool_use block, close it first
         if self._block_type == "tool_use":
-            events.append(self._format_sse("content_block_stop", {
-                "type": "content_block_stop",
-                "index": self._block_index,
-            }))
+            events.append(
+                self._format_sse(
+                    "content_block_stop",
+                    {
+                        "type": "content_block_stop",
+                        "index": self._block_index,
+                    },
+                )
+            )
             self._block_type = None
 
         # Start text block if not already open
         if self._block_type != "text":
             self._block_index += 1
             self._block_type = "text"
-            events.append(self._format_sse("content_block_start", {
-                "type": "content_block_start",
-                "index": self._block_index,
-                "content_block": {"type": "text", "text": ""},
-            }))
+            events.append(
+                self._format_sse(
+                    "content_block_start",
+                    {
+                        "type": "content_block_start",
+                        "index": self._block_index,
+                        "content_block": {"type": "text", "text": ""},
+                    },
+                )
+            )
 
         # Emit text delta
-        events.append(self._format_sse("content_block_delta", {
-            "type": "content_block_delta",
-            "index": self._block_index,
-            "delta": {"type": "text_delta", "text": text},
-        }))
+        events.append(
+            self._format_sse(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": self._block_index,
+                    "delta": {"type": "text_delta", "text": text},
+                },
+            )
+        )
 
         return events
 
@@ -180,10 +210,15 @@ class StreamTranslator:
         if tc_index not in self._tool_calls:
             # New tool call — close any open block
             if self._block_type is not None:
-                events.append(self._format_sse("content_block_stop", {
-                    "type": "content_block_stop",
-                    "index": self._block_index,
-                }))
+                events.append(
+                    self._format_sse(
+                        "content_block_stop",
+                        {
+                            "type": "content_block_stop",
+                            "index": self._block_index,
+                        },
+                    )
+                )
 
             self._block_index += 1
             self._block_type = "tool_use"
@@ -198,47 +233,62 @@ class StreamTranslator:
             }
 
             # Emit content_block_start for tool_use
-            events.append(self._format_sse("content_block_start", {
-                "type": "content_block_start",
-                "index": self._block_index,
-                "content_block": {
-                    "type": "tool_use",
-                    "id": tool_id,
-                    "name": tool_name,
-                    "input": {},
-                },
-            }))
+            events.append(
+                self._format_sse(
+                    "content_block_start",
+                    {
+                        "type": "content_block_start",
+                        "index": self._block_index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": tool_name,
+                            "input": {},
+                        },
+                    },
+                )
+            )
 
         # Stream argument fragment
         args_fragment = tc_delta.get("function", {}).get("arguments", "")
         if args_fragment:
             block_idx = self._tool_calls[tc_index]["block_index"]
-            events.append(self._format_sse("content_block_delta", {
-                "type": "content_block_delta",
-                "index": block_idx,
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": args_fragment,
-                },
-            }))
+            events.append(
+                self._format_sse(
+                    "content_block_delta",
+                    {
+                        "type": "content_block_delta",
+                        "index": block_idx,
+                        "delta": {
+                            "type": "input_json_delta",
+                            "partial_json": args_fragment,
+                        },
+                    },
+                )
+            )
 
         return events
 
     def _emit_message_start(self) -> list[str]:
         """Emit the initial message_start event."""
-        return [self._format_sse("message_start", {
-            "type": "message_start",
-            "message": {
-                "id": self.message_id,
-                "type": "message",
-                "role": "assistant",
-                "content": [],
-                "model": self.model_name,
-                "stop_reason": None,
-                "stop_sequence": None,
-                "usage": {"input_tokens": 0, "output_tokens": 0},
-            },
-        })]
+        return [
+            self._format_sse(
+                "message_start",
+                {
+                    "type": "message_start",
+                    "message": {
+                        "id": self.message_id,
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [],
+                        "model": self.model_name,
+                        "stop_reason": None,
+                        "stop_sequence": None,
+                        "usage": {"input_tokens": 0, "output_tokens": 0},
+                    },
+                },
+            )
+        ]
 
     def _update_usage(self, usage: dict):
         """Update token usage from a chunk."""

@@ -5747,6 +5747,7 @@ def handle_advanced_settings_submission(ack, body, client, view):
 # AI MODEL SELECTION HANDLERS
 # =============================================================================
 
+
 def _detect_provider_from_model(model: str) -> Optional[str]:
     """Detect provider ID from a LiteLLM model string.
 
@@ -5771,7 +5772,9 @@ def handle_open_ai_model_selector(ack, body, client):
         llm_config = config_client.get_integration_config(team_id, "llm") or {}
         current_model = llm_config.get("model", "")
 
-        current_provider = _detect_provider_from_model(current_model) if current_model else None
+        current_provider = (
+            _detect_provider_from_model(current_model) if current_model else None
+        )
 
         onboarding = get_onboarding_modules()
         modal = onboarding.build_provider_select_modal(
@@ -5849,9 +5852,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
 
     # 1. Extract model ID
     model_id = (
-        values.get("field_model_id", {})
-        .get("input_model_id", {})
-        .get("value", "")
+        values.get("field_model_id", {}).get("input_model_id", {}).get("value", "")
     )
     if model_id:
         model_id = model_id.strip()

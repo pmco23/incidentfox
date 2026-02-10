@@ -158,14 +158,13 @@ def _get_proxy_base_url() -> str:
     return f"http://unified-agent-svc.{server_namespace}.svc.cluster.local:8888"
 
 
-def _download_files_from_proxy(
-    file_downloads: list[dict], thread_id: str
-) -> list[str]:
+def _download_files_from_proxy(file_downloads: list[dict], thread_id: str) -> list[str]:
     """
     Download file attachments from the proxy server into the sandbox filesystem.
 
     Files are saved to /workspace/attachments/{filename}
     """
+
     def format_size(bytes_val: int) -> str:
         if bytes_val >= 1024 * 1024:
             return f"{bytes_val / (1024 * 1024):.1f} MB"
@@ -221,9 +220,7 @@ def _download_files_from_proxy(
                             bytes_written += len(chunk)
 
             saved_paths.append(str(file_path))
-            logger.info(
-                f"[SANDBOX] Saved: {file_path} ({format_size(bytes_written)})"
-            )
+            logger.info(f"[SANDBOX] Saved: {file_path} ({format_size(bytes_written)})")
 
         except Exception as e:
             logger.warning(f"[SANDBOX] Failed to download {download['filename']}: {e}")

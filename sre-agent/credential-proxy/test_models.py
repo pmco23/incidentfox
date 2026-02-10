@@ -33,7 +33,6 @@ import httpx
 MODELS = {
     # === Direct to official API (pass-through) ===
     "claude (direct)": "claude-sonnet-4-20250514",
-
     # === Direct to official API (via LiteLLM) ===
     "openai (direct)": "openai/gpt-4o-mini",
     "gemini (direct)": "gemini/gemini-2.5-flash",
@@ -42,11 +41,9 @@ MODELS = {
     "minimax (direct)": "minimax/MiniMax-Text-01",
     "grok (direct)": "xai/grok-3-mini",
     "mistral (direct)": "mistral/mistral-small-latest",
-
     # === Cloud platforms ===
     "bedrock (aws)": "bedrock/anthropic.claude-3-haiku-20240307-v1:0",
     "deepseek (azure ai)": "azure_ai/DeepSeek-V3.2-Speciale",
-
     # === Via OpenRouter (models without direct API keys) ===
     "qwen (openrouter)": "openrouter/qwen/qwen-2.5-72b-instruct",
     "cohere (openrouter)": "openrouter/cohere/command-a",
@@ -83,6 +80,7 @@ def test_model(
             if is_claude and not proxy_mode:
                 # Direct mode: Claude pass-through needs x-api-key
                 import os
+
                 headers["x-api-key"] = os.getenv("ANTHROPIC_API_KEY", "")
             elif not is_claude:
                 headers["x-llm-model"] = model_id
@@ -132,6 +130,7 @@ def test_model_streaming(
             }
             if is_claude and not proxy_mode:
                 import os
+
                 headers["x-api-key"] = os.getenv("ANTHROPIC_API_KEY", "")
             elif not is_claude:
                 headers["x-llm-model"] = model_id
@@ -180,15 +179,18 @@ def main():
         description="Test LLM proxy with multiple providers"
     )
     parser.add_argument(
-        "--url", default=None,
+        "--url",
+        default=None,
         help="Base URL (default: http://localhost:8002, or :8001 with --proxy)",
     )
     parser.add_argument(
-        "--proxy", action="store_true",
+        "--proxy",
+        action="store_true",
         help="Proxy mode: test through envoy (port 8001). Auth handled by ext_authz.",
     )
     parser.add_argument(
-        "filters", nargs="*",
+        "filters",
+        nargs="*",
         help="Filter models by name (e.g., 'openai', 'claude bedrock')",
     )
     args = parser.parse_args()
@@ -229,8 +231,7 @@ def main():
     if args.filters:
         filter_names = [f.lower() for f in args.filters]
         models = {
-            k: v for k, v in MODELS.items()
-            if any(f in k.lower() for f in filter_names)
+            k: v for k, v in MODELS.items() if any(f in k.lower() for f in filter_names)
         }
         if not models:
             print(f"No models match filter: {args.filters}")
@@ -275,7 +276,9 @@ def main():
         stream_icon = "OK" if stream_ok else "FAIL"
         print(f"  {name:30s}  sync={sync_icon:4s}  stream={stream_icon:4s}")
 
-    total_pass = sum(1 for v in results.values() if v) + sum(1 for v in stream_results.values() if v)
+    total_pass = sum(1 for v in results.values() if v) + sum(
+        1 for v in stream_results.values() if v
+    )
     total = len(results) + len(stream_results)
     print(f"\n  Total: {total_pass}/{total} passed")
 

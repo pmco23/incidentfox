@@ -306,7 +306,6 @@ async def health():
     return {"status": "healthy", "source": CREDENTIAL_SOURCE, "jwt_mode": JWT_MODE}
 
 
-
 @app.get("/api/integrations")
 async def list_integrations(request: Request):
     """List available integrations for this tenant/team.
@@ -426,9 +425,18 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
 
     # LLM providers (api_key based)
     if integration_id in [
-        "openai", "gemini", "openrouter", "deepseek",
-        "mistral", "cohere", "together_ai", "groq", "fireworks_ai",
-        "xai", "moonshot", "minimax",
+        "openai",
+        "gemini",
+        "openrouter",
+        "deepseek",
+        "mistral",
+        "cohere",
+        "together_ai",
+        "groq",
+        "fireworks_ai",
+        "xai",
+        "moonshot",
+        "minimax",
     ]:
         return bool(creds.get("api_key"))
     if integration_id == "azure":
@@ -437,7 +445,9 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
         return bool(creds.get("api_key") and creds.get("api_base"))
     if integration_id == "bedrock":
         has_api_key = bool(creds.get("api_key"))
-        has_iam = bool(creds.get("aws_access_key_id") and creds.get("aws_secret_access_key"))
+        has_iam = bool(
+            creds.get("aws_access_key_id") and creds.get("aws_secret_access_key")
+        )
         return has_api_key or has_iam
     if integration_id == "vertex_ai":
         return bool(creds.get("project"))
@@ -1788,7 +1798,7 @@ async def ext_authz_check(request: Request, path: str = ""):
     # Strip ext_authz path_prefix if present (envoy prepends /extauthz to avoid
     # hitting LLM proxy routes, but we need the original path for integration mapping)
     if request_path.startswith("/extauthz"):
-        request_path = request_path[len("/extauthz"):]
+        request_path = request_path[len("/extauthz") :]
     logger.info(f"Target host: {target_host}, path: {request_path}")
     integration_id = get_integration_for_host(target_host, request_path)
     logger.info(f"Integration ID mapped: {integration_id}")
@@ -2023,9 +2033,20 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         return {"PRIVATE-TOKEN": api_key}
 
     elif integration_id in [
-        "openai", "gemini", "openrouter", "deepseek",
-        "azure", "azure_ai", "mistral", "cohere", "together_ai", "groq", "fireworks_ai",
-        "xai", "moonshot", "minimax",
+        "openai",
+        "gemini",
+        "openrouter",
+        "deepseek",
+        "azure",
+        "azure_ai",
+        "mistral",
+        "cohere",
+        "together_ai",
+        "groq",
+        "fireworks_ai",
+        "xai",
+        "moonshot",
+        "minimax",
     ]:
         # LLM providers use Bearer token
         api_key = creds.get("api_key", "")

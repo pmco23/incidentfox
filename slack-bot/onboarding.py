@@ -33,20 +33,45 @@ CATEGORIES = {
 # Provider definitions for the AI Model selector dropdown.
 # (provider_id, display_name, default_model_placeholder, short_description)
 LLM_PROVIDERS = [
-    ("anthropic", "Anthropic (Claude)", "claude-sonnet-4-20250514", "Default — uses IncidentFox key or your own"),
+    (
+        "anthropic",
+        "Anthropic (Claude)",
+        "claude-sonnet-4-20250514",
+        "Default — uses IncidentFox key or your own",
+    ),
     ("openai", "OpenAI", "openai/gpt-4o", "GPT-4o, o3, o1 models"),
     ("openrouter", "OpenRouter", "openrouter/openai/gpt-4o", "200+ models via one key"),
     ("gemini", "Google Gemini", "gemini/gemini-2.5-flash", "Direct Gemini API"),
     ("deepseek", "DeepSeek", "deepseek/deepseek-chat", "DeepSeek models"),
     ("azure", "Azure OpenAI", "azure/my-gpt4o-deployment", "Azure-hosted OpenAI"),
     ("azure_ai", "Azure AI Foundry", "azure_ai/my-model", "Serverless deployments"),
-    ("bedrock", "Amazon Bedrock", "bedrock/anthropic.claude-sonnet-4-20250514-v1:0", "AWS managed models"),
-    ("vertex_ai", "Google Vertex AI", "vertex_ai/gemini-2.5-flash", "GCP managed models"),
+    (
+        "bedrock",
+        "Amazon Bedrock",
+        "bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+        "AWS managed models",
+    ),
+    (
+        "vertex_ai",
+        "Google Vertex AI",
+        "vertex_ai/gemini-2.5-flash",
+        "GCP managed models",
+    ),
     ("xai", "xAI (Grok)", "xai/grok-3", "Grok models"),
     ("mistral", "Mistral AI", "mistral/mistral-large-latest", "Mistral models"),
-    ("together_ai", "Together AI", "together_ai/meta-llama/Llama-3-70b", "Open-source models"),
+    (
+        "together_ai",
+        "Together AI",
+        "together_ai/meta-llama/Llama-3-70b",
+        "Open-source models",
+    ),
     ("groq", "Groq", "groq/llama-3.3-70b-versatile", "Ultra-fast inference"),
-    ("fireworks_ai", "Fireworks AI", "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct", "Fast open-source"),
+    (
+        "fireworks_ai",
+        "Fireworks AI",
+        "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
+        "Fast open-source",
+    ),
     ("moonshot", "Moonshot AI (Kimi)", "moonshot/moonshot-v1-8k", "Kimi models"),
     ("minimax", "MiniMax", "minimax/MiniMax-Text-01", "MiniMax models"),
     ("ollama", "Ollama (Local)", "ollama/llama3", "Local models"),
@@ -1966,9 +1991,7 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_provider_api_key(
-    provider_id: str, config: dict
-) -> tuple[bool, str]:
+def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str]:
     """
     Validate API credentials for a provider via a lightweight test request.
 
@@ -2107,9 +2130,7 @@ def validate_provider_api_key(
                 return True, ""
             try:
                 body = resp.json()
-                err_msg = (
-                    body.get("error", {}).get("message", "") or resp.text[:300]
-                )
+                err_msg = body.get("error", {}).get("message", "") or resp.text[:300]
             except Exception:
                 err_msg = resp.text[:300]
             return False, f"Gemini API error ({resp.status_code}): {err_msg}"
@@ -2148,9 +2169,7 @@ def validate_provider_api_key(
                 return True, ""
             try:
                 body = resp.json()
-                err_msg = (
-                    body.get("error", {}).get("message", "") or resp.text[:300]
-                )
+                err_msg = body.get("error", {}).get("message", "") or resp.text[:300]
             except Exception:
                 err_msg = resp.text[:300]
             return False, f"API error ({resp.status_code}): {err_msg}"

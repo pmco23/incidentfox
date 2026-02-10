@@ -5,13 +5,11 @@ import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import Request
-
 from credential_resolver.llm_proxy import (
     get_provider_for_credentials,
     is_claude_model,
 )
-
+from fastapi import Request
 
 # ---------------------------------------------------------------------------
 # Model detection
@@ -73,7 +71,10 @@ class TestGetProviderForCredentials:
         assert get_provider_for_credentials("azure/my-gpt4o-deployment") == "azure"
 
     def test_bedrock(self):
-        assert get_provider_for_credentials("bedrock/anthropic.claude-3-sonnet") == "bedrock"
+        assert (
+            get_provider_for_credentials("bedrock/anthropic.claude-3-sonnet")
+            == "bedrock"
+        )
 
     def test_mistral(self):
         assert get_provider_for_credentials("mistral/mistral-large-latest") == "mistral"
@@ -85,13 +86,21 @@ class TestGetProviderForCredentials:
         assert get_provider_for_credentials("command-r-plus") == "cohere"
 
     def test_together_ai(self):
-        assert get_provider_for_credentials("together_ai/meta-llama/Llama-3-70b") == "together_ai"
+        assert (
+            get_provider_for_credentials("together_ai/meta-llama/Llama-3-70b")
+            == "together_ai"
+        )
 
     def test_groq(self):
         assert get_provider_for_credentials("groq/llama-3.1-70b-versatile") == "groq"
 
     def test_fireworks_ai(self):
-        assert get_provider_for_credentials("fireworks_ai/accounts/fireworks/models/llama-v3p1-70b") == "fireworks_ai"
+        assert (
+            get_provider_for_credentials(
+                "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b"
+            )
+            == "fireworks_ai"
+        )
 
     def test_xai(self):
         assert get_provider_for_credentials("xai/grok-3-mini") == "xai"
@@ -290,7 +299,9 @@ class TestModelResolutionPriority:
 
                 # Should fall through to header value
                 mock_forward.assert_called_once()
-                assert mock_forward.call_args[0][1] == "openrouter/google/gemini-2.5-flash"
+                assert (
+                    mock_forward.call_args[0][1] == "openrouter/google/gemini-2.5-flash"
+                )
 
     @pytest.mark.asyncio
     async def test_hardcoded_default_when_nothing_set(self):

@@ -171,9 +171,7 @@ async def llm_proxy(request: Request):
     if is_claude_model(model):
         return await _forward_to_anthropic(request, raw_body, is_streaming)
     else:
-        return await _forward_to_provider(
-            body, model, is_streaming, tenant_id, team_id
-        )
+        return await _forward_to_provider(body, model, is_streaming, tenant_id, team_id)
 
 
 @router.api_route("/v1/messages/count_tokens", methods=["POST"])
@@ -189,9 +187,7 @@ async def count_tokens_proxy(request: Request):
     body = await request.json()
     messages = body.get("messages", [])
     # Rough estimate: 4 chars per token
-    total_chars = sum(
-        len(json.dumps(m.get("content", ""))) for m in messages
-    )
+    total_chars = sum(len(json.dumps(m.get("content", ""))) for m in messages)
     return Response(
         content=json.dumps({"input_tokens": total_chars // 4}),
         media_type="application/json",
@@ -228,9 +224,7 @@ async def _forward_to_anthropic(
     The x-api-key header is already injected by ext_authz.
     """
     api_key = request.headers.get("x-api-key", "")
-    anthropic_base = os.getenv(
-        "ANTHROPIC_UPSTREAM_URL", "https://api.anthropic.com"
-    )
+    anthropic_base = os.getenv("ANTHROPIC_UPSTREAM_URL", "https://api.anthropic.com")
 
     # Reconstruct the path
     target_url = f"{anthropic_base}{request.url.path}"
@@ -239,9 +233,7 @@ async def _forward_to_anthropic(
         "Content-Type": "application/json",
         "Accept": "application/json",
         "x-api-key": api_key,
-        "anthropic-version": request.headers.get(
-            "anthropic-version", "2023-06-01"
-        ),
+        "anthropic-version": request.headers.get("anthropic-version", "2023-06-01"),
     }
     # Forward anthropic-beta if present
     beta = request.headers.get("anthropic-beta")
@@ -282,9 +274,7 @@ async def _stream_passthrough(
     )
 
 
-async def _sync_passthrough(
-    url: str, headers: dict, body: bytes
-) -> Response:
+async def _sync_passthrough(url: str, headers: dict, body: bytes) -> Response:
     """Forward non-streaming request to Anthropic and return response."""
     async with httpx.AsyncClient(timeout=300.0) as client:
         response = await client.post(url, headers=headers, content=body)
@@ -292,9 +282,7 @@ async def _sync_passthrough(
             content=response.content,
             status_code=response.status_code,
             headers={
-                "Content-Type": response.headers.get(
-                    "Content-Type", "application/json"
-                )
+                "Content-Type": response.headers.get("Content-Type", "application/json")
             },
         )
 
@@ -323,15 +311,20 @@ async def _forward_to_provider(
     no_api_key_providers = {"ollama", "vertex_ai"}
     # Bedrock: accepts either ABSK bearer token (api_key) or IAM creds
     if provider == "bedrock":
-        has_bedrock_auth = (
-            (creds or {}).get("api_key")
-            or ((creds or {}).get("aws_access_key_id") and (creds or {}).get("aws_secret_access_key"))
+        has_bedrock_auth = (creds or {}).get("api_key") or (
+            (creds or {}).get("aws_access_key_id")
+            and (creds or {}).get("aws_secret_access_key")
         )
         if not has_bedrock_auth:
             logger.error(f"No credentials for Bedrock, tenant={tenant_id}")
             error = openai_error_to_anthropic(
-                401, {"error": {"type": "authentication_error",
-                                "message": "No Bedrock API key or IAM credentials configured"}}
+                401,
+                {
+                    "error": {
+                        "type": "authentication_error",
+                        "message": "No Bedrock API key or IAM credentials configured",
+                    }
+                },
             )
             return Response(
                 content=json.dumps(error),
@@ -341,8 +334,13 @@ async def _forward_to_provider(
     elif provider not in no_api_key_providers and not api_key:
         logger.error(f"No API key for provider={provider}, tenant={tenant_id}")
         error = openai_error_to_anthropic(
-            401, {"error": {"type": "authentication_error",
-                            "message": f"No API key configured for {provider}"}}
+            401,
+            {
+                "error": {
+                    "type": "authentication_error",
+                    "message": f"No API key configured for {provider}",
+                }
+            },
         )
         return Response(
             content=json.dumps(error),
@@ -371,8 +369,15 @@ async def _forward_to_provider(
         litellm_kwargs["api_key"] = api_key
 
     # Pass optional params
-    for key in ("max_tokens", "temperature", "top_p", "stop", "tools",
-                "tool_choice", "stream_options"):
+    for key in (
+        "max_tokens",
+        "temperature",
+        "top_p",
+        "stop",
+        "tools",
+        "tool_choice",
+        "stream_options",
+    ):
         if key in openai_body:
             litellm_kwargs[key] = openai_body[key]
 
@@ -382,9 +387,7 @@ async def _forward_to_provider(
         litellm_kwargs["api_base"] = host
     elif provider == "azure":
         litellm_kwargs["api_base"] = (creds or {}).get("api_base", "")
-        litellm_kwargs["api_version"] = (creds or {}).get(
-            "api_version", "2024-06-01"
-        )
+        litellm_kwargs["api_version"] = (creds or {}).get("api_version", "2024-06-01")
     elif provider == "azure_ai":
         # Azure AI Foundry serverless deployments — OpenAI-compatible with custom base
         litellm_kwargs["api_base"] = (creds or {}).get("api_base", "")
@@ -396,9 +399,15 @@ async def _forward_to_provider(
         else:
             # Traditional IAM credentials
             litellm_kwargs.pop("api_key", None)
-            litellm_kwargs["aws_access_key_id"] = (creds or {}).get("aws_access_key_id", "")
-            litellm_kwargs["aws_secret_access_key"] = (creds or {}).get("aws_secret_access_key", "")
-        litellm_kwargs["aws_region_name"] = (creds or {}).get("aws_region_name", "us-east-1")
+            litellm_kwargs["aws_access_key_id"] = (creds or {}).get(
+                "aws_access_key_id", ""
+            )
+            litellm_kwargs["aws_secret_access_key"] = (creds or {}).get(
+                "aws_secret_access_key", ""
+            )
+        litellm_kwargs["aws_region_name"] = (creds or {}).get(
+            "aws_region_name", "us-east-1"
+        )
     elif provider == "vertex_ai":
         litellm_kwargs.pop("api_key", None)  # Vertex AI uses GCP credentials
         litellm_kwargs["vertex_project"] = (creds or {}).get("project", "")
@@ -430,7 +439,8 @@ async def _forward_to_provider(
             401, {"error": {"type": "authentication_error", "message": str(e)}}
         )
         return Response(
-            content=json.dumps(error), status_code=401,
+            content=json.dumps(error),
+            status_code=401,
             media_type="application/json",
         )
     except litellm.exceptions.RateLimitError as e:
@@ -439,7 +449,8 @@ async def _forward_to_provider(
             429, {"error": {"type": "rate_limit_error", "message": str(e)}}
         )
         return Response(
-            content=json.dumps(error), status_code=429,
+            content=json.dumps(error),
+            status_code=429,
             media_type="application/json",
         )
     except Exception as e:
@@ -448,14 +459,13 @@ async def _forward_to_provider(
             500, {"error": {"type": "server_error", "message": str(e)}}
         )
         return Response(
-            content=json.dumps(error), status_code=500,
+            content=json.dumps(error),
+            status_code=500,
             media_type="application/json",
         )
 
 
-async def _litellm_streaming(
-    kwargs: dict, model_name: str
-) -> StreamingResponse:
+async def _litellm_streaming(kwargs: dict, model_name: str) -> StreamingResponse:
     """Call LiteLLM with streaming, translate chunks to Anthropic SSE."""
 
     async def event_generator() -> AsyncIterator[str]:
