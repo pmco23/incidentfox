@@ -1,10 +1,22 @@
 #!/bin/bash
-# ONE-COMMAND Production Deployment
-# Usage: ./scripts/deploy-prod.sh
+# DEPRECATED: Use GitHub Actions 'Deploy to EKS' workflow instead.
+#   gh workflow run deploy-eks.yml -f environment=production -f services=all
+# This script deploys via raw K8s manifests. The Helm chart is now authoritative.
+# Kept temporarily for emergency rollback only. Use --force to run anyway.
+#
+# Original description: ONE-COMMAND Production Deployment
+# Usage: ./scripts/deploy-prod.sh [--force]
 
 set -e
 
-echo "🚀 ONE-COMMAND PRODUCTION DEPLOYMENT"
+if [[ "$1" != "--force" ]]; then
+    echo "⚠️  DEPRECATED: Use 'gh workflow run deploy-eks.yml -f environment=production' instead."
+    echo "   This script deploys via raw K8s manifests. The Helm chart is now authoritative."
+    echo "   Run with --force to continue anyway."
+    exit 1
+fi
+
+echo "🚀 ONE-COMMAND PRODUCTION DEPLOYMENT (legacy)"
 echo "======================================="
 echo ""
 

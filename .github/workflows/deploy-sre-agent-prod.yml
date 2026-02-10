@@ -1,4 +1,7 @@
-name: Deploy SRE Agent to Production
+# DEPRECATED: Use deploy-eks.yml with environment=production instead.
+# This workflow uses raw K8s manifests. The Helm-based deploy-eks.yml is now authoritative.
+# Kept temporarily for emergency rollback only.
+name: "[DEPRECATED] Deploy SRE Agent to Production"
 
 on:
   workflow_dispatch:  # Manual trigger only from GitHub UI

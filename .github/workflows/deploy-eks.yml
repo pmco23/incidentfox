@@ -53,8 +53,8 @@ jobs:
         service: [agent, config-service, credential-resolver, k8s-gateway, orchestrator, sandbox-router, slack-bot, ultimate-rag, web-ui, ai-pipeline]
         include:
           - service: agent
-            context: ./unified-agent
-            dockerfile: ./unified-agent/Dockerfile
+            context: ./sre-agent
+            dockerfile: ./sre-agent/Dockerfile
             image: incidentfox-agent
           - service: config-service
             context: ./config_service

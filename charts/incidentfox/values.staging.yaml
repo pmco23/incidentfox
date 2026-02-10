@@ -184,11 +184,12 @@ services:
         service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
         service.beta.kubernetes.io/aws-load-balancer-backend-protocol: "http"
 
-  # Unified Agent with gVisor sandbox isolation
+  # SRE Agent with gVisor sandbox isolation
   agent:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
-    servicePort: 8888  # unified-agent sandbox server listens on 8888
+    servicePort: 8000  # sre-agent server.py listens on 8000
+    command: ["python", "/app/server.py"]  # sre-agent orchestrator
     serviceAccount:
       create: true
       name: incidentfox-agent
@@ -204,6 +205,19 @@ services:
       image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
       namespace: ""  # Same namespace as agent
       useGvisor: true
+    startupProbe:
+      enabled: true
+      path: "/health"
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 12
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+    extraEnv:
+      - name: K8S_GATEWAY_URL
+        value: "http://incidentfox-k8s-gateway.incidentfox.svc.cluster.local:8085"
     # Enable tracing in staging for debugging
     tracing:
       enabled: true
@@ -236,7 +250,7 @@ services:
   # Credential Resolver for sandbox credential injection
   credentialResolver:
     enabled: true
-    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:fec4ecc"
+    image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest"
     replicas: 2
     credentialSource: config_service
     jwtMode: strict

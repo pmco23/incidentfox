@@ -216,15 +216,22 @@ services:
     # Admin RBAC (OIDC group -> permissions). Default keeps backwards-compatible admin:*.
     adminPermissionsDefault: "admin:*"
     adminGroupPermissionsJson: "{}"
-  # Unified Agent - Investigation agent with sandbox isolation support
-  # Now powered by unified-agent, replacing legacy agent and sre-agent architectures
+  # Agent - Investigation agent with sandbox isolation support
+  # Supports sre-agent (command override) or unified-agent (default Dockerfile CMD)
   agent:
     enabled: true
     image: "incidentfox/unified-agent:v1.0.0"
     replicas: 2
-    servicePort: 8888  # unified-agent sandbox server listens on 8888
+    servicePort: 8888  # unified-agent=8888, sre-agent=8000
+    # Command override (empty list = use Dockerfile CMD)
+    # For sre-agent: ["python", "/app/server.py"]
+    command: []
+    # Additional env vars injected into the agent container
+    extraEnv: []
     # Time to allow for graceful shutdown (marking in-flight runs as failed)
     terminationGracePeriodSeconds: 60
+    # Pod-level security context (e.g., runAsNonRoot, runAsUser)
+    podSecurityContext: {}
     serviceAccount:
       create: true
       name: incidentfox-agent
@@ -268,6 +275,13 @@ services:
     # Dedicated health server runs in separate thread, always responsive
     healthServer:
       port: 8081
+    startupProbe:
+      enabled: false
+      path: "/health"
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 12
     readinessProbe:
       initialDelaySeconds: 5
       periodSeconds: 10

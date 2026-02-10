@@ -60,8 +60,11 @@ dev-reset: ## 🏠 Delete Kind cluster and start fresh (nuclear option)
 setup-prod: ## ☁️ First-time production setup (creates EKS cluster, installs components)
 	@./scripts/setup-prod.sh
 
-deploy-prod: ## ☁️ Deploy to production (builds multi-platform, pushes to ECR, deploys)
-	@./scripts/deploy-prod.sh
+deploy-prod: ## ☁️ Deploy to production (DEPRECATED - use deploy-eks.yml)
+	@echo "⚠️  DEPRECATED: Use GitHub Actions 'Deploy to EKS' workflow instead."
+	@echo "   gh workflow run deploy-eks.yml -f environment=production -f services=all"
+	@echo ""
+	@echo "   To force legacy deploy: ./scripts/deploy-prod.sh --force"
 
 # ═══════════════════════════════════════════════════════════════
 # 📊 UTILITIES
