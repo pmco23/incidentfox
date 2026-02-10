@@ -251,6 +251,8 @@ static_resources:
                   uri: http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/check
                   cluster: ext_authz
                   timeout: 2s
+                # Prepend /extauthz to avoid hitting LLM proxy routes
+                path_prefix: "/extauthz"
                 authorization_request:
                   # Add JWT and target host as headers to ext_authz
                   headers_to_add:

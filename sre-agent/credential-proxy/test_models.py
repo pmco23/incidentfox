@@ -6,22 +6,28 @@ Tests three routing paths:
 2. Direct providers: OpenAI, Gemini, DeepSeek, Kimi, MiniMax, Grok, Mistral
 3. Via OpenRouter: Qwen, Cohere, and any model without a direct API key
 
-Usage:
-    1. Start credential-resolver:
-       set -a && source .env && set +a
-       .venv/bin/uvicorn credential_resolver.main:app --port 8002
+Supports two modes:
+- Direct: Test against credential-resolver on port 8002 (needs env vars loaded)
+- Proxy:  Test through envoy on port 8001 (docker-compose E2E, no env vars needed)
 
-    2. Run this script:
-       .venv/bin/python test_models.py [filter...]
+Usage:
+    # Direct mode (default) — run against credential-resolver
+    set -a && source .env && set +a
+    .venv/bin/uvicorn credential_resolver.main:app --port 8002
+    .venv/bin/python test_models.py [filter...]
+
+    # Proxy mode — run through docker-compose (envoy → credential-resolver → upstream)
+    docker compose up -d
+    .venv/bin/python test_models.py --proxy [filter...]
+    # or: .venv/bin/python test_models.py --url http://localhost:8001 [filter...]
 """
 
+import argparse
 import json
 import sys
 import time
 
 import httpx
-
-BASE_URL = "http://localhost:8002"
 
 # Model definitions grouped by routing path
 MODELS = {
@@ -59,10 +65,14 @@ REQUEST_BODY = {
 }
 
 
-def test_model(name: str, model_id: str) -> tuple[bool, str]:
+def test_model(
+    name: str, model_id: str, base_url: str, proxy_mode: bool
+) -> tuple[bool, str]:
     """Test a single model via the LLM proxy (non-streaming).
 
-    Returns (success, message).
+    Args:
+        proxy_mode: If True, auth is handled by envoy ext_authz (no manual API key needed).
+                    If False, Claude needs x-api-key from env var.
     """
     is_claude = model_id.startswith("claude")
     try:
@@ -70,15 +80,15 @@ def test_model(name: str, model_id: str) -> tuple[bool, str]:
             headers = {
                 "Content-Type": "application/json",
             }
-            if is_claude:
-                # Claude pass-through needs x-api-key (normally injected by ext_authz)
+            if is_claude and not proxy_mode:
+                # Direct mode: Claude pass-through needs x-api-key
                 import os
                 headers["x-api-key"] = os.getenv("ANTHROPIC_API_KEY", "")
-            else:
+            elif not is_claude:
                 headers["x-llm-model"] = model_id
 
             response = client.post(
-                f"{BASE_URL}/v1/messages",
+                f"{base_url}/v1/messages",
                 headers=headers,
                 json=REQUEST_BODY,
             )
@@ -109,7 +119,9 @@ def test_model(name: str, model_id: str) -> tuple[bool, str]:
         return False, f"ERROR: {e}"
 
 
-def test_model_streaming(name: str, model_id: str) -> tuple[bool, str]:
+def test_model_streaming(
+    name: str, model_id: str, base_url: str, proxy_mode: bool
+) -> tuple[bool, str]:
     """Test a single model with streaming via the LLM proxy."""
     is_claude = model_id.startswith("claude")
     body = {**REQUEST_BODY, "stream": True}
@@ -118,15 +130,15 @@ def test_model_streaming(name: str, model_id: str) -> tuple[bool, str]:
             headers = {
                 "Content-Type": "application/json",
             }
-            if is_claude:
+            if is_claude and not proxy_mode:
                 import os
                 headers["x-api-key"] = os.getenv("ANTHROPIC_API_KEY", "")
-            else:
+            elif not is_claude:
                 headers["x-llm-model"] = model_id
 
             with client.stream(
                 "POST",
-                f"{BASE_URL}/v1/messages",
+                f"{base_url}/v1/messages",
                 headers=headers,
                 json=body,
             ) as response:
@@ -164,24 +176,64 @@ def test_model_streaming(name: str, model_id: str) -> tuple[bool, str]:
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Test LLM proxy with multiple providers"
+    )
+    parser.add_argument(
+        "--url", default=None,
+        help="Base URL (default: http://localhost:8002, or :8001 with --proxy)",
+    )
+    parser.add_argument(
+        "--proxy", action="store_true",
+        help="Proxy mode: test through envoy (port 8001). Auth handled by ext_authz.",
+    )
+    parser.add_argument(
+        "filters", nargs="*",
+        help="Filter models by name (e.g., 'openai', 'claude bedrock')",
+    )
+    args = parser.parse_args()
+
+    if args.url:
+        base_url = args.url.rstrip("/")
+    elif args.proxy:
+        base_url = "http://localhost:8001"
+    else:
+        base_url = "http://localhost:8002"
+
+    proxy_mode = args.proxy or ":8001" in base_url
+
     # Check server is running
+    health_url = base_url
+    # In proxy mode, health check goes to envoy admin or credential-resolver directly
+    if proxy_mode:
+        health_url = "http://localhost:8002"  # Check credential-resolver directly
     try:
-        r = httpx.get(f"{BASE_URL}/health", timeout=5.0)
-        print(f"Server health: {r.json()}\n")
+        r = httpx.get(f"{health_url}/health", timeout=5.0)
+        print(f"Server health: {r.json()}")
     except Exception:
-        print(f"ERROR: Server not running at {BASE_URL}")
-        print("Start it with:")
-        print("  set -a && source .env && set +a")
-        print("  .venv/bin/uvicorn credential_resolver.main:app --port 8002")
+        print(f"ERROR: Server not running at {health_url}")
+        if proxy_mode:
+            print("Start docker-compose:")
+            print("  docker compose up -d")
+        else:
+            print("Start credential-resolver:")
+            print("  set -a && source .env && set +a")
+            print("  .venv/bin/uvicorn credential_resolver.main:app --port 8002")
         sys.exit(1)
+
+    mode_label = f"PROXY ({base_url})" if proxy_mode else f"DIRECT ({base_url})"
+    print(f"Mode: {mode_label}\n")
 
     # Filter models if args provided
     models = MODELS
-    if len(sys.argv) > 1:
-        filter_names = [a.lower() for a in sys.argv[1:]]
-        models = {k: v for k, v in MODELS.items() if any(f in k.lower() for f in filter_names)}
+    if args.filters:
+        filter_names = [f.lower() for f in args.filters]
+        models = {
+            k: v for k, v in MODELS.items()
+            if any(f in k.lower() for f in filter_names)
+        }
         if not models:
-            print(f"No models match filter: {sys.argv[1:]}")
+            print(f"No models match filter: {args.filters}")
             print(f"Available: {list(MODELS.keys())}")
             sys.exit(1)
 
@@ -192,7 +244,7 @@ def main():
     for name, model_id in models.items():
         print(f"  {name:30s} ({model_id})")
         start = time.time()
-        ok, msg = test_model(name, model_id)
+        ok, msg = test_model(name, model_id, base_url, proxy_mode)
         elapsed = time.time() - start
         status = "PASS" if ok else "FAIL"
         results[name] = ok
@@ -207,7 +259,7 @@ def main():
     for name, model_id in models.items():
         print(f"  {name:30s} ({model_id})")
         start = time.time()
-        ok, msg = test_model_streaming(name, model_id)
+        ok, msg = test_model_streaming(name, model_id, base_url, proxy_mode)
         elapsed = time.time() - start
         status = "PASS" if ok else "FAIL"
         stream_results[name] = ok
@@ -226,6 +278,10 @@ def main():
     total_pass = sum(1 for v in results.values() if v) + sum(1 for v in stream_results.values() if v)
     total = len(results) + len(stream_results)
     print(f"\n  Total: {total_pass}/{total} passed")
+
+    # Exit with non-zero if any test failed
+    if total_pass < total:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

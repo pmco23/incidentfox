@@ -143,6 +143,9 @@ static_resources:
                   uri: http://credential-resolver:8002/check
                   cluster: ext_authz
                   timeout: 2s
+                # Prepend /extauthz to avoid hitting LLM proxy routes
+                # e.g., /v1/messages → /extauthz/v1/messages → catch-all handler
+                path_prefix: "/extauthz"
                 authorization_request:
                   allowed_headers:
                     patterns:

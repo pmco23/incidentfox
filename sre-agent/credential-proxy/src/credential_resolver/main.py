@@ -280,6 +280,7 @@ async def health():
     return {"status": "healthy", "source": CREDENTIAL_SOURCE, "jwt_mode": JWT_MODE}
 
 
+
 @app.get("/api/integrations")
 async def list_integrations(request: Request):
     """List available integrations for this tenant/team.
@@ -1415,6 +1416,10 @@ async def ext_authz_check(request: Request, path: str = ""):
     # 2. Determine integration from target host and path
     target_host = request.headers.get("x-original-host", "")
     request_path = request.url.path
+    # Strip ext_authz path_prefix if present (envoy prepends /extauthz to avoid
+    # hitting LLM proxy routes, but we need the original path for integration mapping)
+    if request_path.startswith("/extauthz"):
+        request_path = request_path[len("/extauthz"):]
     logger.info(f"Target host: {target_host}, path: {request_path}")
     integration_id = get_integration_for_host(target_host, request_path)
     logger.info(f"Integration ID mapped: {integration_id}")
