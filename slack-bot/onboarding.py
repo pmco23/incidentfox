@@ -2143,7 +2143,10 @@ def validate_provider_api_key(
             )
             if resp.status_code in (200, 201):
                 return True, ""
-            return False, f"Azure API error ({resp.status_code}): {_extract_error(resp)}"
+            return (
+                False,
+                f"Azure API error ({resp.status_code}): {_extract_error(resp)}",
+            )
         except Exception as e:
             return False, f"Cannot reach Azure endpoint: {_sanitize(str(e)[:200])}"
 
@@ -2200,7 +2203,10 @@ def validate_provider_api_key(
             )
             if resp.status_code in (200, 201):
                 return True, ""
-            return False, f"Anthropic API error ({resp.status_code}): {_extract_error(resp)}"
+            return (
+                False,
+                f"Anthropic API error ({resp.status_code}): {_extract_error(resp)}",
+            )
         except Exception as e:
             return False, f"Cannot reach Anthropic API: {str(e)[:200]}"
 
@@ -2224,7 +2230,10 @@ def validate_provider_api_key(
             )
             if resp.status_code == 200:
                 return True, ""
-            return False, f"Gemini API error ({resp.status_code}): {_extract_error(resp)}"
+            return (
+                False,
+                f"Gemini API error ({resp.status_code}): {_extract_error(resp)}",
+            )
         except Exception as e:
             return False, f"Cannot reach Gemini API: {str(e)[:200]}"
 
@@ -2249,7 +2258,10 @@ def validate_provider_api_key(
             )
             if resp.status_code == 200:
                 return True, ""
-            return False, f"Cohere API error ({resp.status_code}): {_extract_error(resp)}"
+            return (
+                False,
+                f"Cohere API error ({resp.status_code}): {_extract_error(resp)}",
+            )
         except Exception as e:
             return False, f"Cannot reach Cohere API: {str(e)[:200]}"
 
@@ -2275,7 +2287,10 @@ def validate_provider_api_key(
             )
             if resp.status_code in (200, 201):
                 return True, ""
-            return False, f"OpenRouter API error ({resp.status_code}): {_extract_error(resp)}"
+            return (
+                False,
+                f"OpenRouter API error ({resp.status_code}): {_extract_error(resp)}",
+            )
         except Exception as e:
             return False, f"Cannot reach OpenRouter: {str(e)[:200]}"
 
@@ -3533,9 +3548,7 @@ def build_ai_model_modal(
                     },
                     "options": options,
                 }
-                if current_model and any(
-                    o["value"] == current_model for o in options
-                ):
+                if current_model and any(o["value"] == current_model for o in options):
                     model_element["initial_option"] = {
                         "text": {
                             "type": "plain_text",

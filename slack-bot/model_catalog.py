@@ -34,7 +34,6 @@ _PROVIDER_PREFIX_MAP = {
 }
 
 
-
 class ModelCatalog:
     """Cached model catalog backed by OpenRouter's public API."""
 
@@ -46,9 +45,9 @@ class ModelCatalog:
     def _fetch_models(self) -> List[Dict]:
         """Fetch models from OpenRouter (uses OPENROUTER_API_KEY if available)."""
         try:
+            import json
             import os
             import urllib.request
-            import json
 
             headers = {"User-Agent": "IncidentFox/1.0"}
             api_key = os.getenv("OPENROUTER_API_KEY", "")
@@ -144,7 +143,11 @@ class ModelCatalog:
         if provider_id == "anthropic":
             # Anthropic models don't use provider prefix in LiteLLM
             # anthropic/claude-sonnet-4.5 -> claude-sonnet-4.5
-            return openrouter_id.split("/", 1)[-1] if "/" in openrouter_id else openrouter_id
+            return (
+                openrouter_id.split("/", 1)[-1]
+                if "/" in openrouter_id
+                else openrouter_id
+            )
 
         # Map OpenRouter prefix -> our LiteLLM prefix
         prefix_map = {
@@ -161,7 +164,6 @@ class ModelCatalog:
             return f"{our_prefix}/{model_name}"
 
         return openrouter_id
-
 
 
 # Singleton instance

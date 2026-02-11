@@ -6798,9 +6798,7 @@ def handle_model_options(ack, body):
     except (json.JSONDecodeError, TypeError):
         pass
 
-    logger.info(
-        f"Model options request: provider={provider_id!r}, query={query!r}"
-    )
+    logger.info(f"Model options request: provider={provider_id!r}, query={query!r}")
 
     try:
         from model_catalog import get_models_for_provider

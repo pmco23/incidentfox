@@ -49,7 +49,9 @@ def build_home_tab_view(
     )
 
     # Trial/subscription status banner
-    CALENDLY_URL = "https://calendly.com/d/cxd2-4hb-qgp/30-minute-demo-call-w-incidentfox"
+    CALENDLY_URL = (
+        "https://calendly.com/d/cxd2-4hb-qgp/30-minute-demo-call-w-incidentfox"
+    )
     if trial_info and not trial_info.get("expired"):
         days = trial_info.get("days_remaining", 0)
         blocks.append(
@@ -455,9 +457,7 @@ def build_home_tab_view(
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Previous"},
                     "action_id": "home_page_prev",
-                    "value": json.dumps(
-                        {"team_id": team_id, "page": page - 1}
-                    ),
+                    "value": json.dumps({"team_id": team_id, "page": page - 1}),
                 }
             )
         if page < total_pages:
@@ -466,9 +466,7 @@ def build_home_tab_view(
                     "type": "button",
                     "text": {"type": "plain_text", "text": "Next"},
                     "action_id": "home_page_next",
-                    "value": json.dumps(
-                        {"team_id": team_id, "page": page + 1}
-                    ),
+                    "value": json.dumps({"team_id": team_id, "page": page + 1}),
                 }
             )
         if pagination_elements:
