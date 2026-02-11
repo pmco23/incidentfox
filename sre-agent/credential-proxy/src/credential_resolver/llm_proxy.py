@@ -105,6 +105,8 @@ def get_provider_for_credentials(model: str) -> str:
         return "openrouter"
     if m.startswith("deepseek/"):
         return "deepseek"
+    if m.startswith("qwen/"):
+        return "qwen"
     # Default: try openrouter as catch-all for unknown models
     return "openrouter"
 

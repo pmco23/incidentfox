@@ -5828,7 +5828,7 @@ def handle_ai_provider_change(ack, body, client):
         modal = onboarding.build_ai_model_modal(
             team_id=team_id,
             provider_id=selected_provider,
-            current_model=current_model,
+            current_model=None,  # Don't carry over model from different provider
             existing_provider_config=existing_provider_config,
         )
 
@@ -5839,6 +5839,59 @@ def handle_ai_provider_change(ack, body, client):
 
     except Exception as e:
         logger.error(f"Failed to update AI model modal: {e}", exc_info=True)
+
+
+@app.action("input_model_id")
+def handle_model_select_change(ack, body, client):
+    """Handle model dropdown change — show model description."""
+    ack()
+
+    view = body.get("view", {})
+    view_id = view.get("id")
+    selected_model = (
+        body.get("actions", [{}])[0].get("selected_option", {}).get("value")
+    )
+    if not selected_model or not view_id:
+        return
+
+    try:
+        private_metadata = json.loads(view.get("private_metadata", "{}"))
+        team_id = private_metadata.get("team_id")
+
+        # Get provider from form state
+        values = view.get("state", {}).get("values", {})
+        provider_id = (
+            values.get("provider_block", {})
+            .get("ai_provider_select", {})
+            .get("selected_option", {})
+            .get("value")
+        ) or private_metadata.get("provider_id")
+
+        if not provider_id:
+            return
+
+        # Look up model description
+        from model_catalog import get_model_description
+
+        description = get_model_description(provider_id, selected_model)
+
+        config_client = get_config_client()
+        existing_provider_config = (
+            config_client.get_integration_config(team_id, provider_id) or {}
+        )
+
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_ai_model_modal(
+            team_id=team_id,
+            provider_id=provider_id,
+            current_model=selected_model,
+            existing_provider_config=existing_provider_config,
+            model_description=description,
+        )
+
+        client.views_update(view_id=view_id, view=modal)
+    except Exception as e:
+        logger.error(f"Failed to update model description: {e}", exc_info=True)
 
 
 @app.view("ai_model_config_submission")
@@ -5860,8 +5913,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
     if dropdown_provider:
         provider_id = dropdown_provider
 
-    # 1. Extract model ID (from external_select: selected_option.value)
-    model_field = values.get("field_model_id", {}).get("input_model_id", {})
+    # 1. Extract model ID — block_id is provider-specific (field_model_id_{provider})
+    model_field = {}
+    model_block_id = "field_model_id"
+    for block_id, block_vals in values.items():
+        if block_id.startswith("field_model_id") and "input_model_id" in block_vals:
+            model_field = block_vals["input_model_id"]
+            model_block_id = block_id
+            break
     selected_option = model_field.get("selected_option")
     model_id = (
         selected_option.get("value", "").strip()
@@ -5871,7 +5930,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
     if not model_id:
         ack(
             response_action="errors",
-            errors={"field_model_id": "Model ID is required."},
+            errors={model_block_id: "Model ID is required."},
         )
         return
 
@@ -5881,7 +5940,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
         ack(
             response_action="errors",
             errors={
-                "field_model_id": "Invalid model ID. Use letters, numbers, hyphens, slashes, dots, colons, or underscores."
+                model_block_id: "Invalid model ID. Use letters, numbers, hyphens, slashes, dots, colons, or underscores."
             },
         )
         return
@@ -5927,30 +5986,16 @@ def handle_ai_model_config_submission(ack, body, client, view):
     )
 
     if not is_valid:
-        error_modal = {
-            "type": "modal",
-            "title": {"type": "plain_text", "text": "Validation Failed"},
-            "close": {"type": "plain_text", "text": "Go Back"},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":x: *API key validation failed*\n\n{error_msg}",
-                    },
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": "Please go back and check your credentials.",
-                        }
-                    ],
-                },
-            ],
-        }
-        ack(response_action="push", view=error_modal)
+        # Show inline error on the API key field (or model field as fallback)
+        error_block = model_block_id
+        for fn in field_names:
+            if "key" in fn or "secret" in fn or "token" in fn:
+                error_block = f"field_{fn}"
+                break
+        ack(
+            response_action="errors",
+            errors={error_block: error_msg[:150]},
+        )
         return
 
     # 4. Save provider config (API key + provider-specific fields)
@@ -6870,6 +6915,7 @@ def register_all_handlers(bolt_app):
     bolt_app.action("mention_open_setup_wizard")(handle_mention_setup_wizard)
     bolt_app.action("home_open_ai_model_selector")(handle_open_ai_model_selector)
     bolt_app.action("ai_provider_select")(handle_ai_provider_change)
+    bolt_app.action("input_model_id")(handle_model_select_change)
 
     # Action handlers (regex patterns)
     bolt_app.action(re.compile(r"^answer_q\d+_.*"))(handle_checkbox_action)

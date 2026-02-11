@@ -33,6 +33,7 @@ CATEGORIES = {
 # Provider definitions for the AI Model selector dropdown.
 # (provider_id, display_name, default_model_placeholder, short_description)
 LLM_PROVIDERS = [
+    # --- Tier 1: Major providers ---
     (
         "anthropic",
         "Anthropic (Claude)",
@@ -40,11 +41,8 @@ LLM_PROVIDERS = [
         "Default — uses IncidentFox key or your own",
     ),
     ("openai", "OpenAI", "openai/gpt-4o", "GPT-4o, o3, o1 models"),
-    ("openrouter", "OpenRouter", "openrouter/openai/gpt-4o", "200+ models via one key"),
     ("gemini", "Google Gemini", "gemini/gemini-2.5-flash", "Direct Gemini API"),
-    ("deepseek", "DeepSeek", "deepseek/deepseek-chat", "DeepSeek models"),
-    ("azure", "Azure OpenAI", "azure/my-gpt4o-deployment", "Azure-hosted OpenAI"),
-    ("azure_ai", "Azure AI Foundry", "azure_ai/my-model", "Serverless deployments"),
+    # --- Tier 2: Cloud / enterprise ---
     (
         "bedrock",
         "Amazon Bedrock",
@@ -57,25 +55,33 @@ LLM_PROVIDERS = [
         "vertex_ai/gemini-2.5-flash",
         "GCP managed models",
     ),
+    ("azure", "Azure OpenAI", "azure/my-gpt4o-deployment", "Azure-hosted OpenAI"),
+    ("azure_ai", "Azure AI Foundry", "azure_ai/my-model", "Serverless deployments"),
+    # --- Tier 3: Aggregators & specialty ---
+    ("openrouter", "OpenRouter", "openrouter/openai/gpt-4o", "200+ models via one key"),
+    ("deepseek", "DeepSeek", "deepseek/deepseek-chat", "DeepSeek models"),
+    ("qwen", "Qwen (Alibaba)", "qwen/qwen3-max", "Qwen3 models"),
     ("xai", "xAI (Grok)", "xai/grok-3", "Grok models"),
     ("mistral", "Mistral AI", "mistral/mistral-large-latest", "Mistral models"),
+    ("cohere", "Cohere", "cohere/command-r-plus", "Command R+ models"),
+    # --- Tier 4: Inference platforms (host other providers' models) ---
+    ("groq", "Groq", "groq/llama-3.3-70b-versatile", "Ultra-fast inference"),
     (
         "together_ai",
         "Together AI",
         "together_ai/meta-llama/Llama-3-70b",
-        "Open-source models",
+        "Open-source model hosting",
     ),
-    ("groq", "Groq", "groq/llama-3.3-70b-versatile", "Ultra-fast inference"),
     (
         "fireworks_ai",
         "Fireworks AI",
         "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct",
-        "Fast open-source",
+        "Fast open-source hosting",
     ),
     ("moonshot", "Moonshot AI (Kimi)", "moonshot/moonshot-v1-8k", "Kimi models"),
     ("minimax", "MiniMax", "minimax/MiniMax-Text-01", "MiniMax models"),
+    # --- Self-hosted ---
     ("ollama", "Ollama (Local)", "ollama/llama3", "Local models"),
-    ("cohere", "Cohere", "cohere/command-r-plus", "Command R+ models"),
 ]
 
 # Additional model-prefix → provider aliases for models that don't use
@@ -88,6 +94,21 @@ _EXTRA_MODEL_PREFIX_ALIASES = {
     "command-r": "cohere",
     "or:": "openrouter",
 }
+
+
+def _strip_provider_prefix(name: str) -> str:
+    """Strip 'Provider: ' prefix from OpenRouter model names for single-provider views."""
+    if ": " in name:
+        return name.split(": ", 1)[1]
+    return name
+
+
+def _md_to_slack(text: str) -> str:
+    """Convert markdown links [text](url) to Slack mrkdwn <url|text>."""
+    import re
+
+    return re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
+
 
 # Built from LLM_PROVIDERS + extra aliases — single source of truth.
 _MODEL_PREFIX_TO_PROVIDER = {
@@ -796,6 +817,32 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "required": True,
                 "placeholder": "sk-...",
                 "hint": "Your DeepSeek API key",
+            },
+        ],
+    },
+    {
+        "id": "qwen",
+        "name": "Qwen (Alibaba)",
+        "category": "llm",
+        "status": "active",
+        "icon": ":globe_with_meridians:",
+        "icon_fallback": ":robot_face:",
+        "description": "Alibaba Cloud's Qwen models via DashScope API.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://dashscope.console.aliyun.com/\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://help.aliyun.com/en/model-studio/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-...",
+                "hint": "Your DashScope API key from Alibaba Cloud",
             },
         ],
     },
@@ -2298,6 +2345,7 @@ def validate_provider_api_key(
     PROVIDER_CHAT_ENDPOINTS = {
         "openai": "https://api.openai.com/v1/chat/completions",
         "deepseek": "https://api.deepseek.com/v1/chat/completions",
+        "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         "xai": "https://api.x.ai/v1/chat/completions",
         "mistral": "https://api.mistral.ai/v1/chat/completions",
         "together_ai": "https://api.together.xyz/v1/chat/completions",
@@ -3443,6 +3491,7 @@ def build_ai_model_modal(
     provider_id: str = None,
     current_model: str = None,
     existing_provider_config: Optional[Dict] = None,
+    model_description: str = "",
 ) -> Dict[str, Any]:
     """
     Build unified AI model configuration modal.
@@ -3527,36 +3576,14 @@ def build_ai_model_modal(
 
             blocks.append({"type": "divider"})
 
-            # Model selector — fetch from API, fall back to text input if none
-            from model_catalog import get_models_for_provider
+            # Model selector — fetch from API, fall back to text input
+            # Text input for deployment-specific or large-catalog providers
+            _text_input_providers = {
+                "azure", "azure_ai", "bedrock", "vertex_ai", "ollama", "openrouter",
+                "groq", "together_ai", "fireworks_ai",  # inference platforms
+            }
 
-            catalog_models = get_models_for_provider(provider_id, limit=100)
-            if catalog_models:
-                options = [
-                    {
-                        "text": {"type": "plain_text", "text": m["name"][:75]},
-                        "value": m["id"],
-                    }
-                    for m in catalog_models
-                ]
-                model_element = {
-                    "type": "static_select",
-                    "action_id": "input_model_id",
-                    "placeholder": {
-                        "type": "plain_text",
-                        "text": "Select a model",
-                    },
-                    "options": options,
-                }
-                if current_model and any(o["value"] == current_model for o in options):
-                    model_element["initial_option"] = {
-                        "text": {
-                            "type": "plain_text",
-                            "text": current_model[:75],
-                        },
-                        "value": current_model,
-                    }
-            else:
+            if provider_id in _text_input_providers:
                 model_element = {
                     "type": "plain_text_input",
                     "action_id": "input_model_id",
@@ -3567,19 +3594,96 @@ def build_ai_model_modal(
                 }
                 if current_model:
                     model_element["initial_value"] = current_model
+                hint_text = f"Enter the full model ID. Example: {model_placeholder}"
+            else:
+                from model_catalog import get_models_for_provider
 
-            blocks.append(
-                {
-                    "type": "input",
-                    "block_id": "field_model_id",
-                    "element": model_element,
-                    "label": {"type": "plain_text", "text": "Model"},
-                    "hint": {
-                        "type": "plain_text",
-                        "text": f"Select or enter a model. Example: {model_placeholder}",
-                    },
-                }
-            )
+                catalog_models = get_models_for_provider(provider_id, limit=100)
+                if catalog_models:
+                    options = [
+                        {
+                            "text": {
+                                "type": "plain_text",
+                                "text": _strip_provider_prefix(m["name"])[:75],
+                            },
+                            "value": m["id"],
+                        }
+                        for m in catalog_models
+                    ]
+                    model_element = {
+                        "type": "static_select",
+                        "action_id": "input_model_id",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "Select a model",
+                        },
+                        "options": options,
+                    }
+                    if current_model:
+                        matching = next(
+                            (o for o in options if o["value"] == current_model),
+                            None,
+                        )
+                        if matching:
+                            model_element["initial_option"] = matching
+                    hint_text = "Select a model from the list"
+                else:
+                    model_element = {
+                        "type": "plain_text_input",
+                        "action_id": "input_model_id",
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": f"e.g. {model_placeholder or 'model-name'}",
+                        },
+                    }
+                    if current_model:
+                        model_element["initial_value"] = current_model
+                    hint_text = f"Enter the full model ID. Example: {model_placeholder}"
+
+            # Use provider-specific block_id so Slack resets form state on switch
+            model_block_id = f"field_model_id_{provider_id}"
+            model_input_block = {
+                "type": "input",
+                "block_id": model_block_id,
+                "element": model_element,
+                "label": {"type": "plain_text", "text": "Model"},
+                "hint": {
+                    "type": "plain_text",
+                    "text": hint_text,
+                },
+            }
+            # Enable dispatch_action for dropdown selects to show description on change
+            if model_element.get("type") == "static_select":
+                model_input_block["dispatch_action"] = True
+            blocks.append(model_input_block)
+
+            # Model description (shown after model is selected)
+            if model_description:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "block_id": "model_description",
+                        "elements": [
+                            {"type": "mrkdwn", "text": _md_to_slack(model_description)[:3000]}
+                        ],
+                    }
+                )
+
+            # Console URLs for API key provisioning (used in hints)
+            _console_urls = {
+                "anthropic": "console.anthropic.com/settings/keys",
+                "openai": "platform.openai.com/api-keys",
+                "gemini": "aistudio.google.com/apikey",
+                "deepseek": "platform.deepseek.com/api_keys",
+                "qwen": "dashscope.console.aliyun.com/apiKey",
+                "xai": "console.x.ai/team/default/api-keys",
+                "mistral": "console.mistral.ai/api-keys",
+                "cohere": "dashboard.cohere.com/api-keys",
+                "openrouter": "openrouter.ai/settings/keys",
+                "groq": "console.groq.com/keys",
+                "together_ai": "api.together.xyz/settings/api-keys",
+                "fireworks_ai": "fireworks.ai/account/api-keys",
+            }
 
             # Provider-specific fields (API key, endpoint, etc.)
             if provider_id != "llm":
@@ -3624,6 +3728,17 @@ def build_ai_model_modal(
                                 "text": hint_text,
                             }
                         blocks.append(input_block)
+                        # Clickable console URL below the API key field
+                        console_url = _console_urls.get(provider_id, "")
+                        if console_url and "key" in field_id:
+                            blocks.append({
+                                "type": "context",
+                                "block_id": f"console_url_{field_id}",
+                                "elements": [{
+                                    "type": "mrkdwn",
+                                    "text": f"Get your API key at <https://{console_url}|{console_url}>",
+                                }],
+                            })
                     elif field_type == "boolean":
                         default_val = field_def.get("default", False)
                         current_val = existing_provider_config.get(
