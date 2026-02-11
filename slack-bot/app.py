@@ -5759,7 +5759,7 @@ def _detect_provider_from_model(model: str) -> Optional[str]:
 
 @app.action("home_open_ai_model_selector")
 def handle_open_ai_model_selector(ack, body, client):
-    """Open the AI model provider selection modal from Home Tab."""
+    """Open the unified AI model configuration modal from Home Tab."""
     ack()
 
     team_id = body.get("team", {}).get("id")
@@ -5776,86 +5776,98 @@ def handle_open_ai_model_selector(ack, body, client):
             _detect_provider_from_model(current_model) if current_model else None
         )
 
+        # Get existing provider config for pre-filling
+        existing_provider_config = {}
+        if current_provider:
+            existing_provider_config = (
+                config_client.get_integration_config(team_id, current_provider) or {}
+            )
+
         onboarding = get_onboarding_modules()
-        modal = onboarding.build_provider_select_modal(
+        modal = onboarding.build_ai_model_modal(
             team_id=team_id,
+            provider_id=current_provider,
             current_model=current_model,
-            current_provider=current_provider,
+            existing_provider_config=existing_provider_config,
         )
         client.views_open(trigger_id=body["trigger_id"], view=modal)
-        logger.info(f"Opened AI model selector for team {team_id}")
+        logger.info(f"Opened AI model modal for team {team_id}")
 
     except Exception as e:
-        logger.error(f"Failed to open AI model selector: {e}", exc_info=True)
+        logger.error(f"Failed to open AI model modal: {e}", exc_info=True)
 
 
-@app.view("ai_provider_select_submission")
-def handle_ai_provider_select_submission(ack, body, client, view):
-    """Handle provider selection (Step 1) -> push provider config modal (Step 2)."""
-    private_metadata = json.loads(view.get("private_metadata", "{}"))
-    team_id = private_metadata.get("team_id")
-    values = view.get("state", {}).get("values", {})
+@app.action("ai_provider_select")
+def handle_ai_provider_change(ack, body, client):
+    """Handle provider dropdown change — update the modal with provider-specific fields."""
+    ack()
 
+    view = body.get("view", {})
+    view_id = view.get("id")
+
+    # Get selected provider from the action
     selected_provider = (
-        values.get("provider_block", {})
-        .get("ai_provider_select", {})
-        .get("selected_option", {})
-        .get("value")
+        body.get("actions", [{}])[0].get("selected_option", {}).get("value")
     )
-
-    if not selected_provider:
-        ack(
-            response_action="errors",
-            errors={"provider_block": "Please select a provider."},
-        )
+    if not selected_provider or not view_id:
         return
 
     try:
-        config_client = get_config_client()
+        private_metadata = json.loads(view.get("private_metadata", "{}"))
+        team_id = private_metadata.get("team_id")
 
-        # Get existing provider config (API key, etc.)
+        config_client = get_config_client()
+        llm_config = config_client.get_integration_config(team_id, "llm") or {}
+        current_model = llm_config.get("model", "")
+
         existing_provider_config = (
             config_client.get_integration_config(team_id, selected_provider) or {}
         )
 
-        # Get existing model
-        llm_config = config_client.get_integration_config(team_id, "llm") or {}
-        existing_model = llm_config.get("model", "")
-
         onboarding = get_onboarding_modules()
-        modal = onboarding.build_provider_config_modal(
+        modal = onboarding.build_ai_model_modal(
             team_id=team_id,
             provider_id=selected_provider,
+            current_model=current_model,
             existing_provider_config=existing_provider_config,
-            existing_model=existing_model,
         )
 
-        # Push Step 2 onto the modal stack
-        ack(response_action="push", view=modal)
+        client.views_update(view_id=view_id, view=modal)
         logger.info(
-            f"Pushed provider config modal for {selected_provider}, team {team_id}"
+            f"Updated AI model modal for provider {selected_provider}, team {team_id}"
         )
 
     except Exception as e:
-        logger.error(f"Failed to push provider config modal: {e}", exc_info=True)
-        ack()  # Close gracefully
+        logger.error(f"Failed to update AI model modal: {e}", exc_info=True)
 
 
 @app.view("ai_model_config_submission")
 def handle_ai_model_config_submission(ack, body, client, view):
-    """Handle AI model config submission (Step 2): validate key + save provider + model."""
+    """Handle AI model config submission: validate key + save provider + model."""
     private_metadata = json.loads(view.get("private_metadata", "{}"))
     team_id = private_metadata.get("team_id")
     provider_id = private_metadata.get("provider_id")
     field_names = private_metadata.get("field_names", [])
     values = view.get("state", {}).get("values", {})
 
-    # 1. Extract model ID
-    model_id = (
-        values.get("field_model_id", {}).get("input_model_id", {}).get("value", "")
+    # Also read provider from form state (authoritative if present)
+    dropdown_provider = (
+        values.get("provider_block", {})
+        .get("ai_provider_select", {})
+        .get("selected_option", {})
+        .get("value")
     )
-    if model_id:
-        model_id = model_id.strip()
+    if dropdown_provider:
+        provider_id = dropdown_provider
+
+    # 1. Extract model ID (from external_select: selected_option.value)
+    model_field = values.get("field_model_id", {}).get("input_model_id", {})
+    selected_option = model_field.get("selected_option")
+    model_id = (
+        selected_option.get("value", "").strip()
+        if selected_option
+        else model_field.get("value", "").strip()  # fallback for plain_text_input
+    )
     if not model_id:
         ack(
             response_action="errors",
@@ -5911,7 +5923,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
     onboarding = get_onboarding_modules()
     validation_config = {**existing_provider_config, **provider_config}
     is_valid, error_msg = onboarding.validate_provider_api_key(
-        provider_id, validation_config
+        provider_id, validation_config, model_id
     )
 
     if not is_valid:
@@ -5943,7 +5955,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
 
     # 4. Save provider config (API key + provider-specific fields)
     try:
-        if provider_id not in ("anthropic", "llm") and provider_config:
+        if provider_id != "llm" and provider_config:
             config_client.save_integration_config(
                 slack_team_id=team_id,
                 integration_id=provider_id,
@@ -6558,6 +6570,45 @@ def handle_home_retry_load(ack, body, client, context):
             pass
 
 
+@app.action(re.compile(r"^home_page_(prev|next)$"))
+def handle_home_pagination(ack, body, client, context):
+    """Handle pagination buttons on Home Tab."""
+    ack()
+
+    user_id = body.get("user", {}).get("id")
+    team_id = body.get("team", {}).get("id") or context.get("team_id")
+
+    if not user_id or not team_id:
+        return
+
+    action = body.get("actions", [{}])[0]
+    try:
+        action_value = json.loads(action.get("value", "{}"))
+        page = action_value.get("page", 1)
+    except (json.JSONDecodeError, TypeError):
+        page = 1
+
+    try:
+        config_client = get_config_client()
+        trial_info = config_client.get_trial_status(team_id)
+        configured = config_client.get_configured_integrations(team_id)
+
+        from home_tab import build_home_tab_view
+
+        view = build_home_tab_view(
+            team_id=team_id,
+            trial_info=trial_info,
+            configured_integrations=configured,
+            page=page,
+        )
+
+        client.views_publish(user_id=user_id, view=view)
+        logger.info(f"Home Tab page {page} for user {user_id}, team {team_id}")
+
+    except Exception as e:
+        logger.error(f"Failed to paginate Home Tab: {e}", exc_info=True)
+
+
 @app.action(re.compile(r"^home_(edit|add)_integration_.*"))
 def handle_home_integration_action(ack, body, client):
     """Handle Edit/Connect buttons on Home Tab."""
@@ -6601,6 +6652,12 @@ def handle_home_integration_action(ack, body, client):
         logger.error(
             f"Failed to open integration modal from Home Tab: {e}", exc_info=True
         )
+
+
+@app.action("home_book_demo")
+def handle_home_book_demo(ack):
+    """Ack the Book a Demo URL button click (URL opens in browser)."""
+    ack()
 
 
 @app.action("home_open_api_key_modal")
@@ -6722,6 +6779,48 @@ def handle_member_joined_channel(event, client, context):
 
 
 # =============================================================================
+# =============================================================================
+# Options Handlers (external_select dynamic data)
+# =============================================================================
+
+
+@app.options("input_model_id")
+def handle_model_options(ack, body):
+    """Handle dynamic model search for AI model selector (external_select)."""
+    query = body.get("value", "")
+
+    # Extract provider_id from the modal's private_metadata
+    provider_id = ""
+    view = body.get("view", {})
+    try:
+        metadata = json.loads(view.get("private_metadata", "{}"))
+        provider_id = metadata.get("provider_id", "")
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    logger.info(
+        f"Model options request: provider={provider_id!r}, query={query!r}"
+    )
+
+    try:
+        from model_catalog import get_models_for_provider
+
+        models = get_models_for_provider(provider_id, query=query, limit=100)
+        options = [
+            {
+                "text": {"type": "plain_text", "text": m["name"][:75]},
+                "value": m["id"],
+            }
+            for m in models
+        ]
+        logger.info(f"Returning {len(options)} model options for {provider_id}")
+        ack(options=options)
+    except Exception as e:
+        logger.error(f"Failed to load model options: {e}", exc_info=True)
+        ack(options=[])
+
+
+# =============================================================================
 # Multi-App Handler Registration
 # =============================================================================
 
@@ -6768,8 +6867,11 @@ def register_all_handlers(bolt_app):
     bolt_app.action("k8s_saas_remove_cluster")(handle_k8s_saas_remove_cluster)
     bolt_app.action("open_advanced_settings")(handle_open_advanced_settings)
     bolt_app.action("home_retry_load")(handle_home_retry_load)
+    bolt_app.action("home_book_demo")(handle_home_book_demo)
     bolt_app.action("home_open_api_key_modal")(handle_home_api_key_modal)
     bolt_app.action("mention_open_setup_wizard")(handle_mention_setup_wizard)
+    bolt_app.action("home_open_ai_model_selector")(handle_open_ai_model_selector)
+    bolt_app.action("ai_provider_select")(handle_ai_provider_change)
 
     # Action handlers (regex patterns)
     bolt_app.action(re.compile(r"^answer_q\d+_.*"))(handle_checkbox_action)
@@ -6782,6 +6884,7 @@ def register_all_handlers(bolt_app):
     bolt_app.action(re.compile(r"^integrations_(prev|next)_page$"))(
         handle_integrations_pagination
     )
+    bolt_app.action(re.compile(r"^home_page_(prev|next)$"))(handle_home_pagination)
     bolt_app.action(re.compile(r"^home_(edit|add)_integration_.*"))(
         handle_home_integration_action
     )
@@ -6798,6 +6901,10 @@ def register_all_handlers(bolt_app):
     )
     bolt_app.view("advanced_settings_submission")(handle_advanced_settings_submission)
     bolt_app.view("integration_config_submission")(handle_integration_config_submission)
+    bolt_app.view("ai_model_config_submission")(handle_ai_model_config_submission)
+
+    # Options handlers (external_select dynamic data)
+    bolt_app.options("input_model_id")(handle_model_options)
 
 
 if __name__ == "__main__":

@@ -670,6 +670,58 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "id": "anthropic",
+        "name": "Anthropic (Claude)",
+        "category": "llm",
+        "status": "active",
+        "icon": ":robot_face:",
+        "icon_fallback": ":robot_face:",
+        "description": "Claude models from Anthropic — the default provider.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://console.anthropic.com/\n"
+            "2. Create an API key\n"
+            "3. Enter the key below (or leave blank to use IncidentFox default)"
+        ),
+        "docs_url": "https://docs.anthropic.com",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": False,
+                "placeholder": "sk-ant-...",
+                "hint": "Your Anthropic API key. Leave blank to use IncidentFox default.",
+            },
+        ],
+    },
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":brain:",
+        "icon_fallback": ":brain:",
+        "description": "GPT-4o, o3, o1 and other OpenAI models.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://platform.openai.com/api-keys\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://platform.openai.com/docs",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "sk-...",
+                "hint": "Your OpenAI API key from platform.openai.com",
+            },
+        ],
+    },
+    {
         "id": "openrouter",
         "name": "OpenRouter",
         "category": "llm",
@@ -1991,11 +2043,13 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str]:
+def validate_provider_api_key(
+    provider_id: str, config: dict, model_id: str = ""
+) -> tuple[bool, str]:
     """
-    Validate API credentials for a provider via a lightweight test request.
+    Validate API credentials for a provider via a live 1-token test message.
 
-    Makes a real HTTP call to verify the key works at config time.
+    Sends a minimal completion request to verify the key, model access, and billing.
     Returns (is_valid, error_message).
     """
     import re as _re
@@ -2013,9 +2067,24 @@ def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str
         msg = _re.sub(r"glpat-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
         return msg
 
+    def _extract_error(resp) -> str:
+        """Extract error message from API response."""
+        try:
+            body = resp.json()
+            msg = body.get("error", {}).get("message", "")
+            if msg:
+                return _sanitize(msg)
+        except Exception:
+            pass
+        return _sanitize(resp.text[:300])
+
+    def _raw_model(mid: str) -> str:
+        """Strip provider prefix from model ID for API calls."""
+        return mid.split("/", 1)[1] if "/" in mid else mid
+
     api_key = config.get("api_key", "")
 
-    # --- Providers with complex auth: format-check only ---
+    # --- Bedrock: format-check only (SDK auth too complex for HTTP) ---
     if provider_id == "bedrock":
         has_auth = api_key or (
             config.get("aws_access_key_id") and config.get("aws_secret_access_key")
@@ -2024,41 +2093,96 @@ def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str
             return False, "Provide either a Bedrock API key or AWS access key + secret."
         return True, ""
 
+    # --- Vertex AI: format-check only (Google auth too complex for HTTP) ---
     if provider_id == "vertex_ai":
         if not config.get("project"):
             return False, "GCP Project ID is required."
         return True, ""
 
+    # --- Ollama: live 1-token test ---
     if provider_id == "ollama":
         host = config.get("host", "http://localhost:11434")
+        raw = _raw_model(model_id) if model_id else "llama3"
         try:
-            resp = req.get(f"{host.rstrip('/')}/api/tags", timeout=5)
+            resp = req.post(
+                f"{host.rstrip('/')}/api/chat",
+                json={
+                    "model": raw,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False,
+                    "options": {"num_predict": 1},
+                },
+                timeout=15,
+            )
             if resp.status_code == 200:
                 return True, ""
-            return (
-                False,
-                f"Ollama returned HTTP {resp.status_code}: {resp.text[:200]}",
-            )
+            return False, f"Ollama error ({resp.status_code}): {_extract_error(resp)}"
         except Exception as e:
             return False, f"Cannot reach Ollama at {host}: {str(e)[:200]}"
 
-    # --- Azure / Azure AI: format-check ---
-    if provider_id in ("azure", "azure_ai"):
+    # --- Azure: live 1-token test ---
+    if provider_id == "azure":
         if not api_key:
-            return False, f"API key is required for {provider_id}."
+            return False, "API key is required for Azure."
         api_base = config.get("api_base", "")
         if not api_base:
-            return False, f"Endpoint URL is required for {provider_id}."
+            return False, "Endpoint URL is required for Azure."
         if not api_base.startswith("https://"):
             return False, "Endpoint URL must start with https://"
-        return True, ""
+        deployment = _raw_model(model_id) if model_id else "gpt-4o"
+        try:
+            url = f"{api_base.rstrip('/')}/openai/deployments/{deployment}/chat/completions?api-version=2024-02-01"
+            resp = req.post(
+                url,
+                headers={"api-key": api_key, "Content-Type": "application/json"},
+                json={
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                return True, ""
+            return False, f"Azure API error ({resp.status_code}): {_extract_error(resp)}"
+        except Exception as e:
+            return False, f"Cannot reach Azure endpoint: {_sanitize(str(e)[:200])}"
 
-    # --- Anthropic: live test ---
+    # --- Azure AI: live 1-token test ---
+    if provider_id == "azure_ai":
+        if not api_key:
+            return False, "API key is required for Azure AI."
+        api_base = config.get("api_base", "")
+        if not api_base:
+            return False, "Endpoint URL is required for Azure AI."
+        if not api_base.startswith("https://"):
+            return False, "Endpoint URL must start with https://"
+        try:
+            url = f"{api_base.rstrip('/')}/v1/chat/completions"
+            resp = req.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                return True, ""
+            return False, f"Azure AI error ({resp.status_code}): {_extract_error(resp)}"
+        except Exception as e:
+            return False, f"Cannot reach Azure AI endpoint: {_sanitize(str(e)[:200])}"
+
+    # --- Anthropic: live 1-token test ---
     if provider_id == "anthropic":
         if not api_key:
             return True, ""  # OK to not have a key (uses IncidentFox default)
         if not (api_key.startswith("sk-ant-") or api_key.startswith("sk-")):
             return False, "Invalid Anthropic key format. Keys start with sk-ant-"
+        raw = model_id or "claude-sonnet-4-20250514"
         try:
             resp = req.post(
                 "https://api.anthropic.com/v1/messages",
@@ -2068,7 +2192,7 @@ def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": raw,
                     "max_tokens": 1,
                     "messages": [{"role": "user", "content": "hi"}],
                 },
@@ -2076,105 +2200,122 @@ def validate_provider_api_key(provider_id: str, config: dict) -> tuple[bool, str
             )
             if resp.status_code in (200, 201):
                 return True, ""
-            try:
-                body = resp.json()
-                err_msg = body.get("error", {}).get("message", resp.text[:300])
-            except Exception:
-                err_msg = resp.text[:300]
-            return False, f"Anthropic API error ({resp.status_code}): {err_msg}"
+            return False, f"Anthropic API error ({resp.status_code}): {_extract_error(resp)}"
         except Exception as e:
             return False, f"Cannot reach Anthropic API: {str(e)[:200]}"
 
-    # --- OpenRouter ---
-    if provider_id == "openrouter":
-        if not api_key:
-            return False, "OpenRouter API key is required."
-        try:
-            resp = req.get(
-                "https://openrouter.ai/api/v1/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                return True, ""
-            return (
-                False,
-                f"OpenRouter API error ({resp.status_code}): {resp.text[:300]}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach OpenRouter: {str(e)[:200]}"
-
-    # --- OpenAI-compatible providers: GET /v1/models ---
-    PROVIDER_ENDPOINTS = {
-        "openai": "https://api.openai.com/v1/models",
-        "deepseek": "https://api.deepseek.com/v1/models",
-        "xai": "https://api.x.ai/v1/models",
-        "mistral": "https://api.mistral.ai/v1/models",
-        "together_ai": "https://api.together.xyz/v1/models",
-        "groq": "https://api.groq.com/openai/v1/models",
-        "fireworks_ai": "https://api.fireworks.ai/inference/v1/models",
-        "moonshot": "https://api.moonshot.ai/v1/models",
-        "minimax": "https://api.minimax.io/v1/models",
-    }
-
+    # --- Gemini: live 1-token test ---
     if provider_id == "gemini":
         if not api_key:
             return False, "Gemini API key is required."
+        raw = _raw_model(model_id) if model_id else "gemini-2.5-flash"
         try:
-            resp = req.get(
-                "https://generativelanguage.googleapis.com/v1beta/models",
-                headers={"x-goog-api-key": api_key},
-                timeout=5,
+            resp = req.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{raw}:generateContent",
+                headers={
+                    "x-goog-api-key": api_key,
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "contents": [{"parts": [{"text": "hi"}]}],
+                    "generationConfig": {"maxOutputTokens": 1},
+                },
+                timeout=10,
             )
             if resp.status_code == 200:
                 return True, ""
-            try:
-                body = resp.json()
-                err_msg = body.get("error", {}).get("message", "") or resp.text[:300]
-            except Exception:
-                err_msg = resp.text[:300]
-            return False, f"Gemini API error ({resp.status_code}): {err_msg}"
+            return False, f"Gemini API error ({resp.status_code}): {_extract_error(resp)}"
         except Exception as e:
             return False, f"Cannot reach Gemini API: {str(e)[:200]}"
 
+    # --- Cohere: live 1-token test ---
     if provider_id == "cohere":
         if not api_key:
             return False, "Cohere API key is required."
+        raw = _raw_model(model_id) if model_id else "command-r-plus"
         try:
-            resp = req.get(
-                "https://api.cohere.com/v2/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=5,
+            resp = req.post(
+                "https://api.cohere.com/v2/chat",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": raw,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=10,
             )
             if resp.status_code == 200:
                 return True, ""
-            return (
-                False,
-                f"Cohere API error ({resp.status_code}): {resp.text[:300]}",
-            )
+            return False, f"Cohere API error ({resp.status_code}): {_extract_error(resp)}"
         except Exception as e:
             return False, f"Cannot reach Cohere API: {str(e)[:200]}"
 
-    endpoint = PROVIDER_ENDPOINTS.get(provider_id)
+    # --- OpenRouter: live 1-token test ---
+    if provider_id == "openrouter":
+        if not api_key:
+            return False, "OpenRouter API key is required."
+        # model_id is like "openrouter/anthropic/claude-sonnet-4.5" → strip "openrouter/"
+        raw = _raw_model(model_id) if model_id else "anthropic/claude-sonnet-4.5"
+        try:
+            resp = req.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": raw,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                return True, ""
+            return False, f"OpenRouter API error ({resp.status_code}): {_extract_error(resp)}"
+        except Exception as e:
+            return False, f"Cannot reach OpenRouter: {str(e)[:200]}"
+
+    # --- OpenAI-compatible providers: live 1-token test ---
+    PROVIDER_CHAT_ENDPOINTS = {
+        "openai": "https://api.openai.com/v1/chat/completions",
+        "deepseek": "https://api.deepseek.com/v1/chat/completions",
+        "xai": "https://api.x.ai/v1/chat/completions",
+        "mistral": "https://api.mistral.ai/v1/chat/completions",
+        "together_ai": "https://api.together.xyz/v1/chat/completions",
+        "groq": "https://api.groq.com/openai/v1/chat/completions",
+        "fireworks_ai": "https://api.fireworks.ai/inference/v1/chat/completions",
+        "moonshot": "https://api.moonshot.ai/v1/chat/completions",
+        "minimax": "https://api.minimax.io/v1/chat/completions",
+    }
+
+    endpoint = PROVIDER_CHAT_ENDPOINTS.get(provider_id)
     if endpoint:
         if not api_key:
             return False, f"API key is required for {provider_id}."
+        raw = _raw_model(model_id) if model_id else "default"
         try:
-            resp = req.get(
+            resp = req.post(
                 endpoint,
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=5,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": raw,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=10,
             )
-            if resp.status_code == 200:
+            if resp.status_code in (200, 201):
                 return True, ""
-            try:
-                body = resp.json()
-                err_msg = body.get("error", {}).get("message", "") or resp.text[:300]
-            except Exception:
-                err_msg = resp.text[:300]
-            return False, f"API error ({resp.status_code}): {err_msg}"
+            return False, f"API error ({resp.status_code}): {_extract_error(resp)}"
         except Exception as e:
-            return False, f"Cannot reach provider API: {str(e)[:200]}"
+            return False, f"Cannot reach provider API: {_sanitize(str(e)[:200])}"
 
     # Unknown provider — skip validation
     return True, ""
@@ -3282,17 +3423,22 @@ def build_advanced_settings_modal(
     }
 
 
-def build_provider_select_modal(
+def build_ai_model_modal(
     team_id: str,
+    provider_id: str = None,
     current_model: str = None,
-    current_provider: str = None,
+    existing_provider_config: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """
-    Build Step 1: Provider selection modal for AI model config.
+    Build unified AI model configuration modal.
 
-    Shows a static_select dropdown with all supported LLM providers.
+    Combines provider selection + model/API key config in a single modal.
+    When provider_id is set, shows model and API key fields below the provider dropdown.
+    Uses dispatch_action so changing the provider triggers a views.update.
     """
+    existing_provider_config = existing_provider_config or {}
     blocks = []
+    field_names = []
 
     # Current model display
     if current_model:
@@ -3307,51 +3453,38 @@ def build_provider_select_modal(
         )
         blocks.append({"type": "divider"})
 
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Choose an AI Provider*\n"
-                    "Select the provider you want to use, then configure the model and API key."
-                ),
-            },
-        }
-    )
-
-    # Build static_select options from LLM_PROVIDERS
-    options = []
-    initial_option = None
-    for provider_id, display_name, _prefix, desc in LLM_PROVIDERS:
+    # --- Provider dropdown (dispatch_action fires block_actions on change) ---
+    provider_options = []
+    initial_provider_option = None
+    for pid, display_name, _prefix, desc in LLM_PROVIDERS:
         option = {
             "text": {"type": "plain_text", "text": display_name},
             "description": {"type": "plain_text", "text": desc[:75]},
-            "value": provider_id,
+            "value": pid,
         }
-        options.append(option)
-        if current_provider and provider_id == current_provider:
-            initial_option = option
+        provider_options.append(option)
+        if provider_id and pid == provider_id:
+            initial_provider_option = option
 
-    element = {
+    provider_element = {
         "type": "static_select",
         "action_id": "ai_provider_select",
         "placeholder": {"type": "plain_text", "text": "Select a provider..."},
-        "options": options,
+        "options": provider_options,
     }
-    if initial_option:
-        element["initial_option"] = initial_option
+    if initial_provider_option:
+        provider_element["initial_option"] = initial_provider_option
 
     blocks.append(
         {
             "type": "input",
             "block_id": "provider_block",
-            "element": element,
+            "dispatch_action": True,
+            "element": provider_element,
             "label": {"type": "plain_text", "text": "AI Provider"},
         }
     )
 
-    # Anthropic note
     blocks.append(
         {
             "type": "context",
@@ -3364,245 +3497,234 @@ def build_provider_select_modal(
         }
     )
 
-    private_metadata = json.dumps({"team_id": team_id})
+    # --- Provider-specific fields (only shown when a provider is selected) ---
+    if provider_id:
+        provider_schema = get_integration_by_id(provider_id)
+        if provider_schema:
+            provider_name = provider_schema.get("name", provider_id)
 
-    return {
-        "type": "modal",
-        "callback_id": "ai_provider_select_submission",
-        "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": "AI Model"},
-        "submit": {"type": "plain_text", "text": "Next"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": blocks,
-    }
+            # Find model prefix hint
+            model_placeholder = ""
+            for pid, _name, prefix, _desc in LLM_PROVIDERS:
+                if pid == provider_id:
+                    model_placeholder = prefix
+                    break
 
+            blocks.append({"type": "divider"})
 
-def build_provider_config_modal(
-    team_id: str,
-    provider_id: str,
-    existing_provider_config: Optional[Dict] = None,
-    existing_model: str = None,
-) -> Dict[str, Any]:
-    """
-    Build Step 2: Provider-specific config modal with model ID + API key fields.
+            # Model selector — fetch from API, fall back to text input if none
+            from model_catalog import get_models_for_provider
 
-    Reuses field definitions from the provider's INTEGRATIONS entry.
-    """
-    existing_provider_config = existing_provider_config or {}
-
-    # Look up the provider's INTEGRATIONS entry for its fields
-    provider_schema = get_integration_by_id(provider_id)
-    if not provider_schema:
-        return {
-            "type": "modal",
-            "callback_id": "ai_model_config_error",
-            "title": {"type": "plain_text", "text": "Error"},
-            "close": {"type": "plain_text", "text": "Close"},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":warning: Provider `{provider_id}` not found.",
-                    },
-                }
-            ],
-        }
-
-    provider_name = provider_schema.get("name", provider_id)
-
-    # Find the model prefix hint for this provider
-    model_placeholder = ""
-    for pid, _name, prefix, _desc in LLM_PROVIDERS:
-        if pid == provider_id:
-            model_placeholder = prefix
-            break
-
-    blocks = []
-
-    # Header
-    logo_url = get_integration_logo_url(provider_id)
-    header_block = {
-        "type": "section",
-        "text": {
-            "type": "mrkdwn",
-            "text": f":robot_face: *Configure {provider_name}*",
-        },
-    }
-    if logo_url:
-        header_block["accessory"] = {
-            "type": "image",
-            "image_url": logo_url,
-            "alt_text": provider_name,
-        }
-    blocks.append(header_block)
-
-    # Model ID input (always first)
-    model_element = {
-        "type": "plain_text_input",
-        "action_id": "input_model_id",
-        "placeholder": {
-            "type": "plain_text",
-            "text": model_placeholder or "provider/model-name",
-        },
-    }
-    if existing_model:
-        model_element["initial_value"] = existing_model
-
-    blocks.append(
-        {
-            "type": "input",
-            "block_id": "field_model_id",
-            "element": model_element,
-            "label": {"type": "plain_text", "text": "Model ID"},
-            "hint": {
-                "type": "plain_text",
-                "text": f"LiteLLM model ID. Example: {model_placeholder}",
-            },
-        }
-    )
-
-    blocks.append({"type": "divider"})
-
-    # Provider-specific fields (API key, endpoint, etc.)
-    field_names = []
-    if provider_id not in ("anthropic", "llm"):
-        fields = provider_schema.get("fields", [])
-        for field_def in fields:
-            field_id = field_def["id"]
-            field_name = field_def.get("name", field_id)
-            field_type = field_def.get("type", "string")
-            field_hint = field_def.get("hint", "")
-            field_required = field_def.get("required", False)
-            field_placeholder = field_def.get("placeholder", "")
-
-            field_names.append(field_id)
-            field_has_value = field_id in existing_provider_config
-            make_optional = field_has_value or not field_required
-
-            if field_type == "secret":
-                hint_text = field_hint
-                if field_has_value:
-                    hint_text = (
-                        f"{field_hint} (already set — leave blank to keep)"
-                        if field_hint
-                        else "Already set — leave blank to keep"
-                    )
-                input_block = {
-                    "type": "input",
-                    "block_id": f"field_{field_id}",
-                    "optional": make_optional,
-                    "element": {
-                        "type": "plain_text_input",
-                        "action_id": f"input_{field_id}",
-                        "placeholder": {
-                            "type": "plain_text",
-                            "text": field_placeholder or "Enter value...",
-                        },
-                    },
-                    "label": {"type": "plain_text", "text": field_name},
-                }
-                if hint_text:
-                    input_block["hint"] = {"type": "plain_text", "text": hint_text}
-                blocks.append(input_block)
-            elif field_type == "boolean":
-                default_val = field_def.get("default", False)
-                current_val = existing_provider_config.get(field_id, default_val)
-                initial_options = []
-                if current_val:
-                    initial_options = [
-                        {
-                            "text": {"type": "plain_text", "text": field_name},
-                            "value": "true",
-                        }
-                    ]
-                checkbox_block = {
-                    "type": "input",
-                    "block_id": f"field_{field_id}",
-                    "optional": True,
-                    "element": {
-                        "type": "checkboxes",
-                        "action_id": f"input_{field_id}",
-                        "options": [
-                            {
-                                "text": {"type": "plain_text", "text": field_name},
-                                "value": "true",
-                            }
-                        ],
-                    },
-                    "label": {"type": "plain_text", "text": field_name},
-                }
-                if initial_options:
-                    checkbox_block["element"]["initial_options"] = initial_options
-                blocks.append(checkbox_block)
-            else:
-                # String field
-                existing_value = existing_provider_config.get(field_id, "")
-                element = {
-                    "type": "plain_text_input",
-                    "action_id": f"input_{field_id}",
+            catalog_models = get_models_for_provider(provider_id, limit=100)
+            if catalog_models:
+                options = [
+                    {
+                        "text": {"type": "plain_text", "text": m["name"][:75]},
+                        "value": m["id"],
+                    }
+                    for m in catalog_models
+                ]
+                model_element = {
+                    "type": "static_select",
+                    "action_id": "input_model_id",
                     "placeholder": {
                         "type": "plain_text",
-                        "text": field_placeholder or "Enter value...",
+                        "text": "Select a model",
+                    },
+                    "options": options,
+                }
+                if current_model and any(
+                    o["value"] == current_model for o in options
+                ):
+                    model_element["initial_option"] = {
+                        "text": {
+                            "type": "plain_text",
+                            "text": current_model[:75],
+                        },
+                        "value": current_model,
+                    }
+            else:
+                model_element = {
+                    "type": "plain_text_input",
+                    "action_id": "input_model_id",
+                    "placeholder": {
+                        "type": "plain_text",
+                        "text": f"e.g. {model_placeholder or 'model-name'}",
                     },
                 }
-                if existing_value:
-                    element["initial_value"] = str(existing_value)
-                input_block = {
-                    "type": "input",
-                    "block_id": f"field_{field_id}",
-                    "optional": make_optional,
-                    "element": element,
-                    "label": {"type": "plain_text", "text": field_name},
-                }
-                if field_hint:
-                    input_block["hint"] = {"type": "plain_text", "text": field_hint}
-                blocks.append(input_block)
-    else:
-        # Anthropic: show info that default key is used
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": ":lock: Using IncidentFox's Anthropic API key (zero data retention). You can configure your own key in *Advanced Settings*.",
-                    }
-                ],
-            }
-        )
+                if current_model:
+                    model_element["initial_value"] = current_model
 
-    # Security note
-    blocks.append({"type": "divider"})
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
+            blocks.append(
                 {
-                    "type": "mrkdwn",
-                    "text": ":lock: Credentials are encrypted and stored securely.",
+                    "type": "input",
+                    "block_id": "field_model_id",
+                    "element": model_element,
+                    "label": {"type": "plain_text", "text": "Model"},
+                    "hint": {
+                        "type": "plain_text",
+                        "text": f"Select or enter a model. Example: {model_placeholder}",
+                    },
                 }
-            ],
-        }
-    )
+            )
+
+            # Provider-specific fields (API key, endpoint, etc.)
+            if provider_id != "llm":
+                fields = provider_schema.get("fields", [])
+                for field_def in fields:
+                    field_id = field_def["id"]
+                    field_name = field_def.get("name", field_id)
+                    field_type = field_def.get("type", "string")
+                    field_hint = field_def.get("hint", "")
+                    field_required = field_def.get("required", False)
+                    field_placeholder = field_def.get("placeholder", "")
+
+                    field_names.append(field_id)
+                    field_has_value = field_id in existing_provider_config
+                    make_optional = field_has_value or not field_required
+
+                    if field_type == "secret":
+                        hint_text = field_hint
+                        if field_has_value:
+                            hint_text = (
+                                f"{field_hint} (already set — leave blank to keep)"
+                                if field_hint
+                                else "Already set — leave blank to keep"
+                            )
+                        input_block = {
+                            "type": "input",
+                            "block_id": f"field_{field_id}",
+                            "optional": make_optional,
+                            "element": {
+                                "type": "plain_text_input",
+                                "action_id": f"input_{field_id}",
+                                "placeholder": {
+                                    "type": "plain_text",
+                                    "text": field_placeholder or "Enter value...",
+                                },
+                            },
+                            "label": {"type": "plain_text", "text": field_name},
+                        }
+                        if hint_text:
+                            input_block["hint"] = {
+                                "type": "plain_text",
+                                "text": hint_text,
+                            }
+                        blocks.append(input_block)
+                    elif field_type == "boolean":
+                        default_val = field_def.get("default", False)
+                        current_val = existing_provider_config.get(
+                            field_id, default_val
+                        )
+                        initial_options = []
+                        if current_val:
+                            initial_options = [
+                                {
+                                    "text": {
+                                        "type": "plain_text",
+                                        "text": field_name,
+                                    },
+                                    "value": "true",
+                                }
+                            ]
+                        checkbox_block = {
+                            "type": "input",
+                            "block_id": f"field_{field_id}",
+                            "optional": True,
+                            "element": {
+                                "type": "checkboxes",
+                                "action_id": f"input_{field_id}",
+                                "options": [
+                                    {
+                                        "text": {
+                                            "type": "plain_text",
+                                            "text": field_name,
+                                        },
+                                        "value": "true",
+                                    }
+                                ],
+                            },
+                            "label": {"type": "plain_text", "text": field_name},
+                        }
+                        if initial_options:
+                            checkbox_block["element"][
+                                "initial_options"
+                            ] = initial_options
+                        blocks.append(checkbox_block)
+                    else:
+                        existing_value = existing_provider_config.get(field_id, "")
+                        element = {
+                            "type": "plain_text_input",
+                            "action_id": f"input_{field_id}",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": field_placeholder or "Enter value...",
+                            },
+                        }
+                        if existing_value:
+                            element["initial_value"] = str(existing_value)
+                        input_block = {
+                            "type": "input",
+                            "block_id": f"field_{field_id}",
+                            "optional": make_optional,
+                            "element": element,
+                            "label": {"type": "plain_text", "text": field_name},
+                        }
+                        if field_hint:
+                            input_block["hint"] = {
+                                "type": "plain_text",
+                                "text": field_hint,
+                            }
+                        blocks.append(input_block)
+            else:
+                blocks.append(
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": ":lock: Using IncidentFox's Anthropic API key (zero data retention). You can configure your own key in *Advanced Settings*.",
+                            }
+                        ],
+                    }
+                )
+
+            # Security note
+            blocks.append({"type": "divider"})
+            blocks.append(
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "type": "mrkdwn",
+                            "text": ":lock: Credentials are encrypted and stored securely.",
+                        }
+                    ],
+                }
+            )
 
     private_metadata = json.dumps(
         {
             "team_id": team_id,
-            "provider_id": provider_id,
+            "provider_id": provider_id or "",
             "field_names": field_names,
         }
     )
 
-    return {
+    modal = {
         "type": "modal",
         "callback_id": "ai_model_config_submission",
         "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": provider_name[:24]},
-        "submit": {"type": "plain_text", "text": "Save"},
-        "close": {"type": "plain_text", "text": "Back"},
+        "title": {"type": "plain_text", "text": "AI Model"},
+        "close": {"type": "plain_text", "text": "Cancel"},
         "blocks": blocks,
     }
+
+    # Only show Save button when a provider is selected
+    if provider_id:
+        modal["submit"] = {"type": "plain_text", "text": "Save"}
+
+    return modal
 
 
 def build_integration_config_modal(

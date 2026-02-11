@@ -789,7 +789,7 @@ async def _investigate_via_sandbox(request: InvestigateRequest):
             sandbox_info = await asyncio.to_thread(manager.get_sandbox, thread_id)
 
             if sandbox_info is None:
-                yield thought_event(thread_id, "Creating isolated sandbox...").to_sse()
+                yield thought_event(thread_id, "Investigating...").to_sse()
 
                 sandbox_info = await asyncio.to_thread(
                     manager.create_sandbox,
@@ -799,10 +799,6 @@ async def _investigate_via_sandbox(request: InvestigateRequest):
                     team_token=request.team_token,
                 )
 
-                yield thought_event(
-                    thread_id, "Waiting for sandbox to be ready..."
-                ).to_sse()
-
                 ready = await asyncio.to_thread(manager.wait_for_ready, thread_id, 120)
                 if not ready:
                     yield error_event(
@@ -811,10 +807,6 @@ async def _investigate_via_sandbox(request: InvestigateRequest):
                         recoverable=False,
                     ).to_sse()
                     return
-
-                yield thought_event(
-                    thread_id, "Sandbox ready. Starting investigation..."
-                ).to_sse()
 
             # Execute in sandbox via router (streaming SSE)
             images = (
