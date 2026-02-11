@@ -24,7 +24,11 @@ _CACHE_TTL = 3600
 # auth_style: "bearer" = Authorization: Bearer <key>, "query" = ?key=<key> param
 _NATIVE_API_CONFIG = {
     "openai": ("https://api.openai.com/v1/models", "bearer", "OPENAI_API_KEY"),
-    "gemini": ("https://generativelanguage.googleapis.com/v1beta/models", "query", "GEMINI_API_KEY"),
+    "gemini": (
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        "query",
+        "GEMINI_API_KEY",
+    ),
     "deepseek": ("https://api.deepseek.com/v1/models", "bearer", "DEEPSEEK_API_KEY"),
     "xai": ("https://api.x.ai/v1/models", "bearer", "XAI_API_KEY"),
     "mistral": ("https://api.mistral.ai/v1/models", "bearer", "MISTRAL_API_KEY"),
@@ -60,11 +64,25 @@ _LITELLM_PREFIX = {
 }
 
 # Models to exclude from OpenAI (non-chat: image gen, TTS, STT, embeddings, etc.)
-_OPENAI_SKIP_KEYWORDS = frozenset([
-    "dall-e", "tts", "whisper", "embedding", "realtime", "audio",
-    "transcribe", "moderation", "sora", "image", "search",
-    "computer-use", "babbage", "davinci", "instruct",
-])
+_OPENAI_SKIP_KEYWORDS = frozenset(
+    [
+        "dall-e",
+        "tts",
+        "whisper",
+        "embedding",
+        "realtime",
+        "audio",
+        "transcribe",
+        "moderation",
+        "sora",
+        "image",
+        "search",
+        "computer-use",
+        "babbage",
+        "davinci",
+        "instruct",
+    ]
+)
 # Note: "codex" not in skip list — gpt-5-codex, gpt-5.2-codex are chat-capable.
 # Standalone codex-* models (e.g. codex-mini-latest) are excluded by the
 # include-prefix check (only gpt-*/o1*/o3*/o4*/chatgpt-* pass through).
@@ -72,9 +90,12 @@ _OPENAI_SKIP_KEYWORDS = frozenset([
 
 def _fetch_json(url: str, headers: dict, timeout: int = 10) -> dict:
     """Fetch JSON from URL."""
-    req = urllib.request.Request(url, headers={**headers, "User-Agent": "IncidentFox/1.0"})
+    req = urllib.request.Request(
+        url, headers={**headers, "User-Agent": "IncidentFox/1.0"}
+    )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
+
 
 class ModelCatalog:
     """Cached model catalog with native API fetching + OpenRouter enrichment."""
@@ -133,7 +154,9 @@ class ModelCatalog:
         for m in data.get("data", []):
             mid = m["id"]
             # Only include chat-capable models
-            if not any(mid.startswith(p) for p in ("gpt-", "o1", "o3", "o4", "chatgpt-")):
+            if not any(
+                mid.startswith(p) for p in ("gpt-", "o1", "o3", "o4", "chatgpt-")
+            ):
                 continue
             if any(kw in mid for kw in _OPENAI_SKIP_KEYWORDS):
                 continue
@@ -154,11 +177,13 @@ class ModelCatalog:
             # Skip image/TTS models
             if any(kw in mid for kw in ("image", "tts", "robotics")):
                 continue
-            results.append({
-                "id": mid,
-                "name": m.get("displayName", mid),
-                "created": 0,  # Gemini API doesn't provide timestamps
-            })
+            results.append(
+                {
+                    "id": mid,
+                    "name": m.get("displayName", mid),
+                    "created": 0,  # Gemini API doesn't provide timestamps
+                }
+            )
         return results
 
     def _fetch_native_openai_compat(self, endpoint: str, api_key: str) -> List[Dict]:
@@ -205,7 +230,9 @@ class ModelCatalog:
                     models = self._fetch_native(provider_id)
                     if models is not None:
                         self._native_cache[provider_id] = models
-                        logger.info(f"Fetched {len(models)} native models for {provider_id}")
+                        logger.info(
+                            f"Fetched {len(models)} native models for {provider_id}"
+                        )
                     self._last_fetch[provider_id] = time.time()
 
     # --- Public API ---
@@ -235,7 +262,11 @@ class ModelCatalog:
         return self._get_from_openrouter(provider_id, query, limit)
 
     def _format_native(
-        self, provider_id: str, models: List[Dict], query: str, limit: int,
+        self,
+        provider_id: str,
+        models: List[Dict],
+        query: str,
+        limit: int,
     ) -> List[Dict]:
         """Format native models with LiteLLM prefix and OpenRouter descriptions."""
         prefix = _LITELLM_PREFIX.get(provider_id, provider_id)
@@ -254,18 +285,23 @@ class ModelCatalog:
             # Enrich with OpenRouter description
             description = self._or_descriptions.get(raw_id, "")
 
-            results.append({
-                "id": litellm_id,
-                "name": name,
-                "created": m.get("created", 0),
-                "description": description,
-            })
+            results.append(
+                {
+                    "id": litellm_id,
+                    "name": name,
+                    "created": m.get("created", 0),
+                    "description": description,
+                }
+            )
 
         results.sort(key=lambda m: m.get("created", 0), reverse=True)
         return results[:limit]
 
     def _get_from_openrouter(
-        self, provider_id: str, query: str, limit: int,
+        self,
+        provider_id: str,
+        query: str,
+        limit: int,
     ) -> List[Dict]:
         """Fallback: get models from OpenRouter for providers without native API."""
         prefixes = _OR_PREFIX_MAP.get(provider_id, [])
@@ -273,13 +309,16 @@ class ModelCatalog:
             return []
 
         candidates = [
-            m for m in self._or_cache
+            m
+            for m in self._or_cache
             if any(m.get("id", "").startswith(p + "/") for p in prefixes)
         ]
 
         # Map OpenRouter prefix -> LiteLLM prefix
         or_to_litellm = {
-            "google": "gemini", "x-ai": "xai", "mistralai": "mistral",
+            "google": "gemini",
+            "x-ai": "xai",
+            "mistralai": "mistral",
             "moonshotai": "moonshot",
         }
 
@@ -307,12 +346,14 @@ class ModelCatalog:
                 if q not in model_id.lower() and q not in name.lower():
                     continue
 
-            results.append({
-                "id": model_id,
-                "name": name,
-                "created": m.get("created", 0),
-                "description": m.get("description", ""),
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "created": m.get("created", 0),
+                    "description": m.get("description", ""),
+                }
+            )
 
         results.sort(key=lambda m: m.get("created", 0), reverse=True)
         return results[:limit]
@@ -333,15 +374,18 @@ class ModelCatalog:
                 if q not in model_id.lower() and q not in name.lower():
                     continue
 
-            results.append({
-                "id": model_id,
-                "name": name,
-                "created": m.get("created", 0),
-                "description": m.get("description", ""),
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "created": m.get("created", 0),
+                    "description": m.get("description", ""),
+                }
+            )
 
         results.sort(key=lambda m: m.get("created", 0), reverse=True)
         return results[:limit]
+
 
 # Singleton instance
 _catalog = ModelCatalog()

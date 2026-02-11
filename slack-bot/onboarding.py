@@ -3579,8 +3579,15 @@ def build_ai_model_modal(
             # Model selector — fetch from API, fall back to text input
             # Text input for deployment-specific or large-catalog providers
             _text_input_providers = {
-                "azure", "azure_ai", "bedrock", "vertex_ai", "ollama", "openrouter",
-                "groq", "together_ai", "fireworks_ai",  # inference platforms
+                "azure",
+                "azure_ai",
+                "bedrock",
+                "vertex_ai",
+                "ollama",
+                "openrouter",
+                "groq",
+                "together_ai",
+                "fireworks_ai",  # inference platforms
             }
 
             if provider_id in _text_input_providers:
@@ -3664,7 +3671,10 @@ def build_ai_model_modal(
                         "type": "context",
                         "block_id": "model_description",
                         "elements": [
-                            {"type": "mrkdwn", "text": _md_to_slack(model_description)[:3000]}
+                            {
+                                "type": "mrkdwn",
+                                "text": _md_to_slack(model_description)[:3000],
+                            }
                         ],
                     }
                 )
@@ -3731,14 +3741,18 @@ def build_ai_model_modal(
                         # Clickable console URL below the API key field
                         console_url = _console_urls.get(provider_id, "")
                         if console_url and "key" in field_id:
-                            blocks.append({
-                                "type": "context",
-                                "block_id": f"console_url_{field_id}",
-                                "elements": [{
-                                    "type": "mrkdwn",
-                                    "text": f"Get your API key at <https://{console_url}|{console_url}>",
-                                }],
-                            })
+                            blocks.append(
+                                {
+                                    "type": "context",
+                                    "block_id": f"console_url_{field_id}",
+                                    "elements": [
+                                        {
+                                            "type": "mrkdwn",
+                                            "text": f"Get your API key at <https://{console_url}|{console_url}>",
+                                        }
+                                    ],
+                                }
+                            )
                     elif field_type == "boolean":
                         default_val = field_def.get("default", False)
                         current_val = existing_provider_config.get(
