@@ -194,12 +194,14 @@ class ModelCatalog:
             # Use OpenRouter created timestamp, fall back to date in model name
             sort_key = created or _extract_date_score(raw_name)
 
-            results.append({
-                "id": model_id,
-                "name": raw_name,
-                "description": description,
-                "_sort": sort_key,
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": raw_name,
+                    "description": description,
+                    "_sort": sort_key,
+                }
+            )
 
         # Newest first; models without any date info go to the end
         results.sort(key=lambda m: m.pop("_sort"), reverse=True)
