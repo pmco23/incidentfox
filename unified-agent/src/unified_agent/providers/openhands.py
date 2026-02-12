@@ -15,12 +15,10 @@ Features:
 """
 
 import asyncio
-import base64
 import glob as glob_module
 import html
 import json
 import logging
-import mimetypes
 import os
 import re
 import subprocess
@@ -42,191 +40,6 @@ from ..core.events import (
 from .base import LLMProvider, ProviderConfig, SubagentConfig
 
 logger = logging.getLogger(__name__)
-
-# Image/file extraction limits (for outbound extraction from agent responses)
-MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
-MAX_FILE_SIZE = 1 * 1024 * 1024 * 1024  # 1 GB
-MAX_FILES_PER_MESSAGE = 10
-
-
-def _extract_images_from_text(text: str) -> tuple[str, list]:
-    """
-    Extract local image references from markdown text.
-
-    Finds markdown image syntax: ![alt](path)
-    where path is a local file (starts with ./, /, /workspace/, or attachments/)
-
-    Returns:
-        Tuple of (text, images_list)
-        - images_list: [{path, data (base64), media_type, alt}, ...]
-    """
-    pattern = r"!\[([^\]]*)\]\(([^)]+)\)"
-    images = []
-
-    for match in re.finditer(pattern, text):
-        alt = match.group(1)
-        path_str = match.group(2)
-
-        # Skip external URLs
-        if path_str.startswith(("http://", "https://", "data:")):
-            continue
-
-        # Resolve path
-        if path_str.startswith("./"):
-            full_path = Path("/workspace") / path_str[2:]
-        elif path_str.startswith("/"):
-            full_path = Path(path_str)
-        elif path_str.startswith("attachments/"):
-            full_path = Path("/workspace") / path_str
-        else:
-            full_path = Path("/workspace") / path_str
-
-        # Security: only allow paths within /workspace
-        try:
-            resolved = full_path.resolve()
-            if not resolved.is_relative_to(Path("/workspace").resolve()):
-                logger.warning(f"[IMAGE] Skipping path outside workspace: {path_str}")
-                continue
-        except (OSError, ValueError):
-            continue
-
-        if not resolved.exists():
-            logger.warning(f"[IMAGE] File not found: {path_str}")
-            continue
-
-        file_size = resolved.stat().st_size
-        if file_size > MAX_IMAGE_SIZE:
-            logger.warning(
-                f"[IMAGE] File too large ({file_size} bytes > {MAX_IMAGE_SIZE}): {path_str}"
-            )
-            continue
-
-        media_type, _ = mimetypes.guess_type(str(resolved))
-        if not media_type or not media_type.startswith("image/"):
-            logger.warning(f"[IMAGE] Not an image type ({media_type}): {path_str}")
-            continue
-
-        try:
-            image_data = resolved.read_bytes()
-            base64_data = base64.b64encode(image_data).decode("utf-8")
-            images.append(
-                {
-                    "path": path_str,
-                    "data": base64_data,
-                    "media_type": media_type,
-                    "alt": alt or resolved.name,
-                }
-            )
-            logger.info(
-                f"[IMAGE] Extracted: {path_str} ({len(image_data)} bytes, {media_type})"
-            )
-        except Exception as e:
-            logger.warning(f"[IMAGE] Failed to read {path_str}: {e}")
-            continue
-
-    return text, images
-
-
-def _extract_files_from_text(text: str) -> tuple[str, list]:
-    """
-    Extract local file references from markdown text.
-
-    Finds markdown link syntax: [description](path)
-    where path is a local file (NOT an image, NOT a URL)
-
-    Returns:
-        Tuple of (text, files_list)
-        - files_list: [{path, data (base64), media_type, filename, description, size}, ...]
-    """
-    # Match markdown links but NOT images (negative lookbehind for !)
-    pattern = r"(?<!!)\[([^\]]+)\]\(([^)]+)\)"
-    files = []
-
-    image_extensions = {
-        ".png",
-        ".jpg",
-        ".jpeg",
-        ".gif",
-        ".webp",
-        ".svg",
-        ".bmp",
-        ".ico",
-    }
-
-    for match in re.finditer(pattern, text):
-        description = match.group(1)
-        path_str = match.group(2)
-
-        # Skip external URLs and anchors
-        if path_str.startswith(
-            ("http://", "https://", "mailto:", "tel:", "data:", "#")
-        ):
-            continue
-
-        # Resolve path
-        if path_str.startswith("./"):
-            full_path = Path("/workspace") / path_str[2:]
-        elif path_str.startswith("/"):
-            full_path = Path(path_str)
-        elif path_str.startswith("attachments/"):
-            full_path = Path("/workspace") / path_str
-        else:
-            full_path = Path("/workspace") / path_str
-
-        # Security: only allow paths within /workspace
-        try:
-            resolved = full_path.resolve()
-            if not resolved.is_relative_to(Path("/workspace").resolve()):
-                logger.warning(f"[FILE] Skipping path outside workspace: {path_str}")
-                continue
-        except (OSError, ValueError):
-            continue
-
-        if not resolved.exists() or resolved.is_dir():
-            continue
-
-        # Skip images (handled by _extract_images_from_text)
-        if resolved.suffix.lower() in image_extensions:
-            continue
-
-        file_size = resolved.stat().st_size
-        if file_size > MAX_FILE_SIZE:
-            logger.warning(
-                f"[FILE] File too large ({file_size} bytes > {MAX_FILE_SIZE}): {path_str}"
-            )
-            continue
-
-        if len(files) >= MAX_FILES_PER_MESSAGE:
-            logger.warning(
-                f"[FILE] Max files limit reached ({MAX_FILES_PER_MESSAGE}), skipping: {path_str}"
-            )
-            continue
-
-        media_type, _ = mimetypes.guess_type(str(resolved))
-        if not media_type:
-            media_type = "application/octet-stream"
-
-        try:
-            file_data = resolved.read_bytes()
-            base64_data = base64.b64encode(file_data).decode("utf-8")
-            files.append(
-                {
-                    "path": path_str,
-                    "data": base64_data,
-                    "media_type": media_type,
-                    "filename": resolved.name,
-                    "description": description,
-                    "size": file_size,
-                }
-            )
-            logger.info(
-                f"[FILE] Extracted: {path_str} ({file_size} bytes, {media_type})"
-            )
-        except Exception as e:
-            logger.warning(f"[FILE] Failed to read {path_str}: {e}")
-            continue
-
-    return text, files
 
 
 # =============================================================================
@@ -1362,32 +1175,8 @@ class OpenHandsProvider(LLMProvider):
             if iteration >= max_iterations:
                 logger.warning(f"[OpenHands] Reached max iterations ({max_iterations})")
 
-            # Extract images and files from the agent's final response
-            result_text = final_text or "Task completed."
-            result_images = None
-            result_files = None
-
-            if final_text:
-                result_text, extracted_images = _extract_images_from_text(final_text)
-                result_text, extracted_files = _extract_files_from_text(result_text)
-
-                if extracted_images:
-                    result_images = extracted_images
-                    logger.info(
-                        f"[OpenHands] Extracted {len(extracted_images)} image(s) from response"
-                    )
-                if extracted_files:
-                    result_files = extracted_files
-                    logger.info(
-                        f"[OpenHands] Extracted {len(extracted_files)} file(s) from response"
-                    )
-
             yield result_event(
-                self.thread_id,
-                result_text,
-                success=True,
-                images=result_images,
-                files=result_files,
+                self.thread_id, final_text or "Task completed.", success=True
             )
 
         except Exception as e:
@@ -1404,12 +1193,6 @@ class OpenHandsProvider(LLMProvider):
         for img in images:
             media_type = img.get("media_type", "image/png")
             data = img.get("data", "")
-            data_len = len(data) if data else 0
-
-            logger.info(
-                f"[OpenHands] Adding image to message: media_type={media_type}, "
-                f"data_length={data_len} chars, model={self._model}"
-            )
 
             content.append(
                 {
@@ -1418,10 +1201,6 @@ class OpenHandsProvider(LLMProvider):
                 }
             )
 
-        logger.info(
-            f"[OpenHands] Built multimodal content: {len(content)} parts "
-            f"({len(images)} images)"
-        )
         return content
 
     async def interrupt(self) -> AsyncIterator[StreamEvent]:
