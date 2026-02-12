@@ -1356,7 +1356,9 @@ def _get_image_extension(media_type: str) -> str:
     return f".{ext}"
 
 
-def _download_slack_image(file_info: dict, client, thumbnail_only: bool = False) -> dict | None:
+def _download_slack_image(
+    file_info: dict, client, thumbnail_only: bool = False
+) -> dict | None:
     """
     Download an image from Slack and return its content as base64.
 
@@ -1391,7 +1393,9 @@ def _download_slack_image(file_info: dict, client, thumbnail_only: bool = False)
     urls_to_try = []
 
     if not thumbnail_only:
-        url_private = file_info.get("url_private_download") or file_info.get("url_private")
+        url_private = file_info.get("url_private_download") or file_info.get(
+            "url_private"
+        )
         if url_private:
             urls_to_try.append(("full", url_private))
 
@@ -3051,7 +3055,9 @@ def handle_message(event, client, context):
             )
 
             for meta in inline_meta:
-                img = _download_slack_image(meta["file_info"], client, thumbnail_only=True)
+                img = _download_slack_image(
+                    meta["file_info"], client, thumbnail_only=True
+                )
                 if img:
                     images.insert(0, img)
 
