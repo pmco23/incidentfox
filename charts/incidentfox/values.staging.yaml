@@ -205,6 +205,10 @@ services:
       image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
       namespace: ""  # Same namespace as agent
       useGvisor: true
+    # Warm pool for instant sandbox provisioning (<2s)
+    warmPool:
+      enabled: true
+      replicas: 3
     startupProbe:
       enabled: true
       path: "/health"
