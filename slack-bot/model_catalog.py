@@ -165,17 +165,23 @@ class ModelCatalog:
                         description = or_desc
                         break
 
-            results.append({
-                "id": model_id,
-                "name": raw_name,
-                "description": description,
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": raw_name,
+                    "description": description,
+                }
+            )
 
         results.sort(key=lambda m: m["name"])
         return results[:limit]
 
     def _get_or_provider_models(
-        self, provider_id: str, or_org: str, query: str, limit: int,
+        self,
+        provider_id: str,
+        or_org: str,
+        query: str,
+        limit: int,
     ) -> List[Dict]:
         """Get models for a provider from OpenRouter (for providers not in litellm)."""
         prefix = f"{or_org}/"
@@ -195,7 +201,7 @@ class ModelCatalog:
             if or_id.endswith(":free"):
                 continue
 
-            model_name = or_id[len(prefix):]
+            model_name = or_id[len(prefix) :]
             raw_name = m.get("name", or_id)
             name = raw_name.split(": ", 1)[1] if ": " in raw_name else raw_name
             model_id = f"{provider_id}/{model_name}"
@@ -205,12 +211,14 @@ class ModelCatalog:
                 if q not in model_id.lower() and q not in name.lower():
                     continue
 
-            results.append({
-                "id": model_id,
-                "name": name,
-                "created": m.get("created", 0),
-                "description": m.get("description", ""),
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "created": m.get("created", 0),
+                    "description": m.get("description", ""),
+                }
+            )
 
         results.sort(key=lambda m: m.get("created", 0), reverse=True)
         return results[:limit]
@@ -235,12 +243,14 @@ class ModelCatalog:
                 if q not in model_id.lower() and q not in name.lower():
                     continue
 
-            results.append({
-                "id": model_id,
-                "name": name,
-                "created": m.get("created", 0),
-                "description": m.get("description", ""),
-            })
+            results.append(
+                {
+                    "id": model_id,
+                    "name": name,
+                    "created": m.get("created", 0),
+                    "description": m.get("description", ""),
+                }
+            )
 
         results.sort(key=lambda m: m.get("created", 0), reverse=True)
         return results[:limit]

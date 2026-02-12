@@ -2226,19 +2226,33 @@ def validate_provider_api_key(
         litellm_kwargs["api_base"] = "https://openrouter.ai/api/v1"
         # model_id is "openrouter/anthropic/claude-sonnet-4.5" → use "anthropic/claude-sonnet-4.5"
         raw = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        litellm_kwargs["model"] = f"openrouter/{raw}" if raw else "openrouter/anthropic/claude-sonnet-4.5"
+        litellm_kwargs["model"] = (
+            f"openrouter/{raw}" if raw else "openrouter/anthropic/claude-sonnet-4.5"
+        )
     elif provider_id == "moonshot":
         litellm_kwargs["api_base"] = "https://api.moonshot.ai/v1"
-        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/moonshot-v1-8k"
+        model_name = (
+            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        )
+        litellm_kwargs["model"] = (
+            f"openai/{model_name}" if model_name else "openai/moonshot-v1-8k"
+        )
     elif provider_id == "minimax":
         litellm_kwargs["api_base"] = "https://api.minimax.io/v1"
-        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/MiniMax-Text-01"
+        model_name = (
+            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        )
+        litellm_kwargs["model"] = (
+            f"openai/{model_name}" if model_name else "openai/MiniMax-Text-01"
+        )
     elif provider_id == "arcee":
         litellm_kwargs["api_base"] = "https://models.arcee.ai/v1"
-        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/virtuoso-large"
+        model_name = (
+            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        )
+        litellm_kwargs["model"] = (
+            f"openai/{model_name}" if model_name else "openai/virtuoso-large"
+        )
 
     try:
         litellm.completion(**litellm_kwargs)
@@ -2264,7 +2278,7 @@ def validate_provider_api_key(
         # (bug: "argument of type 'NoneType' is not iterable"). Treat as unknown model.
         err_msg = str(e)
         if "NoneType" in err_msg:
-            return False, f"Model not supported by validation. Save and test directly."
+            return False, "Model not supported by validation. Save and test directly."
         return False, f"Connection error: {_sanitize(err_msg[:200])}"
     except Exception as e:
         return False, f"Validation failed: {_sanitize(str(e)[:200])}"
