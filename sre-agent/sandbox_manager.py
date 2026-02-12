@@ -1098,7 +1098,9 @@ static_resources:
         )
 
         # Template namespace (where the SandboxTemplate is deployed)
-        template_namespace = os.getenv("WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod")
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
         template_name = os.getenv(
             "WARMPOOL_TEMPLATE_NAME", "incidentfox-warmpool-template"
         )
@@ -1139,9 +1141,7 @@ static_resources:
         except ApiException as e:
             raise Exception(f"Failed to create SandboxClaim: {e}")
 
-    def wait_for_claim_bound(
-        self, claim_name: str, timeout: int = 5
-    ) -> Optional[str]:
+    def wait_for_claim_bound(self, claim_name: str, timeout: int = 5) -> Optional[str]:
         """
         Wait for SandboxClaim to bind to a warm pod.
 
@@ -1154,7 +1154,9 @@ static_resources:
         Returns:
             Sandbox name if bound, None if timeout
         """
-        template_namespace = os.getenv("WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod")
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
         start_time = time.time()
 
         while time.time() - start_time < timeout:
@@ -1189,8 +1191,12 @@ static_resources:
                 )
                 if is_failed:
                     reason = next(
-                        (c.get("message", "unknown") for c in conditions if c.get("type") == "Ready"),
-                        "unknown"
+                        (
+                            c.get("message", "unknown")
+                            for c in conditions
+                            if c.get("type") == "Ready"
+                        ),
+                        "unknown",
                     )
                     print(f"❌ SandboxClaim {claim_name} failed: {reason}")
                     return None
@@ -1261,7 +1267,9 @@ static_resources:
     def delete_sandbox_claim(self, thread_id: str):
         """Delete a SandboxClaim."""
         claim_name = f"claim-{thread_id}"
-        template_namespace = os.getenv("WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod")
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
         try:
             self.custom_api.delete_namespaced_custom_object(
                 group="extensions.agents.x-k8s.io",
@@ -1322,7 +1330,7 @@ static_resources:
 
             if not bound_sandbox:
                 # Binding failed (no warm pods available?)
-                print(f"⚠️ Warm pool binding failed, falling back to direct creation")
+                print("⚠️ Warm pool binding failed, falling back to direct creation")
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1335,7 +1343,7 @@ static_resources:
 
             # Step 3: Wait for pod to be ready
             if not self.wait_for_ready(thread_id, timeout=30):
-                print(f"⚠️ Warm pod not ready, falling back to direct creation")
+                print("⚠️ Warm pod not ready, falling back to direct creation")
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1354,7 +1362,7 @@ static_resources:
                 tenant_id=tenant_id,
                 team_id=team_id,
             ):
-                print(f"⚠️ JWT injection failed, falling back to direct creation")
+                print("⚠️ JWT injection failed, falling back to direct creation")
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1365,7 +1373,9 @@ static_resources:
                     team_token=team_token,
                 )
 
-            print(f"🚀 Sandbox {bound_sandbox} ready from warm pool for thread {thread_id}")
+            print(
+                f"🚀 Sandbox {bound_sandbox} ready from warm pool for thread {thread_id}"
+            )
 
             return SandboxInfo(
                 name=bound_sandbox,
