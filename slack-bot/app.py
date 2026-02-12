@@ -1835,6 +1835,33 @@ def handle_mention(event, say, client, context):
     # Extract file attachment metadata from triggering event (not downloaded - uses proxy pattern)
     file_attachments = _extract_file_attachments_from_event(event, client)
 
+    # app_mention events don't include files — look up the actual message
+    if not images and not file_attachments:
+        try:
+            result = client.conversations_replies(
+                channel=channel_id, ts=thread_ts, limit=200,
+            )
+            for msg in result.get("messages", []):
+                if msg.get("ts") == event["ts"]:
+                    for file_info in msg.get("files", []):
+                        mimetype = file_info.get("mimetype", "")
+                        if mimetype.startswith("image/"):
+                            img = _download_slack_image(file_info, client)
+                            if img:
+                                images.append(img)
+                                logger.info(
+                                    f"Image from message lookup: {img['filename']}"
+                                )
+                        else:
+                            attachment = _get_file_attachment_metadata(
+                                file_info, client
+                            )
+                            if attachment:
+                                file_attachments.append(attachment)
+                    break
+        except Exception as e:
+            logger.warning(f"Failed to look up files for app_mention: {e}")
+
     # Process thread images: last 5 as base64 (LLM sees directly), older ones
     # saved to sandbox as files with semantic filenames via the file_attachment proxy.
     # Claude API allows up to 100 images but 32MB total request, so 5 is practical.
@@ -3498,8 +3525,9 @@ def handle_message(event, client, context):
     # END CORALOGIX DETECTION
     # ============================================================================
 
-    # Skip subtypes (message edits, bot_message, etc.) for nudge logic
-    if subtype:
+    # Skip subtypes (message edits, bot_message, etc.) — but allow file_share
+    # (file_share = user sent a message with an image/file attachment)
+    if subtype and subtype != "file_share":
         return
 
     # Skip bot messages (prevents infinite loop in auto-listen threads)
