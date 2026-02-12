@@ -1405,8 +1405,20 @@ def _download_slack_image(
         if thumb_url:
             urls_to_try.append((thumb_key, thumb_url))
 
+    # Fallback: if thumbnail_only but no thumbnails found, try full-size
+    if thumbnail_only and not urls_to_try:
+        url_private = file_info.get("url_private_download") or file_info.get(
+            "url_private"
+        )
+        if url_private:
+            logger.info(f"No thumbnails for {filename}, falling back to full-size")
+            urls_to_try.append(("full", url_private))
+
     if not urls_to_try:
-        logger.warning(f"No download URL for image: {filename}")
+        logger.warning(
+            f"No download URL for image: {filename} "
+            f"(available keys: {sorted(file_info.keys())})"
+        )
         return None
 
     auth_headers = {"Authorization": f"Bearer {client.token}"}
