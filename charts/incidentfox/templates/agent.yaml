@@ -159,6 +159,21 @@ spec:
                   key: {{ .Values.externalSecrets.contract.jwtSecret.secretKey | default "JWT_SECRET" }}
             {{- end }}
             # =================================================================
+            # Warm Pool Configuration
+            # =================================================================
+            {{- if .Values.services.agent.warmPool.enabled }}
+            - name: USE_WARM_POOL
+              value: "true"
+            - name: WARMPOOL_TEMPLATE_NAME
+              value: {{ .Values.services.agent.warmPool.templateName | quote }}
+            - name: WARMPOOL_TEMPLATE_NAMESPACE
+              value: {{ .Values.services.agent.sandbox.namespace | default .Values.namespace | quote }}
+            - name: WARMPOOL_NAME
+              value: {{ .Values.services.agent.warmPool.poolName | quote }}
+            - name: WARMPOOL_NAMESPACE
+              value: {{ .Values.services.agent.sandbox.namespace | default .Values.namespace | quote }}
+            {{- end }}
+            # =================================================================
             # Tracing configuration (Langfuse / OTEL)
             # =================================================================
             {{- if .Values.services.agent.tracing.enabled }}

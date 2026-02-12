@@ -78,6 +78,15 @@ class AnswerRequest(BaseModel):
     answers: dict
 
 
+class ClaimRequest(BaseModel):
+    """Request to claim a warm sandbox by injecting JWT."""
+
+    jwt_token: str
+    thread_id: str
+    tenant_id: str
+    team_id: str
+
+
 class ExecuteResponse(BaseModel):
     """Response from executing an investigation."""
 
@@ -88,11 +97,21 @@ class ExecuteResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    Returns claim status for warm pool sandboxes.
+    A sandbox is 'claimed' when JWT has been injected via /claim endpoint.
+    """
+    from pathlib import Path
+
+    jwt_path = Path("/tmp/sandbox-jwt")
+    claimed = jwt_path.exists() and jwt_path.read_text().strip() != ""
+
     return {
         "status": "healthy",
         "service": "incidentfox-sandbox",
         "active_sessions": len(_sessions),
+        "claimed": claimed,
     }
 
 
@@ -104,6 +123,44 @@ async def list_sessions():
             {"thread_id": thread_id, "is_running": session.is_running}
             for thread_id, session in _sessions.items()
         ]
+    }
+
+
+@app.post("/claim")
+async def claim_sandbox(request: ClaimRequest):
+    """
+    Claim a warm sandbox by injecting JWT and setting context.
+
+    This endpoint is called by the SandboxManager after a SandboxClaim
+    binds to a warm pod. It:
+    1. Writes JWT to /tmp/sandbox-jwt (read by Envoy Lua filter)
+    2. Sets environment variables for tenant context
+
+    Once claimed, the sandbox is ready for use and Envoy will inject
+    the JWT in ext_authz requests.
+    """
+    from pathlib import Path
+
+    # Write JWT to file (Envoy Lua filter reads this on each request)
+    jwt_path = Path("/tmp/sandbox-jwt")
+    jwt_path.write_text(request.jwt_token)
+
+    # Set environment variables for tenant context
+    # These are used by the agent for logging and context
+    os.environ["THREAD_ID"] = request.thread_id
+    os.environ["INCIDENTFOX_TENANT_ID"] = request.tenant_id
+    os.environ["INCIDENTFOX_TEAM_ID"] = request.team_id
+
+    print(
+        f"🔑 [CLAIM] Sandbox claimed for thread {request.thread_id} "
+        f"(tenant={request.tenant_id}, team={request.team_id})"
+    )
+
+    return {
+        "status": "claimed",
+        "thread_id": request.thread_id,
+        "tenant_id": request.tenant_id,
+        "team_id": request.team_id,
     }
 
 

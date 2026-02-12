@@ -241,6 +241,39 @@ async def health():
     return {"status": "ok", "active_download_tokens": len(_file_download_tokens)}
 
 
+@app.get("/warmpool/status")
+async def warmpool_status():
+    """
+    Get warm pool status.
+
+    Returns information about the warm pool including:
+    - Desired pool size
+    - Available warm pods
+    - Pending pods
+
+    Only available when USE_WARM_POOL=true.
+    """
+    use_warm_pool = os.getenv("USE_WARM_POOL", "false").lower() == "true"
+
+    if not use_warm_pool:
+        return {
+            "enabled": False,
+            "message": "Warm pool is disabled. Set USE_WARM_POOL=true to enable.",
+        }
+
+    try:
+        status = sandbox_manager.get_warm_pool_status()
+        return {
+            "enabled": True,
+            **status,
+        }
+    except Exception as e:
+        return {
+            "enabled": True,
+            "error": str(e),
+        }
+
+
 @app.get("/proxy/files/{token}")
 async def proxy_file_download(token: str):
     """
@@ -444,27 +477,44 @@ async def investigate(request: InvestigateRequest):
         # Get or create session JWT (reuses existing if still valid)
         jwt_token, _ = get_or_create_session_jwt(thread_id, tenant_id, team_id)
 
+        # Check if warm pool is enabled
+        use_warm_pool = os.getenv("USE_WARM_POOL", "false").lower() == "true"
+
         # Create new sandbox with session JWT
         print(
-            f"🔧 Creating sandbox for thread {thread_id} (tenant={tenant_id}, team={team_id})"
+            f"🔧 Creating sandbox for thread {thread_id} (tenant={tenant_id}, team={team_id}, warm_pool={use_warm_pool})"
         )
         try:
-            sandbox_info = sandbox_manager.create_sandbox(
-                thread_id,
-                tenant_id=tenant_id,
-                team_id=team_id,
-                jwt_token=jwt_token,
-                team_token=team_token,
-            )
-
-            # Wait for sandbox to be ready
-            print(f"⏳ Waiting for sandbox {sandbox_info.name} to be ready...")
-            if not sandbox_manager.wait_for_ready(thread_id, timeout=120):
-                raise HTTPException(
-                    status_code=500, detail="Sandbox failed to become ready"
+            if use_warm_pool:
+                # Use warm pool for instant provisioning (<2 seconds)
+                # Falls back to direct creation if warm pool unavailable
+                sandbox_info = sandbox_manager.create_sandbox_from_pool(
+                    thread_id,
+                    tenant_id=tenant_id,
+                    team_id=team_id,
+                    jwt_token=jwt_token,
+                    team_token=team_token,
+                )
+                # Warm pool method already waits for ready and injects JWT
+                print(f"✅ Sandbox {sandbox_info.name} is ready (from warm pool)")
+            else:
+                # Direct creation (traditional path)
+                sandbox_info = sandbox_manager.create_sandbox(
+                    thread_id,
+                    tenant_id=tenant_id,
+                    team_id=team_id,
+                    jwt_token=jwt_token,
+                    team_token=team_token,
                 )
 
-            print(f"✅ Sandbox {sandbox_info.name} is ready")
+                # Wait for sandbox to be ready
+                print(f"⏳ Waiting for sandbox {sandbox_info.name} to be ready...")
+                if not sandbox_manager.wait_for_ready(thread_id, timeout=120):
+                    raise HTTPException(
+                        status_code=500, detail="Sandbox failed to become ready"
+                    )
+
+                print(f"✅ Sandbox {sandbox_info.name} is ready")
 
         except Exception as e:
             raise HTTPException(

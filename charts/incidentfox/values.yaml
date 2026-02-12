@@ -250,6 +250,42 @@ services:
       namespace: ""
       # Use gVisor runtime for enhanced isolation
       useGvisor: true
+    # Warm pool: pre-warmed sandbox pods for instant provisioning (<2s vs ~30-60s)
+    # Requires sandbox.enabled=true and agent-sandbox controller with extensions
+    warmPool:
+      enabled: false
+      # Number of warm pods to maintain (replenished as pods are claimed)
+      replicas: 3
+      # Template name for warm pool pods
+      templateName: incidentfox-warmpool-template
+      # Warm pool name
+      poolName: incidentfox-warmpool
+      # Envoy image for sidecar
+      envoyImage: "envoyproxy/envoy:v1.28-latest"
+      # Resource limits for warm pool agent container
+      agentResources:
+        requests:
+          memory: "512Mi"
+          cpu: "100m"
+          ephemeral-storage: "2Gi"
+        limits:
+          memory: "2Gi"
+          cpu: "2000m"
+          ephemeral-storage: "10Gi"
+      # Resource limits for warm pool Envoy sidecar
+      envoyResources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "128Mi"
+      # HPA for warm pool auto-scaling
+      hpa:
+        enabled: false
+        minReplicas: 2
+        maxReplicas: 10
+        targetUtilizationPercentage: 80
     # Tracing configuration (supports multiple backends via OTEL)
     tracing:
       enabled: false
