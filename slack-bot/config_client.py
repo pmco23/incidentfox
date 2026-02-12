@@ -172,7 +172,9 @@ class ConfigServiceClient:
             "parent_id": None,
         }
 
-        response = self._session.post(url, json=payload, headers=self._headers(), timeout=10)
+        response = self._session.post(
+            url, json=payload, headers=self._headers(), timeout=10
+        )
 
         # 400 might mean org already exists, which is fine
         if response.status_code == 400 and "already exists" in response.text.lower():
@@ -198,7 +200,9 @@ class ConfigServiceClient:
             "parent_id": org_id,
         }
 
-        response = self._session.post(url, json=payload, headers=self._headers(), timeout=10)
+        response = self._session.post(
+            url, json=payload, headers=self._headers(), timeout=10
+        )
 
         # 400 might mean team already exists
         if response.status_code == 400 and "already exists" in response.text.lower():
@@ -291,7 +295,9 @@ class ConfigServiceClient:
         payload = {"identifiers": {"slack_channel_id": channel_id}}
 
         try:
-            response = self._session.post(url, json=payload, headers=headers, timeout=10)
+            response = self._session.post(
+                url, json=payload, headers=headers, timeout=10
+            )
             response.raise_for_status()
             result = response.json()
 
