@@ -498,7 +498,9 @@ async def investigate(request: InvestigateRequest):
                 )
                 provision_ms = (time.time() - provision_start) * 1000
                 # Warm pool method already waits for ready and injects JWT
-                print(f"✅ Sandbox {sandbox_info.name} is ready (from warm pool, {provision_ms:.0f}ms total)")
+                print(
+                    f"✅ Sandbox {sandbox_info.name} is ready (from warm pool, {provision_ms:.0f}ms total)"
+                )
             else:
                 # Direct creation (traditional path)
                 sandbox_info = sandbox_manager.create_sandbox(
@@ -517,7 +519,9 @@ async def investigate(request: InvestigateRequest):
                     )
 
                 provision_ms = (time.time() - provision_start) * 1000
-                print(f"✅ Sandbox {sandbox_info.name} is ready (direct creation, {provision_ms:.0f}ms total)")
+                print(
+                    f"✅ Sandbox {sandbox_info.name} is ready (direct creation, {provision_ms:.0f}ms total)"
+                )
 
         except Exception as e:
             raise HTTPException(

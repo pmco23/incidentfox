@@ -1333,11 +1333,15 @@ static_resources:
             step2_start = time.time()
             bound_sandbox = self.wait_for_claim_bound(claim_name, timeout=5)
             step2_ms = (time.time() - step2_start) * 1000
-            print(f"⏱️ [WARMPOOL] Step 2 - Wait for binding: {step2_ms:.0f}ms (bound={bound_sandbox})")
+            print(
+                f"⏱️ [WARMPOOL] Step 2 - Wait for binding: {step2_ms:.0f}ms (bound={bound_sandbox})"
+            )
 
             if not bound_sandbox:
                 total_ms = (time.time() - warmpool_start) * 1000
-                print(f"⚠️ [WARMPOOL] Binding failed after {total_ms:.0f}ms, falling back to direct creation")
+                print(
+                    f"⚠️ [WARMPOOL] Binding failed after {total_ms:.0f}ms, falling back to direct creation"
+                )
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1352,7 +1356,9 @@ static_resources:
             step3_start = time.time()
             if not self.wait_for_ready(thread_id, timeout=30):
                 total_ms = (time.time() - warmpool_start) * 1000
-                print(f"⚠️ [WARMPOOL] Pod not ready after {total_ms:.0f}ms, falling back to direct creation")
+                print(
+                    f"⚠️ [WARMPOOL] Pod not ready after {total_ms:.0f}ms, falling back to direct creation"
+                )
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1375,7 +1381,9 @@ static_resources:
                 team_id=team_id,
             ):
                 total_ms = (time.time() - warmpool_start) * 1000
-                print(f"⚠️ [WARMPOOL] JWT injection failed after {total_ms:.0f}ms, falling back to direct creation")
+                print(
+                    f"⚠️ [WARMPOOL] JWT injection failed after {total_ms:.0f}ms, falling back to direct creation"
+                )
                 self.delete_sandbox_claim(thread_id)
                 return self.create_sandbox(
                     thread_id=thread_id,
@@ -1403,7 +1411,9 @@ static_resources:
 
         except Exception as e:
             total_ms = (time.time() - warmpool_start) * 1000
-            print(f"⚠️ [WARMPOOL] Error after {total_ms:.0f}ms ({e}), falling back to direct creation")
+            print(
+                f"⚠️ [WARMPOOL] Error after {total_ms:.0f}ms ({e}), falling back to direct creation"
+            )
             # Clean up any partial state
             try:
                 self.delete_sandbox_claim(thread_id)
