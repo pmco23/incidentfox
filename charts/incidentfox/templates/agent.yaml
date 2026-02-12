@@ -78,6 +78,7 @@ spec:
     metadata:
       labels:
         app: incidentfox-agent
+        component: server
     spec:
       {{- if .Values.services.agent.serviceAccount.name }}
       serviceAccountName: {{ .Values.services.agent.serviceAccount.name | quote }}
@@ -269,6 +270,7 @@ metadata:
 spec:
   selector:
     app: incidentfox-agent
+    component: server
   ports:
     - port: {{ .Values.services.agent.servicePort }}
       targetPort: {{ .Values.services.agent.servicePort }}
