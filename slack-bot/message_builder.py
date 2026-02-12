@@ -206,7 +206,7 @@ def build_progress_message(
     loading_icon = loading_url
     done_icon = done_url
 
-    # Add trigger context if this was a nudge-initiated investigation
+    # Add trigger context if this was a prompt-initiated investigation (e.g. Coralogix)
     if trigger_user_id and trigger_text:
         display_text = (
             trigger_text[:80] + "..." if len(trigger_text) > 80 else trigger_text
@@ -496,7 +496,7 @@ def build_final_message(
     # Use URL parameter (ignore deprecated file_id param)
     done_icon = done_url
 
-    # Add trigger context if this was a nudge-initiated investigation
+    # Add trigger context if this was a prompt-initiated investigation (e.g. Coralogix)
     if trigger_user_id and trigger_text:
         display_text = (
             trigger_text[:80] + "..." if len(trigger_text) > 80 else trigger_text

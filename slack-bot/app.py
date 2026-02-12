@@ -1356,7 +1356,7 @@ def _get_image_extension(media_type: str) -> str:
     return f".{ext}"
 
 
-def _download_slack_image(file_info: dict, client) -> dict | None:
+def _download_slack_image(file_info: dict, client, thumbnail_only: bool = False) -> dict | None:
     """
     Download an image from Slack and return its content as base64.
 
@@ -1368,6 +1368,8 @@ def _download_slack_image(file_info: dict, client) -> dict | None:
     Args:
         file_info: File object from Slack event
         client: Slack client
+        thumbnail_only: If True, skip full-size and use thumbnails directly
+            (useful for thread context images where full resolution isn't needed)
 
     Returns:
         dict with {data: base64_string, media_type: str, filename: str, size: int} or None
@@ -1385,12 +1387,13 @@ def _download_slack_image(file_info: dict, client) -> dict | None:
     if not mimetype.startswith("image/"):
         return None
 
-    # Build list of URLs to try: full-size first, then progressively smaller thumbnails
+    # Build list of URLs to try
     urls_to_try = []
 
-    url_private = file_info.get("url_private_download") or file_info.get("url_private")
-    if url_private:
-        urls_to_try.append(("full", url_private))
+    if not thumbnail_only:
+        url_private = file_info.get("url_private_download") or file_info.get("url_private")
+        if url_private:
+            urls_to_try.append(("full", url_private))
 
     # Slack provides pre-generated thumbnails at various sizes
     for thumb_key in ("thumb_1024", "thumb_720", "thumb_480"):
@@ -1832,7 +1835,7 @@ def handle_mention(event, say, client, context):
 
         # Download latest images as base64 for the LLM to see directly
         for meta in inline_meta:
-            img = _download_slack_image(meta["file_info"], client)
+            img = _download_slack_image(meta["file_info"], client, thumbnail_only=True)
             if img:
                 images.insert(0, img)  # Thread images before triggering message's
 
@@ -2245,8 +2248,34 @@ def _run_auto_listen_investigation(event, client, context):
     images = _extract_images_from_event(event, client)
     file_attachments = _extract_file_attachments_from_event(event, client)
 
-    # Merge thread attachments with triggering message attachments
-    images = thread_images + images
+    # Download thread images (thread_images are metadata, not yet downloaded)
+    MAX_INLINE_THREAD_IMAGES = 5
+    if thread_images:
+        inline_meta = thread_images[-MAX_INLINE_THREAD_IMAGES:]
+        overflow_meta = (
+            thread_images[:-MAX_INLINE_THREAD_IMAGES]
+            if len(thread_images) > MAX_INLINE_THREAD_IMAGES
+            else []
+        )
+        for meta in inline_meta:
+            img = _download_slack_image(meta["file_info"], client, thumbnail_only=True)
+            if img:
+                images.insert(0, img)
+        for meta in overflow_meta:
+            file_info = meta["file_info"]
+            url = file_info.get("url_private_download") or file_info.get("url_private")
+            if url:
+                thread_file_attachments.append(
+                    {
+                        "filename": meta["semantic_name"],
+                        "size": file_info.get("size", 0),
+                        "media_type": file_info.get("mimetype", "image/png"),
+                        "download_url": url,
+                        "auth_header": f"Bearer {client.token}",
+                    }
+                )
+
+    # Merge thread file attachments with triggering message's
     file_attachments = thread_file_attachments + file_attachments
 
     # Get the user's name (cached)
@@ -2445,9 +2474,6 @@ def handle_stop_listening(ack, body, client):
 
     # Disable auto-listen for this thread
     _auto_listen_threads.pop((channel_id, thread_ts), None)
-
-    # Suppress future nudges for this user in this thread
-    _nudge_sent[(thread_ts, user_id)] = True
 
     logger.info(f"🔇 Auto-listen disabled for thread {thread_ts} by user {user_id}")
 
@@ -2848,11 +2874,10 @@ def handle_message(event, client, context):
     """
     Handle regular messages (not @mentions).
 
-    Special case: Auto-trigger investigation for Incident.io alerts.
-
-    If the bot has already participated in this thread and the user
-    didn't mention us, send ONE private ephemeral nudge asking if they
-    want to invoke IncidentFox. Only nudge once per user per thread.
+    Special cases:
+    - Auto-trigger investigation for Incident.io alerts
+    - Auto-listen: respond to follow-ups in threads where the bot is active
+    - Coralogix insight detection: prompt to investigate shared links
     """
     # DEBUG: Log EVERY message event received - this should print for ALL messages
     logger.info("=" * 60)
@@ -3026,7 +3051,7 @@ def handle_message(event, client, context):
             )
 
             for meta in inline_meta:
-                img = _download_slack_image(meta["file_info"], client)
+                img = _download_slack_image(meta["file_info"], client, thumbnail_only=True)
                 if img:
                     images.insert(0, img)
 
@@ -3486,401 +3511,6 @@ def handle_message(event, client, context):
             f"🔔 Auto-listen triggered for thread {thread_ts} by user {user_id}"
         )
         _run_auto_listen_investigation(event, client, context)
-        return
-
-    # Skip if we've already sent a nudge to this user in this thread
-    if _nudge_sent.get((thread_ts, user_id)):
-        return
-
-    # Check if the bot has participated in this thread
-    try:
-        replies = client.conversations_replies(
-            channel=channel_id,
-            ts=thread_ts,
-            limit=50,  # Check recent messages
-        )
-
-        bot_has_replied = False
-        for msg in replies.get("messages", []):
-            # Check if any message is from our bot
-            if msg.get("bot_id") or (msg.get("user") == bot_user_id):
-                bot_has_replied = True
-                break
-
-        if not bot_has_replied:
-            return  # Bot hasn't participated, no need to nudge
-
-    except Exception as e:
-        logger.warning(f"Failed to check thread history: {e}")
-        return
-
-    # Send ephemeral nudge to the user (only once per thread)
-    logger.info(f"Sending nudge to {user_id} in thread {thread_ts}")
-
-    # Truncate text for display (keep it short)
-    display_text = text[:50] + "..." if len(text) > 50 else text
-
-    # Get bot's name for the @mention hint
-    bot_name = "IncidentFox"
-
-    try:
-        client.chat_postEphemeral(
-            channel=channel_id,
-            user=user_id,
-            thread_ts=thread_ts,
-            text=f"Did you want to ask me '{display_text}'?",
-            blocks=[
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"👋 Did you want to ask me _{display_text}_?",
-                    },
-                },
-                {
-                    "type": "actions",
-                    "elements": [
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "Yes"},
-                            "style": "primary",
-                            "action_id": "nudge_invoke",
-                            "value": json.dumps(
-                                {
-                                    "channel_id": channel_id,
-                                    "thread_ts": thread_ts,
-                                    "user_id": user_id,
-                                    "text": text,
-                                }
-                            ),
-                        },
-                        {
-                            "type": "button",
-                            "text": {"type": "plain_text", "text": "No"},
-                            "action_id": "nudge_dismiss",
-                            "value": json.dumps(
-                                {
-                                    "thread_ts": thread_ts,
-                                    "user_id": user_id,
-                                }
-                            ),
-                        },
-                    ],
-                },
-                {
-                    "type": "context",
-                    "elements": [
-                        {
-                            "type": "mrkdwn",
-                            "text": f"_You can <@{bot_user_id}> to ask me followup questions. I won't ask again in this thread._",
-                        }
-                    ],
-                },
-            ],
-        )
-
-        # Mark that we've sent a nudge to this user in this thread
-        _nudge_sent[(thread_ts, user_id)] = True
-
-    except Exception as e:
-        logger.warning(f"Failed to send nudge: {e}")
-
-
-@app.action("nudge_invoke")
-def handle_nudge_invoke(ack, body, client, context, respond):
-    """Handle 'Yes, ask IncidentFox' button from nudge."""
-    ack()
-
-    # Delete this ephemeral message
-    respond({"delete_original": True})
-
-    # Parse the value
-    value = json.loads(body["actions"][0]["value"])
-    channel_id = value["channel_id"]
-    thread_ts = value["thread_ts"]
-    user_id = value["user_id"]
-    text = value["text"]
-
-    logger.info(f"Nudge accepted by {user_id} in thread {thread_ts}")
-
-    # Get team_id
-    team_id = body.get("team", {}).get("id") or "unknown"
-
-    # Get the user's name (cached)
-    sender_name = _get_user_display_name(client, user_id)
-
-    # Generate thread_id
-    sanitized_thread_ts = thread_ts.replace(".", "-")
-    sanitized_channel = channel_id.lower()
-    thread_id = f"slack-{sanitized_channel}-{sanitized_thread_ts}"
-
-    # Fetch full thread context for nudge-triggered investigations
-    thread_context_text = None
-    thread_image_metadata = []
-    thread_file_attachments = []
-    bot_user_id = context.get("bot_user_id")
-    if not bot_user_id:
-        try:
-            auth_response = client.auth_test()
-            bot_user_id = auth_response.get("user_id")
-        except Exception as e:
-            logger.warning(f"Failed to get bot user ID: {e}")
-            bot_user_id = None
-
-    try:
-        thread_replies = client.conversations_replies(
-            channel=channel_id,
-            ts=thread_ts,
-            limit=200,
-        )
-        thread_context_text, thread_image_metadata, thread_file_attachments = (
-            _build_full_thread_context(
-                thread_replies.get("messages", []),
-                current_message_ts=thread_ts,  # Exclude the parent message trigger
-                bot_user_id=bot_user_id,
-                client=client,
-            )
-        )
-        if thread_context_text:
-            logger.info(
-                f"Full thread context loaded for nudge in thread {thread_ts} "
-                f"({len(thread_image_metadata)} images, {len(thread_file_attachments)} files)"
-            )
-    except Exception as e:
-        logger.warning(f"Failed to fetch thread context for nudge: {e}")
-
-    # Process thread images: last 5 as base64, older ones as file attachments
-    images = []
-    file_attachments = thread_file_attachments
-    MAX_INLINE_THREAD_IMAGES = 5
-    overflow_image_context = ""
-
-    if thread_image_metadata:
-        inline_meta = thread_image_metadata[-MAX_INLINE_THREAD_IMAGES:]
-        overflow_meta = (
-            thread_image_metadata[:-MAX_INLINE_THREAD_IMAGES]
-            if len(thread_image_metadata) > MAX_INLINE_THREAD_IMAGES
-            else []
-        )
-
-        for meta in inline_meta:
-            img = _download_slack_image(meta["file_info"], client)
-            if img:
-                images.append(img)
-
-        for meta in overflow_meta:
-            file_info = meta["file_info"]
-            url = file_info.get("url_private_download") or file_info.get("url_private")
-            if url:
-                file_attachments.append(
-                    {
-                        "filename": meta["semantic_name"],
-                        "size": file_info.get("size", 0),
-                        "media_type": file_info.get("mimetype", "image/png"),
-                        "download_url": url,
-                        "auth_header": f"Bearer {client.token}",
-                    }
-                )
-
-        if overflow_meta:
-            lines = [
-                "\n**Earlier thread images (saved as files):**",
-                "These images from earlier in the thread have been saved to your workspace.",
-                "You can view them using the Read tool if needed:",
-            ]
-            for meta in overflow_meta:
-                lines.append(
-                    f"- `attachments/{meta['semantic_name']}` — from {meta['sender']} at {meta['time_str']}"
-                )
-            overflow_image_context = "\n".join(lines)
-
-    # Build a simple prompt with context
-    context_lines = ["\n### Slack Context"]
-    context_lines.append(f"**Requested by:** {sender_name} (User ID: {user_id})")
-    context_lines.append("\n**Including Images in Your Response:**")
-    context_lines.append("Use `![description](./path/to/image.png)` for images.")
-    context_lines.append("\n**Sharing Files with the User:**")
-    context_lines.append(
-        "Use `[description](./path/to/file)` for files (place at end of response)."
-    )
-
-    if overflow_image_context:
-        context_lines.append(overflow_image_context)
-
-    enriched_prompt = text + "\n" + "\n".join(context_lines)
-
-    # Prepend full thread context if available (all messages in the thread)
-    if thread_context_text:
-        enriched_prompt = thread_context_text + enriched_prompt
-
-    # Post initial "Investigating..." message
-    from assets_config import get_asset_url
-
-    loading_url = get_asset_url("loading")
-
-    # Truncate text for display
-    display_text = text[:80] + "..." if len(text) > 80 else text
-
-    # Build initial blocks with context about who triggered it
-    trigger_context = {
-        "type": "context",
-        "elements": [
-            {"type": "mrkdwn", "text": f"_Triggered by <@{user_id}>: {display_text}_"}
-        ],
-    }
-
-    if loading_url:
-        initial_blocks = [
-            trigger_context,
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "image",
-                        "image_url": loading_url,
-                        "alt_text": "Loading",
-                    },
-                    {"type": "mrkdwn", "text": "Investigating..."},
-                ],
-            },
-        ]
-    else:
-        initial_blocks = [
-            trigger_context,
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "⏳ Investigating..."}],
-            },
-        ]
-
-    try:
-        initial_response = client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=thread_ts,
-            text=f"Investigating (triggered by <@{user_id}>)...",
-            blocks=initial_blocks,
-        )
-    except Exception as e:
-        logger.error(f"Failed to post initial message: {e}")
-        return
-
-    message_ts = initial_response["ts"]
-
-    # Initialize state with trigger context (for nudge-initiated investigations)
-    state = MessageState(
-        channel_id=channel_id,
-        message_ts=message_ts,
-        thread_ts=thread_ts,
-        thread_id=thread_id,
-        trigger_user_id=user_id,
-        trigger_text=text,
-    )
-
-    # Enable auto-listen for this thread
-    _auto_listen_threads[(channel_id, thread_ts)] = True
-    logger.info(f"🔔 Auto-listen enabled for thread {thread_ts} in {channel_id}")
-
-    # Call sre-agent with SSE streaming
-    try:
-        # Get team token for config-driven agents
-        # Uses channel-based routing with fallback to workspace-based routing
-        team_token = None
-        try:
-            config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
-        except Exception as e:
-            logger.warning(f"Failed to get team token for {team_id}/{channel_id}: {e}")
-
-        request_payload = {
-            "prompt": enriched_prompt,
-            "thread_id": thread_id,
-            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
-            "team_id": team_id,
-        }
-
-        # Add team_token for config-driven agents
-        if team_token:
-            request_payload["team_token"] = team_token
-
-        # Add thread images if any
-        if images:
-            request_payload["images"] = [
-                {
-                    "type": "base64",
-                    "media_type": img["media_type"],
-                    "data": img["data"],
-                    "filename": img.get("filename", "image"),
-                }
-                for img in images
-            ]
-            logger.info(f"Sending {len(images)} thread image(s) to agent (nudge)")
-
-        # Add file attachments if any (thread files + overflow images)
-        if file_attachments:
-            request_payload["file_attachments"] = [
-                {
-                    "filename": att["filename"],
-                    "size": att["size"],
-                    "media_type": att["media_type"],
-                    "download_url": att["download_url"],
-                    "auth_header": att["auth_header"],
-                }
-                for att in file_attachments
-            ]
-            logger.info(
-                f"Sending {len(file_attachments)} file attachment(s) to agent (nudge)"
-            )
-
-        response = requests.post(
-            f"{SRE_AGENT_URL}/investigate",
-            json=request_payload,
-            stream=True,
-            timeout=300,
-            headers={"Accept": "text/event-stream"},
-        )
-
-        if response.status_code != 200:
-            state.error = f"Server error ({response.status_code})"
-            update_slack_message(client, state, team_id, final=True)
-            return
-
-        # Process SSE stream
-        for line in response.iter_lines(decode_unicode=True):
-            if line:
-                event = parse_sse_event(line)
-                if event:
-                    handle_stream_event(state, event, client, team_id)
-
-        # Cache state for modal (keyed by message_ts for per-message uniqueness)
-        import time
-
-        _investigation_cache[state.message_ts] = state
-        _cache_timestamps[state.message_ts] = time.time()
-
-        # Final update
-        update_slack_message(client, state, team_id, final=True)
-        save_investigation_snapshot(state)
-
-    except Exception as e:
-        logger.exception(f"Error during investigation: {e}")
-        state.error = f"Error: {str(e)}"
-        update_slack_message(client, state, team_id, final=True)
-
-
-@app.action("nudge_dismiss")
-def handle_nudge_dismiss(ack, body, respond):
-    """Handle 'No' button from nudge."""
-    ack()
-
-    # Delete this ephemeral message
-    respond({"delete_original": True})
-
-    # Parse the value
-    value = json.loads(body["actions"][0]["value"])
-    thread_ts = value["thread_ts"]
-    user_id = value["user_id"]
-
-    logger.info(f"Nudge dismissed by {user_id} in thread {thread_ts}")
 
 
 @app.action("coralogix_investigate")
@@ -5768,34 +5398,41 @@ def handle_open_ai_model_selector(ack, body, client):
         logger.error("No team_id in home_open_ai_model_selector")
         return
 
+    # Open modal immediately with empty state to avoid trigger_id expiration
+    # (trigger_id has ~3s TTL, config-service calls can be slow)
+    try:
+        onboarding = get_onboarding_modules()
+        modal = onboarding.build_ai_model_modal(team_id=team_id)
+        resp = client.views_open(trigger_id=body["trigger_id"], view=modal)
+        view_id = resp["view"]["id"]
+    except Exception as e:
+        logger.error(f"Failed to open AI model modal: {e}", exc_info=True)
+        return
+
+    # Now fetch existing config and update the modal with pre-filled values
     try:
         config_client = get_config_client()
         llm_config = config_client.get_integration_config(team_id, "llm") or {}
         current_model = llm_config.get("model", "")
 
-        current_provider = (
-            _detect_provider_from_model(current_model) if current_model else None
-        )
-
-        # Get existing provider config for pre-filling
-        existing_provider_config = {}
-        if current_provider:
+        if current_model:
+            current_provider = _detect_provider_from_model(current_model)
             existing_provider_config = (
                 config_client.get_integration_config(team_id, current_provider) or {}
             )
 
-        onboarding = get_onboarding_modules()
-        modal = onboarding.build_ai_model_modal(
-            team_id=team_id,
-            provider_id=current_provider,
-            current_model=current_model,
-            existing_provider_config=existing_provider_config,
-        )
-        client.views_open(trigger_id=body["trigger_id"], view=modal)
+            modal = onboarding.build_ai_model_modal(
+                team_id=team_id,
+                provider_id=current_provider,
+                current_model=current_model,
+                existing_provider_config=existing_provider_config,
+            )
+            client.views_update(view_id=view_id, view=modal)
+
         logger.info(f"Opened AI model modal for team {team_id}")
 
     except Exception as e:
-        logger.error(f"Failed to open AI model modal: {e}", exc_info=True)
+        logger.warning(f"Failed to pre-fill AI model modal: {e}")
 
 
 @app.action("ai_provider_select")
@@ -6966,8 +6603,6 @@ def register_all_handlers(bolt_app):
     bolt_app.event("member_joined_channel")(handle_member_joined_channel)
 
     # Action handlers (string patterns)
-    bolt_app.action("nudge_invoke")(handle_nudge_invoke)
-    bolt_app.action("nudge_dismiss")(handle_nudge_dismiss)
     bolt_app.action("stop_listening")(handle_stop_listening)
     bolt_app.action("coralogix_investigate")(handle_coralogix_investigate)
     bolt_app.action("coralogix_dismiss")(handle_coralogix_dismiss)
