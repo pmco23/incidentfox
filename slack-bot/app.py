@@ -1839,7 +1839,9 @@ def handle_mention(event, say, client, context):
     if not images and not file_attachments:
         try:
             result = client.conversations_replies(
-                channel=channel_id, ts=thread_ts, limit=200,
+                channel=channel_id,
+                ts=thread_ts,
+                limit=200,
             )
             for msg in result.get("messages", []):
                 if msg.get("ts") == event["ts"]:
