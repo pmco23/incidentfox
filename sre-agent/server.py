@@ -484,6 +484,7 @@ async def investigate(request: InvestigateRequest):
         print(
             f"🔧 Creating sandbox for thread {thread_id} (tenant={tenant_id}, team={team_id}, warm_pool={use_warm_pool})"
         )
+        provision_start = time.time()
         try:
             if use_warm_pool:
                 # Use warm pool for instant provisioning (<2 seconds)
@@ -495,8 +496,9 @@ async def investigate(request: InvestigateRequest):
                     jwt_token=jwt_token,
                     team_token=team_token,
                 )
+                provision_ms = (time.time() - provision_start) * 1000
                 # Warm pool method already waits for ready and injects JWT
-                print(f"✅ Sandbox {sandbox_info.name} is ready (from warm pool)")
+                print(f"✅ Sandbox {sandbox_info.name} is ready (from warm pool, {provision_ms:.0f}ms total)")
             else:
                 # Direct creation (traditional path)
                 sandbox_info = sandbox_manager.create_sandbox(
@@ -514,7 +516,8 @@ async def investigate(request: InvestigateRequest):
                         status_code=500, detail="Sandbox failed to become ready"
                     )
 
-                print(f"✅ Sandbox {sandbox_info.name} is ready")
+                provision_ms = (time.time() - provision_start) * 1000
+                print(f"✅ Sandbox {sandbox_info.name} is ready (direct creation, {provision_ms:.0f}ms total)")
 
         except Exception as e:
             raise HTTPException(
