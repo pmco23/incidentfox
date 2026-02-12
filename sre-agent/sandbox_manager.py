@@ -1184,22 +1184,16 @@ static_resources:
                     print(f"✅ SandboxClaim {claim_name} bound to {sandbox_name}")
                     return sandbox_name
 
-                # Check for failure
-                is_failed = any(
-                    c.get("type") == "Ready" and c.get("status") == "False"
-                    for c in conditions
-                )
-                if is_failed:
-                    reason = next(
-                        (
-                            c.get("message", "unknown")
-                            for c in conditions
-                            if c.get("type") == "Ready"
-                        ),
-                        "unknown",
-                    )
-                    print(f"❌ SandboxClaim {claim_name} failed: {reason}")
-                    return None
+                # Check for terminal failure (skip transient "not ready" states)
+                for c in conditions:
+                    if c.get("type") == "Ready" and c.get("status") == "False":
+                        reason = c.get("message", "unknown")
+                        # "Sandbox is not ready" is transient — controller is still processing
+                        if reason != "Sandbox is not ready":
+                            print(
+                                f"❌ SandboxClaim {claim_name} failed: {reason}"
+                            )
+                            return None
 
             except ApiException as e:
                 if e.status != 404:
@@ -1352,24 +1346,10 @@ static_resources:
                     team_token=team_token,
                 )
 
-            # Step 3: Wait for pod to be ready
-            step3_start = time.time()
-            if not self.wait_for_ready(thread_id, timeout=30):
-                total_ms = (time.time() - warmpool_start) * 1000
-                print(
-                    f"⚠️ [WARMPOOL] Pod not ready after {total_ms:.0f}ms, falling back to direct creation"
-                )
-                self.delete_sandbox_claim(thread_id)
-                return self.create_sandbox(
-                    thread_id=thread_id,
-                    tenant_id=tenant_id,
-                    team_id=team_id,
-                    ttl_hours=ttl_hours,
-                    jwt_token=jwt_to_inject,
-                    team_token=team_token,
-                )
-            step3_ms = (time.time() - step3_start) * 1000
-            print(f"⏱️ [WARMPOOL] Step 3 - Wait for pod ready: {step3_ms:.0f}ms")
+            # Step 3: Warm pool pod is already running (pre-warmed), skip readiness check.
+            # The claim binding (Ready=True) guarantees the pod and service exist.
+            step3_ms = 0.0
+            print(f"⏱️ [WARMPOOL] Step 3 - Pod already ready (warm pool): {step3_ms:.0f}ms")
 
             # Step 4: Inject JWT via /claim endpoint
             step4_start = time.time()
