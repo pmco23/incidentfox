@@ -1190,9 +1190,7 @@ static_resources:
                         reason = c.get("message", "unknown")
                         # "Sandbox is not ready" is transient — controller is still processing
                         if reason != "Sandbox is not ready":
-                            print(
-                                f"❌ SandboxClaim {claim_name} failed: {reason}"
-                            )
+                            print(f"❌ SandboxClaim {claim_name} failed: {reason}")
                             return None
 
             except ApiException as e:
@@ -1349,7 +1347,9 @@ static_resources:
             # Step 3: Warm pool pod is already running (pre-warmed), skip readiness check.
             # The claim binding (Ready=True) guarantees the pod and service exist.
             step3_ms = 0.0
-            print(f"⏱️ [WARMPOOL] Step 3 - Pod already ready (warm pool): {step3_ms:.0f}ms")
+            print(
+                f"⏱️ [WARMPOOL] Step 3 - Pod already ready (warm pool): {step3_ms:.0f}ms"
+            )
 
             # Step 4: Inject JWT via /claim endpoint
             step4_start = time.time()
