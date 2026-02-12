@@ -3613,25 +3613,28 @@ def build_ai_model_modal(
                     make_optional = field_has_value or not field_required
 
                     if field_type == "secret":
+                        _SECRET_MASK = "**********"
                         hint_text = field_hint
+                        element = {
+                            "type": "plain_text_input",
+                            "action_id": f"input_{field_id}",
+                            "placeholder": {
+                                "type": "plain_text",
+                                "text": field_placeholder or "Enter value...",
+                            },
+                        }
                         if field_has_value:
+                            element["initial_value"] = _SECRET_MASK
                             hint_text = (
-                                f"{field_hint} (already set — leave blank to keep)"
+                                f"{field_hint} (saved — replace to update)"
                                 if field_hint
-                                else "Already set — leave blank to keep"
+                                else "Saved — replace to update"
                             )
                         input_block = {
                             "type": "input",
                             "block_id": f"field_{field_id}",
                             "optional": make_optional,
-                            "element": {
-                                "type": "plain_text_input",
-                                "action_id": f"input_{field_id}",
-                                "placeholder": {
-                                    "type": "plain_text",
-                                    "text": field_placeholder or "Enter value...",
-                                },
-                            },
+                            "element": element,
                             "label": {"type": "plain_text", "text": field_name},
                         }
                         if hint_text:

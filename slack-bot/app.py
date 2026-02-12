@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
@@ -5961,9 +5962,13 @@ def handle_ai_model_config_submission(ack, body, client, view):
         field_value = values.get(block_id, {}).get(action_id, {})
 
         if "value" in field_value:
-            val = field_value.get("value")
-            if val:
-                provider_config[field_id] = val.strip()
+            val = (field_value.get("value") or "").strip()
+            if val and re.fullmatch(r"\*+", val):
+                # Masked secret field unchanged — preserve existing value
+                if field_id in existing_provider_config:
+                    provider_config[field_id] = existing_provider_config[field_id]
+            elif val:
+                provider_config[field_id] = val
             elif field_id in existing_provider_config:
                 # Secret field left blank — preserve existing value
                 provider_config[field_id] = existing_provider_config[field_id]
@@ -5979,21 +5984,25 @@ def handle_ai_model_config_submission(ack, body, client, view):
             provider_config[field_id] = len(selected) > 0
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
-    view_id = view["id"]
+    #    Push on top of form so user can go Back on error (form fields preserved)
+    from assets_config import get_asset_url
+
+    user_id = body.get("user", {}).get("id")
+    validation_ext_id = f"ai_validation_{team_id}_{user_id or 'u'}_{int(time.time())}"
+    loading_url = get_asset_url("loading")
+    loading_elements = []
+    if loading_url:
+        loading_elements.append(
+            {"type": "image", "image_url": loading_url, "alt_text": "Loading"}
+        )
+    loading_elements.append({"type": "mrkdwn", "text": "*Validating your API key...*"})
     ack(
-        response_action="update",
+        response_action="push",
         view={
             "type": "modal",
+            "external_id": validation_ext_id,
             "title": {"type": "plain_text", "text": "AI Model"},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": ":hourglass_flowing_sand: *Validating your API key...*",
-                    },
-                },
-            ],
+            "blocks": [{"type": "context", "elements": loading_elements}],
         },
     )
 
@@ -6005,12 +6014,13 @@ def handle_ai_model_config_submission(ack, body, client, view):
     )
 
     if not is_valid:
+        # Update the pushed loading view to show error; "Back" pops it, revealing the form
         client.views_update(
-            view_id=view_id,
+            external_id=validation_ext_id,
             view={
                 "type": "modal",
                 "title": {"type": "plain_text", "text": "AI Model"},
-                "close": {"type": "plain_text", "text": "Close"},
+                "close": {"type": "plain_text", "text": "Back"},
                 "blocks": [
                     {
                         "type": "section",
@@ -6024,7 +6034,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": "Close this and click *Change Model* to try again.",
+                                "text": "Press *Back* to fix your API key and try again.",
                             }
                         ],
                     },
@@ -6054,11 +6064,11 @@ def handle_ai_model_config_submission(ack, body, client, view):
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
         client.views_update(
-            view_id=view_id,
+            external_id=validation_ext_id,
             view={
                 "type": "modal",
                 "title": {"type": "plain_text", "text": "AI Model"},
-                "close": {"type": "plain_text", "text": "Close"},
+                "close": {"type": "plain_text", "text": "Back"},
                 "blocks": [
                     {
                         "type": "section",
@@ -6066,6 +6076,15 @@ def handle_ai_model_config_submission(ack, body, client, view):
                             "type": "mrkdwn",
                             "text": f":x: *Failed to save:* {str(e)[:300]}",
                         },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "Press *Back* to try again.",
+                            }
+                        ],
                     },
                 ],
             },
@@ -6077,22 +6096,33 @@ def handle_ai_model_config_submission(ack, body, client, view):
     )
 
     # 7. Show success + refresh Home Tab
-    user_id = body.get("user", {}).get("id")
+    done_url = get_asset_url("done")
+    success_elements = []
+    if done_url:
+        success_elements.append(
+            {"type": "image", "image_url": done_url, "alt_text": "Done"}
+        )
+    success_elements.append({"type": "mrkdwn", "text": "*Model saved!*"})
+    success_blocks = [
+        {"type": "context", "elements": success_elements},
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"Using `{model_id}`",
+            },
+        },
+    ]
+    # Update pushed validation view with success
+    # clear_on_close=True closes the entire modal stack (not just pop back to form)
     client.views_update(
-        view_id=view_id,
+        external_id=validation_ext_id,
         view={
             "type": "modal",
             "title": {"type": "plain_text", "text": "AI Model"},
             "close": {"type": "plain_text", "text": "Done"},
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f":white_check_mark: *Model saved!*\nUsing `{model_id}`",
-                    },
-                },
-            ],
+            "clear_on_close": True,
+            "blocks": success_blocks,
         },
     )
 
