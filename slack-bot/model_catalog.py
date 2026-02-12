@@ -8,6 +8,7 @@ with the acompletion endpoint, enriched with descriptions from OpenRouter.
 import json
 import logging
 import os
+import re
 import threading
 import time
 import urllib.request
@@ -46,6 +47,17 @@ _OPENROUTER_PROVIDERS = {
     "arcee": "arcee-ai",
 }
 
+# Regex to extract a date like 2025-08-07 from model names
+_DATE_RE = re.compile(r"(\d{4})-?(\d{2})-?(\d{2})")
+
+
+def _extract_date_score(name: str) -> int:
+    """Extract a YYYYMMDD int from a model name for sorting, or 0 if none found."""
+    m = _DATE_RE.search(name)
+    if m:
+        return int(m.group(1)) * 10000 + int(m.group(2)) * 100 + int(m.group(3))
+    return 0
+
 
 def _fetch_json(url: str, headers: dict, timeout: int = 10) -> dict:
     """Fetch JSON from URL."""
@@ -62,6 +74,7 @@ class ModelCatalog:
     def __init__(self):
         self._or_cache: List[Dict] = []  # Raw OpenRouter models
         self._or_descriptions: Dict[str, str] = {}  # raw_model_name -> description
+        self._or_created: Dict[str, int] = {}  # raw_model_name -> created timestamp
         self._or_last_fetch: float = 0
         self._lock = threading.Lock()
 
@@ -90,16 +103,24 @@ class ModelCatalog:
                 if time.time() - self._or_last_fetch > _CACHE_TTL:
                     self._or_cache = self._fetch_openrouter()
                     self._or_descriptions = {}
+                    self._or_created = {}
                     for m in self._or_cache:
                         or_id = m.get("id", "")
                         desc = m.get("description", "")
-                        if desc and "/" in or_id:
+                        created = m.get("created", 0)
+                        if "/" in or_id:
                             raw = or_id.split("/", 1)[1]
-                            self._or_descriptions[raw] = desc
+                            if desc:
+                                self._or_descriptions[raw] = desc
+                            if created:
+                                self._or_created[raw] = created
                             # Also store dash variant (OpenRouter uses dots: 3.5, litellm dashes: 3-5)
                             dash = raw.replace(".", "-")
                             if dash != raw:
-                                self._or_descriptions[dash] = desc
+                                if desc:
+                                    self._or_descriptions[dash] = desc
+                                if created:
+                                    self._or_created[dash] = created
                     self._or_last_fetch = time.time()
 
     # --- Public API ---
@@ -158,22 +179,30 @@ class ModelCatalog:
                     continue
 
             description = self._or_descriptions.get(raw_name, "")
+            created = self._or_created.get(raw_name, 0)
             # Try prefix match (e.g., "claude-3-5-haiku" matches "claude-3-5-haiku-20241022")
-            if not description:
-                for or_key, or_desc in self._or_descriptions.items():
-                    if raw_name.startswith(or_key) and or_desc:
-                        description = or_desc
-                        break
+            if not description or not created:
+                for or_key in self._or_descriptions:
+                    if raw_name.startswith(or_key):
+                        if not description and self._or_descriptions.get(or_key):
+                            description = self._or_descriptions[or_key]
+                        if not created and self._or_created.get(or_key):
+                            created = self._or_created[or_key]
+                        if description and created:
+                            break
 
-            results.append(
-                {
-                    "id": model_id,
-                    "name": raw_name,
-                    "description": description,
-                }
-            )
+            # Use OpenRouter created timestamp, fall back to date in model name
+            sort_key = created or _extract_date_score(raw_name)
 
-        results.sort(key=lambda m: m["name"])
+            results.append({
+                "id": model_id,
+                "name": raw_name,
+                "description": description,
+                "_sort": sort_key,
+            })
+
+        # Newest first; models without any date info go to the end
+        results.sort(key=lambda m: m.pop("_sort"), reverse=True)
         return results[:limit]
 
     def _get_or_provider_models(
