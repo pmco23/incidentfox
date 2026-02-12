@@ -54,6 +54,8 @@ class ConfigServiceClient:
     def __init__(self, base_url: str = None, admin_token: str = None):
         self.base_url = (base_url or CONFIG_SERVICE_URL).rstrip("/")
         self.admin_token = admin_token or CONFIG_SERVICE_ADMIN_TOKEN
+        # Reuse TCP connections (HTTP keep-alive) across requests
+        self._session = requests.Session()
 
     def _headers(self) -> Dict[str, str]:
         """Get headers for admin requests."""
@@ -170,7 +172,9 @@ class ConfigServiceClient:
             "parent_id": None,
         }
 
-        response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+        response = self._session.post(
+            url, json=payload, headers=self._headers(), timeout=10
+        )
 
         # 400 might mean org already exists, which is fine
         if response.status_code == 400 and "already exists" in response.text.lower():
@@ -196,7 +200,9 @@ class ConfigServiceClient:
             "parent_id": org_id,
         }
 
-        response = requests.post(url, json=payload, headers=self._headers(), timeout=10)
+        response = self._session.post(
+            url, json=payload, headers=self._headers(), timeout=10
+        )
 
         # 400 might mean team already exists
         if response.status_code == 400 and "already exists" in response.text.lower():
@@ -214,7 +220,7 @@ class ConfigServiceClient:
         """Issue a team token for API access."""
         url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/teams/{team_node_id}/tokens"
 
-        response = requests.post(url, json={}, headers=self._headers(), timeout=10)
+        response = self._session.post(url, json={}, headers=self._headers(), timeout=10)
         response.raise_for_status()
         return response.json()
 
@@ -289,7 +295,9 @@ class ConfigServiceClient:
         payload = {"identifiers": {"slack_channel_id": channel_id}}
 
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            response = self._session.post(
+                url, json=payload, headers=headers, timeout=10
+            )
             response.raise_for_status()
             result = response.json()
 
@@ -362,7 +370,7 @@ class ConfigServiceClient:
         """Issue an org admin token for org-level management."""
         url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/admin-tokens"
 
-        response = requests.post(url, json={}, headers=self._headers(), timeout=10)
+        response = self._session.post(url, json={}, headers=self._headers(), timeout=10)
         response.raise_for_status()
         return response.json()
 
@@ -420,7 +428,7 @@ class ConfigServiceClient:
 
         # API expects {"config": ...} wrapper per ConfigPatchRequest schema
         body = {"config": config}
-        response = requests.patch(url, json=body, headers=headers, timeout=10)
+        response = self._session.patch(url, json=body, headers=headers, timeout=10)
         response.raise_for_status()
         return response.json()
 
@@ -446,7 +454,7 @@ class ConfigServiceClient:
         headers["X-Team-Node-Id"] = team_node_id
 
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = self._session.get(url, headers=headers, timeout=10)
             if response.status_code == 404:
                 logger.info(f"No config found for workspace {slack_team_id}")
                 return None
@@ -691,7 +699,7 @@ class ConfigServiceClient:
             params["featured"] = str(featured).lower()
 
         try:
-            response = requests.get(
+            response = self._session.get(
                 url, params=params, headers=self._headers(), timeout=10
             )
             response.raise_for_status()
@@ -824,7 +832,7 @@ class ConfigServiceClient:
             payload["display_name"] = display_name
 
         try:
-            response = requests.post(
+            response = self._session.post(
                 url, json=payload, headers=self._headers(), timeout=30
             )
 
@@ -884,7 +892,7 @@ class ConfigServiceClient:
             params["include_revoked"] = "true"
 
         try:
-            response = requests.get(
+            response = self._session.get(
                 url, params=params, headers=self._headers(), timeout=10
             )
             response.raise_for_status()
@@ -926,7 +934,7 @@ class ConfigServiceClient:
         url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/teams/{team_node_id}/k8s-clusters/{cluster_id}"
 
         try:
-            response = requests.delete(url, headers=self._headers(), timeout=10)
+            response = self._session.delete(url, headers=self._headers(), timeout=10)
 
             if response.status_code == 404:
                 raise ConfigServiceError(
@@ -973,7 +981,7 @@ class ConfigServiceClient:
         url = f"{self.base_url}/api/v1/internal/github/installations"
 
         try:
-            response = requests.get(
+            response = self._session.get(
                 url,
                 params={"org_id": org_id, "status": "active", "limit": 1},
                 headers=self._get_internal_headers(),
@@ -1010,7 +1018,7 @@ class ConfigServiceClient:
         url = f"{self.base_url}/api/v1/internal/github/installations/link-by-account"
 
         try:
-            response = requests.post(
+            response = self._session.post(
                 url,
                 json={
                     "account_login": github_org,
