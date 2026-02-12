@@ -5418,14 +5418,14 @@ def handle_open_ai_model_selector(ack, body, client):
     # Now fetch existing config and update the modal with pre-filled values
     try:
         config_client = get_config_client()
-        llm_config = config_client.get_integration_config(team_id, "llm") or {}
+        workspace_config = config_client.get_workspace_config(team_id) or {}
+        integrations = workspace_config.get("integrations", {})
+        llm_config = integrations.get("llm", {})
         current_model = llm_config.get("model", "")
 
         if current_model:
             current_provider = _detect_provider_from_model(current_model)
-            existing_provider_config = (
-                config_client.get_integration_config(team_id, current_provider) or {}
-            )
+            existing_provider_config = integrations.get(current_provider) or {}
 
             modal = onboarding.build_ai_model_modal(
                 team_id=team_id,
@@ -5461,9 +5461,6 @@ def handle_ai_provider_change(ack, body, client):
         team_id = private_metadata.get("team_id")
 
         config_client = get_config_client()
-        llm_config = config_client.get_integration_config(team_id, "llm") or {}
-        current_model = llm_config.get("model", "")
-
         existing_provider_config = (
             config_client.get_integration_config(team_id, selected_provider) or {}
         )
