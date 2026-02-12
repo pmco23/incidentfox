@@ -67,6 +67,8 @@ def get_provider_for_credentials(model: str) -> str:
       - ollama/<model>                             → "ollama"
       - openrouter/<provider>/<model>              → "openrouter"
       - deepseek/<model>                           → "deepseek"
+      - zai/<model>                                → "zai"
+      - arcee/<model>                              → "arcee"
     """
     m = model.lower()
     if m.startswith(("claude", "anthropic/")):
@@ -107,6 +109,10 @@ def get_provider_for_credentials(model: str) -> str:
         return "deepseek"
     if m.startswith("qwen/"):
         return "qwen"
+    if m.startswith("zai/"):
+        return "zai"
+    if m.startswith("arcee/"):
+        return "arcee"
     # Default: try openrouter as catch-all for unknown models
     return "openrouter"
 
@@ -427,6 +433,11 @@ async def _forward_to_provider(
     elif provider == "minimax":
         # MiniMax has an OpenAI-compatible API at api.minimax.io
         litellm_kwargs["api_base"] = "https://api.minimax.io/v1"
+        model_name = model.split("/", 1)[1] if "/" in model else model
+        litellm_kwargs["model"] = f"openai/{model_name}"
+    elif provider == "arcee":
+        # Arcee AI has an OpenAI-compatible API at models.arcee.ai
+        litellm_kwargs["api_base"] = "https://models.arcee.ai/v1"
         model_name = model.split("/", 1)[1] if "/" in model else model
         litellm_kwargs["model"] = f"openai/{model_name}"
 

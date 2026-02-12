@@ -80,6 +80,8 @@ LLM_PROVIDERS = [
     ),
     ("moonshot", "Moonshot AI (Kimi)", "moonshot/moonshot-v1-8k", "Kimi models"),
     ("minimax", "MiniMax", "minimax/MiniMax-Text-01", "MiniMax models"),
+    ("zai", "Z.ai (GLM)", "zai/glm-4.7", "GLM models"),
+    ("arcee", "Arcee AI", "arcee/virtuoso-large", "Trinity, Maestro, Virtuoso"),
     # --- Self-hosted ---
     ("ollama", "Ollama (Local)", "ollama/llama3", "Local models"),
 ]
@@ -723,7 +725,7 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "status": "active",
         "icon": ":brain:",
         "icon_fallback": ":brain:",
-        "description": "GPT-4o, o3, o1 and other OpenAI models.",
+        "description": "GPT-5.2 and other OpenAI models.",
         "setup_instructions": (
             "*Setup Instructions:*\n"
             "1. Go to https://platform.openai.com/api-keys\n"
@@ -918,6 +920,57 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "required": True,
                 "placeholder": "sk-api-...",
                 "hint": "API key from api.minimax.chat",
+            },
+        ],
+    },
+    {
+        "id": "zai",
+        "name": "Z.ai (GLM)",
+        "category": "llm",
+        "status": "active",
+        "icon": ":zap:",
+        "icon_fallback": ":robot_face:",
+        "description": "Z.ai API for GLM models (GLM-4.5, GLM-4.6, GLM-4.7).",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://open.z.ai/\n"
+            "2. Create an API key\n"
+            "3. Enter the key below"
+        ),
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "...",
+                "hint": "Your Z.ai API key",
+            },
+        ],
+    },
+    {
+        "id": "arcee",
+        "name": "Arcee AI",
+        "category": "llm",
+        "status": "active",
+        "icon": ":sparkles:",
+        "icon_fallback": ":robot_face:",
+        "description": "Arcee AI models (Trinity, Maestro, Virtuoso, Spotlight).",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://models.arcee.ai/\n"
+            "2. Create an API key under Account > API Keys\n"
+            "3. Enter the key below"
+        ),
+        "docs_url": "https://docs.arcee.ai",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "...",
+                "hint": "Your Arcee AI API key",
             },
         ],
     },
@@ -2094,14 +2147,17 @@ def validate_provider_api_key(
     provider_id: str, config: dict, model_id: str = ""
 ) -> tuple[bool, str]:
     """
-    Validate API credentials for a provider via a live 1-token test message.
+    Validate API credentials for a provider via a live 1-token test using LiteLLM.
 
-    Sends a minimal completion request to verify the key, model access, and billing.
+    Uses the same LiteLLM library as the backend proxy to ensure full parity —
+    correct endpoints, parameter names, and model routing.
     Returns (is_valid, error_message).
     """
     import re as _re
 
-    import requests as req
+    import litellm
+
+    litellm.suppress_debug_info = True
 
     def _sanitize(msg: str) -> str:
         """Remove potential API key values from error messages."""
@@ -2111,27 +2167,11 @@ def validate_provider_api_key(
         msg = _re.sub(r"AIza[a-zA-Z0-9_-]+", "[REDACTED]", msg)
         msg = _re.sub(r"xai-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
         msg = _re.sub(r"ABSK[a-zA-Z0-9_-]+", "[REDACTED]", msg)
-        msg = _re.sub(r"glpat-[a-zA-Z0-9_-]+", "[REDACTED]", msg)
         return msg
-
-    def _extract_error(resp) -> str:
-        """Extract error message from API response."""
-        try:
-            body = resp.json()
-            msg = body.get("error", {}).get("message", "")
-            if msg:
-                return _sanitize(msg)
-        except Exception:
-            pass
-        return _sanitize(resp.text[:300])
-
-    def _raw_model(mid: str) -> str:
-        """Strip provider prefix from model ID for API calls."""
-        return mid.split("/", 1)[1] if "/" in mid else mid
 
     api_key = config.get("api_key", "")
 
-    # --- Bedrock: format-check only (SDK auth too complex for HTTP) ---
+    # --- Format-check-only providers (complex auth, can't easily test via HTTP) ---
     if provider_id == "bedrock":
         has_auth = api_key or (
             config.get("aws_access_key_id") and config.get("aws_secret_access_key")
@@ -2140,248 +2180,94 @@ def validate_provider_api_key(
             return False, "Provide either a Bedrock API key or AWS access key + secret."
         return True, ""
 
-    # --- Vertex AI: format-check only (Google auth too complex for HTTP) ---
     if provider_id == "vertex_ai":
         if not config.get("project"):
             return False, "GCP Project ID is required."
         return True, ""
 
-    # --- Ollama: live 1-token test ---
+    # --- Anthropic: optional key (uses IncidentFox default) ---
+    if provider_id == "anthropic" and not api_key:
+        return True, ""
+
+    # --- All other providers: 1-token test via LiteLLM ---
+    if not api_key and provider_id != "ollama":
+        return False, f"API key is required for {provider_id}."
+
+    # Build LiteLLM kwargs — mirrors backend credential-resolver/llm_proxy.py
+    litellm_kwargs: dict = {
+        "model": model_id or f"{provider_id}/default",
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 5,
+    }
+
+    if api_key:
+        litellm_kwargs["api_key"] = api_key
+
+    # Provider-specific overrides (same as backend llm_proxy.py)
     if provider_id == "ollama":
         host = config.get("host", "http://localhost:11434")
-        raw = _raw_model(model_id) if model_id else "llama3"
-        try:
-            resp = req.post(
-                f"{host.rstrip('/')}/api/chat",
-                json={
-                    "model": raw,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "stream": False,
-                    "options": {"num_predict": 1},
-                },
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                return True, ""
-            return False, f"Ollama error ({resp.status_code}): {_extract_error(resp)}"
-        except Exception as e:
-            return False, f"Cannot reach Ollama at {host}: {str(e)[:200]}"
-
-    # --- Azure: live 1-token test ---
-    if provider_id == "azure":
-        if not api_key:
-            return False, "API key is required for Azure."
+        litellm_kwargs["api_base"] = host
+    elif provider_id == "azure":
         api_base = config.get("api_base", "")
         if not api_base:
             return False, "Endpoint URL is required for Azure."
         if not api_base.startswith("https://"):
             return False, "Endpoint URL must start with https://"
-        deployment = _raw_model(model_id) if model_id else "gpt-4o"
-        try:
-            url = f"{api_base.rstrip('/')}/openai/deployments/{deployment}/chat/completions?api-version=2024-02-01"
-            resp = req.post(
-                url,
-                headers={"api-key": api_key, "Content-Type": "application/json"},
-                json={
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                return True, ""
-            return (
-                False,
-                f"Azure API error ({resp.status_code}): {_extract_error(resp)}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach Azure endpoint: {_sanitize(str(e)[:200])}"
-
-    # --- Azure AI: live 1-token test ---
-    if provider_id == "azure_ai":
-        if not api_key:
-            return False, "API key is required for Azure AI."
+        litellm_kwargs["api_base"] = api_base
+        litellm_kwargs["api_version"] = config.get("api_version", "2024-06-01")
+    elif provider_id == "azure_ai":
         api_base = config.get("api_base", "")
         if not api_base:
             return False, "Endpoint URL is required for Azure AI."
         if not api_base.startswith("https://"):
             return False, "Endpoint URL must start with https://"
-        try:
-            url = f"{api_base.rstrip('/')}/v1/chat/completions"
-            resp = req.post(
-                url,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                return True, ""
-            return False, f"Azure AI error ({resp.status_code}): {_extract_error(resp)}"
-        except Exception as e:
-            return False, f"Cannot reach Azure AI endpoint: {_sanitize(str(e)[:200])}"
+        litellm_kwargs["api_base"] = api_base
+    elif provider_id == "openrouter":
+        litellm_kwargs["api_base"] = "https://openrouter.ai/api/v1"
+        # model_id is "openrouter/anthropic/claude-sonnet-4.5" → use "anthropic/claude-sonnet-4.5"
+        raw = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        litellm_kwargs["model"] = f"openrouter/{raw}" if raw else "openrouter/anthropic/claude-sonnet-4.5"
+    elif provider_id == "moonshot":
+        litellm_kwargs["api_base"] = "https://api.moonshot.ai/v1"
+        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/moonshot-v1-8k"
+    elif provider_id == "minimax":
+        litellm_kwargs["api_base"] = "https://api.minimax.io/v1"
+        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/MiniMax-Text-01"
+    elif provider_id == "arcee":
+        litellm_kwargs["api_base"] = "https://models.arcee.ai/v1"
+        model_name = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        litellm_kwargs["model"] = f"openai/{model_name}" if model_name else "openai/virtuoso-large"
 
-    # --- Anthropic: live 1-token test ---
-    if provider_id == "anthropic":
-        if not api_key:
-            return True, ""  # OK to not have a key (uses IncidentFox default)
-        if not (api_key.startswith("sk-ant-") or api_key.startswith("sk-")):
-            return False, "Invalid Anthropic key format. Keys start with sk-ant-"
-        raw = model_id or "claude-sonnet-4-20250514"
-        try:
-            resp = req.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": raw,
-                    "max_tokens": 1,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                return True, ""
-            return (
-                False,
-                f"Anthropic API error ({resp.status_code}): {_extract_error(resp)}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach Anthropic API: {str(e)[:200]}"
-
-    # --- Gemini: live 1-token test ---
-    if provider_id == "gemini":
-        if not api_key:
-            return False, "Gemini API key is required."
-        raw = _raw_model(model_id) if model_id else "gemini-2.5-flash"
-        try:
-            resp = req.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{raw}:generateContent",
-                headers={
-                    "x-goog-api-key": api_key,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "contents": [{"parts": [{"text": "hi"}]}],
-                    "generationConfig": {"maxOutputTokens": 1},
-                },
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                return True, ""
-            return (
-                False,
-                f"Gemini API error ({resp.status_code}): {_extract_error(resp)}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach Gemini API: {str(e)[:200]}"
-
-    # --- Cohere: live 1-token test ---
-    if provider_id == "cohere":
-        if not api_key:
-            return False, "Cohere API key is required."
-        raw = _raw_model(model_id) if model_id else "command-r-plus"
-        try:
-            resp = req.post(
-                "https://api.cohere.com/v2/chat",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": raw,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                return True, ""
-            return (
-                False,
-                f"Cohere API error ({resp.status_code}): {_extract_error(resp)}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach Cohere API: {str(e)[:200]}"
-
-    # --- OpenRouter: live 1-token test ---
-    if provider_id == "openrouter":
-        if not api_key:
-            return False, "OpenRouter API key is required."
-        # model_id is like "openrouter/anthropic/claude-sonnet-4.5" → strip "openrouter/"
-        raw = _raw_model(model_id) if model_id else "anthropic/claude-sonnet-4.5"
-        try:
-            resp = req.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": raw,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                return True, ""
-            return (
-                False,
-                f"OpenRouter API error ({resp.status_code}): {_extract_error(resp)}",
-            )
-        except Exception as e:
-            return False, f"Cannot reach OpenRouter: {str(e)[:200]}"
-
-    # --- OpenAI-compatible providers: live 1-token test ---
-    PROVIDER_CHAT_ENDPOINTS = {
-        "openai": "https://api.openai.com/v1/chat/completions",
-        "deepseek": "https://api.deepseek.com/v1/chat/completions",
-        "qwen": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        "xai": "https://api.x.ai/v1/chat/completions",
-        "mistral": "https://api.mistral.ai/v1/chat/completions",
-        "together_ai": "https://api.together.xyz/v1/chat/completions",
-        "groq": "https://api.groq.com/openai/v1/chat/completions",
-        "fireworks_ai": "https://api.fireworks.ai/inference/v1/chat/completions",
-        "moonshot": "https://api.moonshot.ai/v1/chat/completions",
-        "minimax": "https://api.minimax.io/v1/chat/completions",
-    }
-
-    endpoint = PROVIDER_CHAT_ENDPOINTS.get(provider_id)
-    if endpoint:
-        if not api_key:
-            return False, f"API key is required for {provider_id}."
-        raw = _raw_model(model_id) if model_id else "default"
-        try:
-            resp = req.post(
-                endpoint,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": raw,
-                    "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
-                },
-                timeout=10,
-            )
-            if resp.status_code in (200, 201):
-                return True, ""
-            return False, f"API error ({resp.status_code}): {_extract_error(resp)}"
-        except Exception as e:
-            return False, f"Cannot reach provider API: {_sanitize(str(e)[:200])}"
-
-    # Unknown provider — skip validation
-    return True, ""
+    try:
+        litellm.completion(**litellm_kwargs)
+        return True, ""
+    except litellm.exceptions.AuthenticationError as e:
+        return False, f"Authentication failed: {_sanitize(str(e)[:200])}"
+    except litellm.exceptions.NotFoundError as e:
+        return False, f"Model not found: {_sanitize(str(e)[:200])}"
+    except litellm.exceptions.RateLimitError:
+        # Rate limited means the key is valid, just throttled
+        return True, ""
+    except litellm.exceptions.BadRequestError as e:
+        err_msg = str(e)
+        # "max_tokens or model output limit was reached" = call succeeded, key is valid
+        if "max_tokens" in err_msg.lower() or "output limit" in err_msg.lower():
+            return True, ""
+        # Some "bad request" errors are actually billing/quota issues — key is valid
+        if "billing" in err_msg.lower() or "quota" in err_msg.lower():
+            return False, f"Billing issue: {_sanitize(err_msg[:200])}"
+        return False, f"API error: {_sanitize(err_msg[:200])}"
+    except litellm.exceptions.APIConnectionError as e:
+        # LiteLLM crashes with APIConnectionError on models it doesn't recognize
+        # (bug: "argument of type 'NoneType' is not iterable"). Treat as unknown model.
+        err_msg = str(e)
+        if "NoneType" in err_msg:
+            return False, f"Model not supported by validation. Save and test directly."
+        return False, f"Connection error: {_sanitize(err_msg[:200])}"
+    except Exception as e:
+        return False, f"Validation failed: {_sanitize(str(e)[:200])}"
 
 
 def extract_coralogix_domain(input_str: str) -> tuple[bool, str, str]:
@@ -3693,6 +3579,8 @@ def build_ai_model_modal(
                 "groq": "console.groq.com/keys",
                 "together_ai": "api.together.xyz/settings/api-keys",
                 "fireworks_ai": "fireworks.ai/account/api-keys",
+                "zai": "open.z.ai",
+                "arcee": "models.arcee.ai",
             }
 
             # Provider-specific fields (API key, endpoint, etc.)

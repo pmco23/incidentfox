@@ -5978,7 +5978,26 @@ def handle_ai_model_config_submission(ack, body, client, view):
             selected = field_value.get("selected_options", [])
             provider_config[field_id] = len(selected) > 0
 
-    # 3. Validate API key via live test request
+    # 3. Show loading state immediately (Slack requires ack within 3 seconds)
+    view_id = view["id"]
+    ack(
+        response_action="update",
+        view={
+            "type": "modal",
+            "title": {"type": "plain_text", "text": "AI Model"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": ":hourglass_flowing_sand: *Validating your API key...*",
+                    },
+                },
+            ],
+        },
+    )
+
+    # 4. Validate API key via live test request (no time pressure now)
     onboarding = get_onboarding_modules()
     validation_config = {**existing_provider_config, **provider_config}
     is_valid, error_msg = onboarding.validate_provider_api_key(
@@ -5986,19 +6005,35 @@ def handle_ai_model_config_submission(ack, body, client, view):
     )
 
     if not is_valid:
-        # Show inline error on the API key field (or model field as fallback)
-        error_block = model_block_id
-        for fn in field_names:
-            if "key" in fn or "secret" in fn or "token" in fn:
-                error_block = f"field_{fn}"
-                break
-        ack(
-            response_action="errors",
-            errors={error_block: error_msg[:150]},
+        client.views_update(
+            view_id=view_id,
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "AI Model"},
+                "close": {"type": "plain_text", "text": "Close"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":x: *Validation failed*\n{error_msg[:300]}",
+                        },
+                    },
+                    {
+                        "type": "context",
+                        "elements": [
+                            {
+                                "type": "mrkdwn",
+                                "text": "Close this and click *Change Model* to try again.",
+                            }
+                        ],
+                    },
+                ],
+            },
         )
         return
 
-    # 4. Save provider config (API key + provider-specific fields)
+    # 5. Save provider config (API key + provider-specific fields)
     try:
         if provider_id != "llm" and provider_config:
             config_client.save_integration_config(
@@ -6008,7 +6043,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
             )
             logger.info(f"Saved {provider_id} provider config for team {team_id}")
 
-        # 5. Save LLM model preference
+        # 6. Save LLM model preference
         config_client.save_integration_config(
             slack_team_id=team_id,
             integration_id="llm",
@@ -6018,31 +6053,49 @@ def handle_ai_model_config_submission(ack, body, client, view):
 
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
-        error_modal = {
+        client.views_update(
+            view_id=view_id,
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "AI Model"},
+                "close": {"type": "plain_text", "text": "Close"},
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f":x: *Failed to save:* {str(e)[:300]}",
+                        },
+                    },
+                ],
+            },
+        )
+        return
+
+    logger.info(
+        f"AI model config saved: provider={provider_id}, model={model_id}, team={team_id}"
+    )
+
+    # 7. Show success + refresh Home Tab
+    user_id = body.get("user", {}).get("id")
+    client.views_update(
+        view_id=view_id,
+        view={
             "type": "modal",
-            "title": {"type": "plain_text", "text": "Save Failed"},
-            "close": {"type": "plain_text", "text": "Try Again"},
+            "title": {"type": "plain_text", "text": "AI Model"},
+            "close": {"type": "plain_text", "text": "Done"},
             "blocks": [
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f":x: *Failed to save:* {str(e)[:300]}",
+                        "text": f":white_check_mark: *Model saved!*\nUsing `{model_id}`",
                     },
-                }
+                },
             ],
-        }
-        ack(response_action="push", view=error_modal)
-        return
-
-    # 6. Success — close the modal stack
-    ack()
-    logger.info(
-        f"AI model config saved: provider={provider_id}, model={model_id}, team={team_id}"
+        },
     )
 
-    # 7. Refresh Home Tab
-    user_id = body.get("user", {}).get("id")
     if user_id and team_id:
         try:
             from home_tab import build_home_tab_view
