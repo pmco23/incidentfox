@@ -1311,7 +1311,6 @@ static_resources:
         Returns:
             SandboxInfo with details about the sandbox
         """
-        sandbox_name = f"investigation-{thread_id}"
         warmpool_start = time.time()
 
         try:
@@ -1352,15 +1351,9 @@ static_resources:
                     team_token=team_token,
                 )
 
-            # Step 3: Warm pool pod is already running (pre-warmed), skip readiness check.
-            # The claim binding (Ready=True) guarantees the pod and service exist.
-            step3_ms = 0.0
-            print(
-                f"⏱️ [WARMPOOL] Step 3 - Pod already ready (warm pool): {step3_ms:.0f}ms"
-            )
-
-            # Step 4: Inject JWT via /claim endpoint
-            step4_start = time.time()
+            # Step 3: Inject JWT via /claim endpoint
+            # (Pod readiness check skipped — warm pool pods are already running)
+            step3_start = time.time()
             if not self.inject_jwt(
                 sandbox_name=bound_sandbox,
                 jwt_token=jwt_to_inject,
@@ -1381,13 +1374,13 @@ static_resources:
                     jwt_token=jwt_to_inject,
                     team_token=team_token,
                 )
-            step4_ms = (time.time() - step4_start) * 1000
-            print(f"⏱️ [WARMPOOL] Step 4 - Inject JWT: {step4_ms:.0f}ms")
+            step3_ms = (time.time() - step3_start) * 1000
+            print(f"⏱️ [WARMPOOL] Step 3 - Inject JWT: {step3_ms:.0f}ms")
 
             total_ms = (time.time() - warmpool_start) * 1000
             print(
                 f"🚀 [WARMPOOL] Sandbox {bound_sandbox} ready in {total_ms:.0f}ms "
-                f"(claim={step1_ms:.0f}ms, bind={step2_ms:.0f}ms, ready={step3_ms:.0f}ms, jwt={step4_ms:.0f}ms)"
+                f"(claim={step1_ms:.0f}ms, bind={step2_ms:.0f}ms, jwt={step3_ms:.0f}ms)"
             )
 
             return SandboxInfo(
