@@ -1603,9 +1603,7 @@ static_resources:
                 team_token=team_token,
             )
             if not self.wait_for_ready(thread_id):
-                raise Exception(
-                    f"Sandbox {sandbox_info.name} failed to become ready"
-                )
+                raise Exception(f"Sandbox {sandbox_info.name} failed to become ready")
             return sandbox_info
 
     def get_warm_pool_status(self) -> dict:
