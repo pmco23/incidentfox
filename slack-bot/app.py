@@ -5407,6 +5407,12 @@ def handle_open_ai_model_selector(ack, body, client):
         logger.warning(f"Failed to pre-fill AI model modal: {e}")
 
 
+# Guard against provider-switch race conditions: slow model catalog fetches
+# (e.g. OpenAI) can overwrite a fast provider switch (e.g. Cloudflare).
+# Each selection increments the counter; stale handlers skip their update.
+_provider_switch_seq: dict = {}  # view_id → sequence number
+
+
 @app.action("ai_provider_select")
 def handle_ai_provider_change(ack, body, client):
     """Handle provider dropdown change — update the modal with provider-specific fields."""
@@ -5421,6 +5427,10 @@ def handle_ai_provider_change(ack, body, client):
     )
     if not selected_provider or not view_id:
         return
+
+    # Claim a sequence number before doing any slow work
+    _provider_switch_seq[view_id] = _provider_switch_seq.get(view_id, 0) + 1
+    my_seq = _provider_switch_seq[view_id]
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5438,6 +5448,13 @@ def handle_ai_provider_change(ack, body, client):
             current_model=None,  # Don't carry over model from different provider
             existing_provider_config=existing_provider_config,
         )
+
+        # Skip update if user already switched to another provider
+        if _provider_switch_seq.get(view_id) != my_seq:
+            logger.info(
+                f"Skipping stale provider update for {selected_provider} (view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
         logger.info(
