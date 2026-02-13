@@ -2323,7 +2323,6 @@ def validate_provider_api_key(
                 json={
                     "model": test_model,
                     "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
                 },
                 timeout=15,
             )
