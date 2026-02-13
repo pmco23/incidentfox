@@ -828,9 +828,9 @@ static_resources:
 
         Non-fatal: logs a warning on failure but doesn't break the follow-up flow.
         """
-        new_shutdown_time = (
-            datetime.utcnow() + timedelta(hours=ttl_hours)
-        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        new_shutdown_time = (datetime.utcnow() + timedelta(hours=ttl_hours)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
 
         template_namespace = os.getenv(
             "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
