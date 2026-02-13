@@ -195,10 +195,6 @@ services:
       name: incidentfox-agent
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-staging-agent"
-    # K8s tools - agent can access otel-demo namespace
-    kubernetes:
-      enabled: true
-      namespace: "otel-demo"
     # Enable sandbox mode with gVisor isolation
     sandbox:
       enabled: true
