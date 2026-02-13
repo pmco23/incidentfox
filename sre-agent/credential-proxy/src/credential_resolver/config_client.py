@@ -146,9 +146,7 @@ class ConfigServiceClient:
             # Pass full config for trial fields (is_trial, trial_expires_at)
             # which live at the top level, not inside integrations.anthropic
             if integration_id == "anthropic":
-                return self._resolve_anthropic_credentials(
-                    config, tenant_id
-                )
+                return self._resolve_anthropic_credentials(config, tenant_id)
 
             if not integration_config:
                 logger.warning(
