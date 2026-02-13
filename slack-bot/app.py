@@ -5478,6 +5478,10 @@ def handle_model_select_change(ack, body, client):
     if not selected_model or not view_id:
         return
 
+    # Snapshot the provider-switch sequence — if it changes, a provider switch
+    # happened and this model description update is stale.
+    seq_before = _provider_switch_seq.get(view_id, 0)
+
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
         team_id = private_metadata.get("team_id")
@@ -5512,6 +5516,13 @@ def handle_model_select_change(ack, body, client):
             existing_provider_config=existing_provider_config,
             model_description=description,
         )
+
+        # Skip if provider changed while we were building the modal
+        if _provider_switch_seq.get(view_id, 0) != seq_before:
+            logger.info(
+                f"Skipping stale model description update (provider switched, view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
     except Exception as e:
