@@ -3461,7 +3461,11 @@ def build_ai_model_modal(
             provider_name = provider_schema.get("name", provider_id)
 
             # Cloudflare: map per-upstream provider_api_key for display
-            if provider_id == "cloudflare_ai" and current_model and "/" in current_model:
+            if (
+                provider_id == "cloudflare_ai"
+                and current_model
+                and "/" in current_model
+            ):
                 upstream = current_model.split("/")[0]
                 stored = existing_provider_config.get(f"provider_api_key_{upstream}")
                 if stored:
