@@ -406,7 +406,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
@@ -1125,12 +1125,29 @@ static_resources:
 
     # ==================== Warm Pool Methods ====================
 
+    def count_active_claims(self) -> int:
+        """Count active SandboxClaims in the template namespace."""
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
+        try:
+            claims = self.custom_api.list_namespaced_custom_object(
+                group="extensions.agents.x-k8s.io",
+                version="v1alpha1",
+                namespace=template_namespace,
+                plural="sandboxclaims",
+            )
+            return len(claims.get("items", []))
+        except Exception as e:
+            print(f"⚠️ Failed to count active claims: {e}")
+            return 0
+
     def create_sandbox_claim(
         self,
         thread_id: str,
         tenant_id: str,
         team_id: str,
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
     ) -> tuple[str, str]:
         """
         Create a SandboxClaim to bind to a warm pool pod.
@@ -1345,6 +1362,18 @@ static_resources:
                 )
                 return True
             except requests.RequestException as e:
+                # 409 Conflict means JWT was already injected (previous timed-out
+                # attempt actually succeeded). Treat as success.
+                if (
+                    isinstance(e, requests.exceptions.HTTPError)
+                    and e.response is not None
+                    and e.response.status_code == 409
+                ):
+                    print(
+                        f"✅ JWT already injected into sandbox {sandbox_name} (409 Conflict = success)"
+                    )
+                    return True
+
                 if attempt < 4:
                     delay = min(1.0 * (2**attempt), 4.0)
                     print(
@@ -1379,7 +1408,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
