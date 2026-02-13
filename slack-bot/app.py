@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -1734,16 +1735,22 @@ def handle_mention(event, say, client, context):
     """
     Handle @mentions of the bot.
 
-    Flow:
-    1. Post initial message
-    2. Stream SSE events from sre-agent
-    3. Update message as events arrive (using chat.update)
-    4. Final update with result and feedback buttons
+    Immediately ACKs by returning quickly, then processes in a background
+    thread so Bolt's listener thread pool stays free for new events.
     """
-    # DEBUG: Log every app_mention event
     logger.info(
         f"🔔 APP_MENTION EVENT RECEIVED: channel={event.get('channel')}, user={event.get('user')}, ts={event.get('ts')}"
     )
+    thread = threading.Thread(
+        target=_handle_mention_impl,
+        args=(event, say, client, context),
+        daemon=True,
+    )
+    thread.start()
+
+
+def _handle_mention_impl(event, say, client, context):
+    """Process an app_mention event (runs in background thread)."""
     user_id = event["user"]
     text = event.get("text", "").strip()
     channel_id = event["channel"]
@@ -3388,7 +3395,11 @@ def handle_message(event, client, context):
                 return  # Block if we can't verify trial status
 
             logger.info("✅ Confirmed: NEW ALERT - triggering investigation")
-            _trigger_incident_io_investigation(event, client, context)
+            threading.Thread(
+                target=_trigger_incident_io_investigation,
+                args=(event, client, context),
+                daemon=True,
+            ).start()
             return
         else:
             logger.info("ℹ️  Has bot_id but not a new alert pattern")
@@ -3558,7 +3569,11 @@ def handle_message(event, client, context):
         logger.info(
             f"🔔 Auto-listen triggered for thread {thread_ts} by user {user_id}"
         )
-        _run_auto_listen_investigation(event, client, context)
+        threading.Thread(
+            target=_run_auto_listen_investigation,
+            args=(event, client, context),
+            daemon=True,
+        ).start()
 
 
 @app.action("coralogix_investigate")
