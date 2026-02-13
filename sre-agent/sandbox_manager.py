@@ -1342,8 +1342,8 @@ static_resources:
                 for pod in pods.items:
                     if pod.status and pod.status.pod_ip:
                         return pod.status.pod_ip
-        except ApiException:
-            pass
+        except ApiException as e:
+            print(f"⚠️ K8s API error looking up sandbox {sandbox_name}: {e.status} {e.reason}")
 
         # Fallback: try listing pods with the sandbox-name-hash label
         # (used by the agent-sandbox controller for headless Service selectors)
@@ -1355,8 +1355,8 @@ static_resources:
             for pod in pods.items:
                 if pod.status and pod.status.pod_ip:
                     return pod.status.pod_ip
-        except ApiException:
-            pass
+        except ApiException as e:
+            print(f"⚠️ K8s API error listing pods for {sandbox_name}: {e.status} {e.reason}")
 
         return None
 

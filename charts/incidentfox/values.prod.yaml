@@ -321,7 +321,7 @@ services:
     replicas: 2
     logLevel: "INFO"
 
-# Karpenter — auto-provisions Graviton nodes for sandbox burst traffic
+# Karpenter — auto-provisions AMD64 nodes for sandbox burst traffic
 karpenter:
   enabled: true
   clusterName: "incidentfox-prod"
