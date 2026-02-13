@@ -13,7 +13,7 @@ version: '3.8'
 #   - agent          AI investigation engine
 #
 # Note: Production/staging use sre-agent via Helm charts (charts/incidentfox/).
-# This trial stack uses the unified-agent Docker Hub image for simplified
+# This trial stack uses the agent Docker Hub image for simplified
 # single-container operation.
 #
 # Optional services (via profiles):
