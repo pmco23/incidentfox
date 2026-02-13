@@ -406,7 +406,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
@@ -605,6 +605,19 @@ static_resources:
                                         "name": "DATADOG_BASE_URL",
                                         "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/datadog",
                                     },
+                                    # flagd runtime config (for OTel Demo incident scenarios)
+                                    {
+                                        "name": "FLAGD_NAMESPACE",
+                                        "value": os.getenv(
+                                            "FLAGD_NAMESPACE", "otel-demo"
+                                        ),
+                                    },
+                                    {
+                                        "name": "FLAGD_CONFIGMAP",
+                                        "value": os.getenv(
+                                            "FLAGD_CONFIGMAP", "flagd-config"
+                                        ),
+                                    },
                                     # Configured integrations (non-sensitive metadata)
                                     # JSON list of {id, url?, domain?, region?} for each integration
                                     {
@@ -659,11 +672,8 @@ static_resources:
                                             "https://us.cloud.langfuse.com",
                                         ),
                                     },
-                                    # Kubernetes context (use pre-configured kubeconfig for incidentfox-demo cluster)
-                                    {
-                                        "name": "KUBECONFIG",
-                                        "value": "/home/agent/.kube/config",
-                                    },
+                                    # Kubernetes: use in-cluster SA auth (incidentfox-sandbox-pod)
+                                    # NOT kubeconfig — that resolves to EC2 node IAM identity
                                     # Dynamic values
                                     {"name": "THREAD_ID", "value": thread_id},
                                     {"name": "SANDBOX_NAME", "value": sandbox_name},
@@ -1125,12 +1135,29 @@ static_resources:
 
     # ==================== Warm Pool Methods ====================
 
+    def count_active_claims(self) -> int:
+        """Count active SandboxClaims in the template namespace."""
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
+        try:
+            claims = self.custom_api.list_namespaced_custom_object(
+                group="extensions.agents.x-k8s.io",
+                version="v1alpha1",
+                namespace=template_namespace,
+                plural="sandboxclaims",
+            )
+            return len(claims.get("items", []))
+        except Exception as e:
+            print(f"⚠️ Failed to count active claims: {e}")
+            return 0
+
     def create_sandbox_claim(
         self,
         thread_id: str,
         tenant_id: str,
         team_id: str,
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
     ) -> tuple[str, str]:
         """
         Create a SandboxClaim to bind to a warm pool pod.
@@ -1296,6 +1323,7 @@ static_resources:
         thread_id: str,
         tenant_id: str,
         team_id: str,
+        team_token: Optional[str] = None,
     ) -> bool:
         """
         Inject JWT and tenant context into a warm sandbox via /claim endpoint.
@@ -1310,6 +1338,7 @@ static_resources:
             thread_id: Investigation thread ID
             tenant_id: Organization/tenant ID
             team_id: Team node ID
+            team_token: Config service token for dynamic config loading
 
         Returns:
             True if successful, False otherwise
@@ -1328,6 +1357,8 @@ static_resources:
             "tenant_id": tenant_id,
             "team_id": team_id,
         }
+        if team_token:
+            payload["team_token"] = team_token
 
         # Retry with backoff — DNS/Service for newly-bound warm pool pods
         # may take a few seconds to propagate
@@ -1345,6 +1376,18 @@ static_resources:
                 )
                 return True
             except requests.RequestException as e:
+                # 409 Conflict means JWT was already injected (previous timed-out
+                # attempt actually succeeded). Treat as success.
+                if (
+                    isinstance(e, requests.exceptions.HTTPError)
+                    and e.response is not None
+                    and e.response.status_code == 409
+                ):
+                    print(
+                        f"✅ JWT already injected into sandbox {sandbox_name} (409 Conflict = success)"
+                    )
+                    return True
+
                 if attempt < 4:
                     delay = min(1.0 * (2**attempt), 4.0)
                     print(
@@ -1379,7 +1422,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
@@ -1453,6 +1496,7 @@ static_resources:
                 thread_id=thread_id,
                 tenant_id=tenant_id,
                 team_id=team_id,
+                team_token=team_token,
             ):
                 total_ms = (time.time() - warmpool_start) * 1000
                 print(

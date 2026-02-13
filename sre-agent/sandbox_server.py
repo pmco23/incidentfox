@@ -20,6 +20,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 sys.path.insert(0, "/app")
+from config import TeamConfig, load_team_config
 from events import StreamEvent, error_event
 
 from agent import InteractiveAgentSession, OpenHandsAgentSession, create_agent_session
@@ -33,6 +34,10 @@ app = FastAPI(
 # Global session manager: thread_id -> Agent session (InteractiveAgentSession or OpenHandsAgentSession)
 _sessions: Dict[str, InteractiveAgentSession | OpenHandsAgentSession] = {}
 _session_lock = asyncio.Lock()
+
+# Team config cache (one load per sandbox lifetime)
+_team_config: TeamConfig | None = None
+_team_config_loaded = False
 
 
 class ImageData(BaseModel):
@@ -85,6 +90,9 @@ class ClaimRequest(BaseModel):
     thread_id: str
     tenant_id: str
     team_id: str
+    team_token: Optional[str] = (
+        None  # Config service token (for dynamic config loading)
+    )
 
 
 class ExecuteResponse(BaseModel):
@@ -160,10 +168,16 @@ async def claim_sandbox(request: ClaimRequest):
     os.environ["THREAD_ID"] = request.thread_id
     os.environ["INCIDENTFOX_TENANT_ID"] = request.tenant_id
     os.environ["INCIDENTFOX_TEAM_ID"] = request.team_id
+    os.environ["SANDBOX_JWT"] = (
+        request.jwt_token
+    )  # For skill scripts hitting credential-resolver directly
+    if request.team_token:
+        os.environ["TEAM_TOKEN"] = request.team_token
 
     print(
         f"🔑 [CLAIM] Sandbox claimed for thread {request.thread_id} "
-        f"(tenant={request.tenant_id}, team={request.team_id})"
+        f"(tenant={request.tenant_id}, team={request.team_id}, "
+        f"team_token={'yes' if request.team_token else 'no'})"
     )
 
     return {
@@ -180,6 +194,7 @@ async def get_or_create_session(
     """
     Get existing session or create new one for thread_id.
 
+    Loads team config from config_service on first call (cached for sandbox lifetime).
     Uses create_agent_session() factory function which respects LLM_PROVIDER env var:
     - LLM_PROVIDER=claude (default): Uses Claude Agent SDK
     - LLM_PROVIDER=openhands: Uses OpenHands SDK for multi-LLM support
@@ -190,10 +205,20 @@ async def get_or_create_session(
     Returns:
         Agent session instance (InteractiveAgentSession or OpenHandsAgentSession)
     """
+    global _team_config, _team_config_loaded
     async with _session_lock:
         if thread_id not in _sessions:
+            # Load team config once per sandbox lifetime
+            if not _team_config_loaded:
+                _team_config = load_team_config()
+                _team_config_loaded = True
+                print(
+                    f"📋 [SANDBOX] Loaded team config: "
+                    f"{len(_team_config.agents)} agents, "
+                    f"{len(_team_config.business_context)} chars business context"
+                )
             # Create new session using factory
-            session = create_agent_session(thread_id)
+            session = create_agent_session(thread_id, _team_config)
             await session.start()
             _sessions[thread_id] = session
         return _sessions[thread_id]

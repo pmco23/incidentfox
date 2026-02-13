@@ -135,8 +135,10 @@ externalSecrets:
       secretName: incidentfox-teams
       appIdKey: app_id
       appPasswordKey: app_password
+      tenantIdKey: tenant_id
       appIdRemoteRefKey: incidentfox/prod/teams_app_id
       appPasswordRemoteRefKey: incidentfox/prod/teams_app_password
+      tenantIdRemoteRefKey: incidentfox/prod/teams_tenant_id
     # JWT secret for sandbox credential injection (shared between agent and credential-resolver)
     jwtSecret:
       enabled: true
@@ -273,7 +275,15 @@ services:
         limits:
           cpu: "200m"
           memory: "128Mi"
-      # Auto-scaling: planned for KEDA-based implementation (follow-up PR)
+      # CronJob autoscaler: dynamically scales warm pool based on active demand
+      # Polls /metrics/sandbox-demand endpoint and patches warm pool replicas
+      autoscaler:
+        enabled: false
+        minReplicas: 3
+        maxReplicas: 10
+        pollingInterval: 15    # seconds between metric polls
+        cooldownPeriod: 300    # seconds before scaling down after last trigger
+        buffer: 3              # standby pods to maintain above active claims
     # Tracing configuration (supports multiple backends via OTEL)
     tracing:
       enabled: false
@@ -295,6 +305,11 @@ services:
       limits:
         cpu: "2000m"
         memory: "3Gi"
+    # Dedicated health server (separate thread, always responsive)
+    healthServer:
+      port: 8081
+    # Max concurrent sandbox investigations
+    maxConcurrentInvestigations: 8
     startupProbe:
       enabled: false
       path: "/health"

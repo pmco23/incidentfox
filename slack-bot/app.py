@@ -2198,6 +2198,10 @@ def _handle_mention_impl(event, say, client, context):
         save_investigation_snapshot(state)
         logger.info("📸 Snapshot save attempted")
 
+    except requests.exceptions.ChunkedEncodingError:
+        logger.warning("Investigation stream interrupted (server may be restarting)")
+        state.error = "Investigation was interrupted (service may be restarting). Please try again."
+        update_slack_message(client, state, team_id, final=True)
     except requests.exceptions.ConnectionError:
         state.error = "Could not connect to investigation service. Is it running?"
         update_slack_message(client, state, team_id, final=True)
@@ -2502,6 +2506,12 @@ def _run_auto_listen_investigation(event, client, context):
         update_slack_message(client, state, team_id, final=True)
         save_investigation_snapshot(state)
 
+    except requests.exceptions.ChunkedEncodingError:
+        logger.warning(
+            "Auto-listen investigation stream interrupted (server may be restarting)"
+        )
+        state.error = "Investigation was interrupted (service may be restarting). Please try again."
+        update_slack_message(client, state, team_id, final=True)
     except requests.exceptions.ConnectionError:
         state.error = "Could not connect to investigation service. Is it running?"
         update_slack_message(client, state, team_id, final=True)
@@ -2907,6 +2917,12 @@ Use all available tools to gather context about this issue."""
         save_investigation_snapshot(state)
         logger.info("📸 Snapshot save attempted")
 
+    except requests.exceptions.ChunkedEncodingError:
+        logger.warning(
+            "Auto-investigation stream interrupted (server may be restarting)"
+        )
+        state.error = "Investigation was interrupted (service may be restarting). Please try again."
+        update_slack_message(client, state, team_id, final=True)
     except requests.exceptions.Timeout:
         logger.error("Request to sre-agent timed out")
         state.error = "Investigation timed out after 5 minutes"
@@ -3347,6 +3363,12 @@ def handle_message(event, client, context):
             # Save snapshot
             save_investigation_snapshot(state)
 
+        except requests.exceptions.ChunkedEncodingError:
+            logger.warning(
+                "DM investigation stream interrupted (server may be restarting)"
+            )
+            state.error = "Investigation was interrupted (service may be restarting). Please try again."
+            update_slack_message(client, state, team_id, final=True)
         except requests.exceptions.ConnectionError:
             state.error = "Could not connect to investigation service. Is it running?"
             update_slack_message(client, state, team_id, final=True)
@@ -3758,6 +3780,12 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
         save_investigation_snapshot(state)
         logger.info("📸 Snapshot save attempted")
 
+    except requests.exceptions.ChunkedEncodingError:
+        logger.warning(
+            "Coralogix investigation stream interrupted (server may be restarting)"
+        )
+        state.error = "Investigation was interrupted (service may be restarting). Please try again."
+        update_slack_message(client, state, team_id, final=True)
     except requests.exceptions.Timeout:
         logger.error("Request to sre-agent timed out")
         state.error = "Investigation timed out after 5 minutes"
@@ -5318,125 +5346,6 @@ def handle_k8s_saas_cluster_created_close(ack, body, client, view):
     logger.info(f"Closed K8s cluster created modal for team {team_id}")
 
 
-@app.action("open_advanced_settings")
-def handle_open_advanced_settings(ack, body, client):
-    """Open Advanced Settings modal (BYOK, HTTP proxy)."""
-    ack()
-    logger.info("open_advanced_settings action triggered")
-
-    team_id = body.get("team", {}).get("id")
-    if not team_id:
-        logger.error("No team_id in open_advanced_settings")
-        return
-
-    try:
-        # Check if user already has an API key configured
-        config_client = get_config_client()
-        logger.info(f"Fetching anthropic config for team {team_id}")
-        anthropic_config = config_client.get_integration_config(team_id, "anthropic")
-        existing_api_key = bool(anthropic_config and anthropic_config.get("api_key"))
-        existing_endpoint = (
-            anthropic_config.get("api_endpoint") if anthropic_config else None
-        )
-        logger.info(
-            f"Building advanced settings modal: existing_api_key={existing_api_key}, existing_endpoint={existing_endpoint}"
-        )
-
-        onboarding = get_onboarding_modules()
-        modal = onboarding.build_advanced_settings_modal(
-            team_id=team_id,
-            existing_api_key=existing_api_key,
-            existing_endpoint=existing_endpoint,
-        )
-
-        # Use views_push from modal, views_open from Home tab or messages
-        view_type = body.get("view", {}).get("type")
-        if view_type == "modal":
-            logger.info("Pushing advanced settings modal (from modal)...")
-            result = client.views_push(trigger_id=body["trigger_id"], view=modal)
-        else:
-            logger.info("Opening advanced settings modal (from Home tab/message)...")
-            result = client.views_open(trigger_id=body["trigger_id"], view=modal)
-        logger.info(f"views result: ok={result.get('ok')}")
-        logger.info(f"Opened Advanced Settings modal for team {team_id}")
-
-    except Exception as e:
-        logger.error(f"Failed to open Advanced Settings modal: {e}", exc_info=True)
-
-
-@app.view("advanced_settings_submission")
-def handle_advanced_settings_submission(ack, body, client, view):
-    """Handle Advanced Settings form submission."""
-    import json
-
-    private_metadata = json.loads(view.get("private_metadata", "{}"))
-    team_id = private_metadata.get("team_id")
-    values = view.get("state", {}).get("values", {})
-
-    # Get API key value
-    api_key = values.get("api_key_block", {}).get("api_key_input", {}).get("value", "")
-    if api_key:
-        api_key = api_key.strip()
-
-    # Get API endpoint value
-    api_endpoint = (
-        values.get("api_endpoint_block", {})
-        .get("api_endpoint_input", {})
-        .get("value", "")
-    )
-    if api_endpoint:
-        api_endpoint = api_endpoint.strip()
-
-    # Save if any values provided
-    if team_id and (api_key or api_endpoint):
-        try:
-            config_client = get_config_client()
-            config_client.save_api_key(
-                slack_team_id=team_id,
-                api_key=api_key if api_key else None,
-                api_endpoint=api_endpoint if api_endpoint else None,
-            )
-            logger.info(f"Saved advanced settings for team {team_id}")
-        except Exception as e:
-            logger.error(f"Failed to save advanced settings: {e}", exc_info=True)
-            # Extract error details
-            error_detail = str(e)
-            status_code = getattr(e, "status_code", None)
-            if status_code:
-                error_detail = f"HTTP {status_code}"
-
-            # Show error in a push modal
-            error_modal = {
-                "type": "modal",
-                "title": {"type": "plain_text", "text": "Save Failed"},
-                "close": {"type": "plain_text", "text": "Try Again"},
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {
-                            "type": "mrkdwn",
-                            "text": ":x: *Failed to save settings*\n\nPlease try again. If the problem persists, contact support@incidentfox.ai",
-                        },
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {
-                                "type": "mrkdwn",
-                                "text": f"Error: {error_detail}",
-                            }
-                        ],
-                    },
-                ],
-            }
-            ack(response_action="push", view=error_modal)
-            return
-
-    # Close the modal (go back to integrations page)
-    ack()
-    logger.info(f"Advanced settings submission completed for team {team_id}")
-
-
 # =============================================================================
 # AI MODEL SELECTION HANDLERS
 # =============================================================================
@@ -5498,6 +5407,12 @@ def handle_open_ai_model_selector(ack, body, client):
         logger.warning(f"Failed to pre-fill AI model modal: {e}")
 
 
+# Guard against provider-switch race conditions: slow model catalog fetches
+# (e.g. OpenAI) can overwrite a fast provider switch (e.g. Cloudflare).
+# Each selection increments the counter; stale handlers skip their update.
+_provider_switch_seq: dict = {}  # view_id → sequence number
+
+
 @app.action("ai_provider_select")
 def handle_ai_provider_change(ack, body, client):
     """Handle provider dropdown change — update the modal with provider-specific fields."""
@@ -5512,6 +5427,10 @@ def handle_ai_provider_change(ack, body, client):
     )
     if not selected_provider or not view_id:
         return
+
+    # Claim a sequence number before doing any slow work
+    _provider_switch_seq[view_id] = _provider_switch_seq.get(view_id, 0) + 1
+    my_seq = _provider_switch_seq[view_id]
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5529,6 +5448,13 @@ def handle_ai_provider_change(ack, body, client):
             current_model=None,  # Don't carry over model from different provider
             existing_provider_config=existing_provider_config,
         )
+
+        # Skip update if user already switched to another provider
+        if _provider_switch_seq.get(view_id) != my_seq:
+            logger.info(
+                f"Skipping stale provider update for {selected_provider} (view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
         logger.info(
@@ -5551,6 +5477,10 @@ def handle_model_select_change(ack, body, client):
     )
     if not selected_model or not view_id:
         return
+
+    # Snapshot the provider-switch sequence — if it changes, a provider switch
+    # happened and this model description update is stale.
+    seq_before = _provider_switch_seq.get(view_id, 0)
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5587,6 +5517,13 @@ def handle_model_select_change(ack, body, client):
             model_description=description,
         )
 
+        # Skip if provider changed while we were building the modal
+        if _provider_switch_seq.get(view_id, 0) != seq_before:
+            logger.info(
+                f"Skipping stale model description update (provider switched, view {view_id})"
+            )
+            return
+
         client.views_update(view_id=view_id, view=modal)
     except Exception as e:
         logger.error(f"Failed to update model description: {e}", exc_info=True)
@@ -5605,9 +5542,9 @@ def handle_ai_model_config_submission(ack, body, client, view):
     dropdown_provider = (
         values.get("provider_block", {})
         .get("ai_provider_select", {})
-        .get("selected_option", {})
-        .get("value")
-    )
+        .get("selected_option")
+        or {}
+    ).get("value")
     if dropdown_provider:
         provider_id = dropdown_provider
 
@@ -5652,6 +5589,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
     except Exception:
         existing_provider_config = {}
 
+    # Cloudflare: map per-upstream provider_api_key into generic field for the form loop
+    _cf_upstream = ""
+    if provider_id == "cloudflare_ai" and model_id and "/" in model_id:
+        _cf_upstream = model_id.split("/")[0]
+        stored_key = existing_provider_config.get(f"provider_api_key_{_cf_upstream}")
+        if stored_key:
+            existing_provider_config["provider_api_key"] = stored_key
+
     provider_config = {}
     for field_id in field_names:
         block_id = f"field_{field_id}"
@@ -5666,9 +5611,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
                     provider_config[field_id] = existing_provider_config[field_id]
             elif val:
                 provider_config[field_id] = val
-            elif field_id in existing_provider_config:
-                # Secret field left blank — preserve existing value
-                provider_config[field_id] = existing_provider_config[field_id]
+            # Blank field = user intentionally cleared it — don't preserve old value
         elif "selected_option" in field_value:
             selected = field_value.get("selected_option", {})
             if selected:
@@ -5679,6 +5622,17 @@ def handle_ai_model_config_submission(ack, body, client, view):
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             provider_config[field_id] = len(selected) > 0
+
+    # Cloudflare: store provider_api_key per upstream provider (openai, anthropic, etc.)
+    # Always clear the old generic key so it doesn't persist from previous saves
+    if provider_id == "cloudflare_ai":
+        provider_config["provider_api_key"] = ""
+        upstream = model_id.split("/")[0] if "/" in model_id else ""
+        if upstream:
+            # Move the form value to per-provider key (if user entered one)
+            generic_val = provider_config.get("provider_api_key", "")
+            if generic_val:
+                provider_config[f"provider_api_key_{upstream}"] = generic_val
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)
@@ -5751,12 +5705,19 @@ def handle_ai_model_config_submission(ack, body, client, view):
             logger.info(f"Saved {provider_id} provider config for team {team_id}")
 
         # 6. Save LLM model preference
+        #    Prepend provider prefix for routing (user doesn't type it)
+        save_model_id = model_id
+        _prefix_providers = {"cloudflare_ai", "custom_endpoint"}
+        if provider_id in _prefix_providers and not model_id.startswith(
+            f"{provider_id}/"
+        ):
+            save_model_id = f"{provider_id}/{model_id}"
         config_client.save_integration_config(
             slack_team_id=team_id,
             integration_id="llm",
-            config={"model": model_id},
+            config={"model": save_model_id},
         )
-        logger.info(f"Saved llm model={model_id} for team {team_id}")
+        logger.info(f"Saved llm model={save_model_id} for team {team_id}")
 
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
@@ -6462,21 +6423,91 @@ def handle_home_integration_action(ack, body, client):
             configured = config_client.get_configured_integrations(team_id)
             existing_config = configured.get(integration_id, {})
 
-        # Use onboarding.get_integration_by_id() directly - no need for config-service schemas
-        modal = onboarding.build_integration_config_modal(
-            team_id=team_id,
-            integration_id=integration_id,
-            existing_config=existing_config,
-            entry_point="home",
-        )
+        # Check for custom flow integrations (e.g., kubernetes_saas)
+        integration_def = onboarding.get_integration_by_id(integration_id)
+        custom_flow = integration_def.get("custom_flow") if integration_def else None
 
-        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        if custom_flow == "k8s_saas":
+            clusters = config_client.list_k8s_clusters(team_id)
+            modal = onboarding.build_k8s_saas_clusters_modal(
+                team_id=team_id,
+                clusters=clusters,
+                entry_point="home",
+            )
+        else:
+            # Special handling for GitHub App integration
+            if integration_id == "github" and action_type == "edit":
+                github_installation = config_client.get_linked_github_installation(
+                    team_id
+                )
+                if github_installation:
+                    if existing_config is None:
+                        existing_config = {}
+                    existing_config["github_org"] = github_installation.get(
+                        "account_login", ""
+                    )
+                    existing_config["_github_linked"] = True
+                    existing_config["_github_installation"] = github_installation
+
+            modal = onboarding.build_integration_config_modal(
+                team_id=team_id,
+                integration_id=integration_id,
+                existing_config=existing_config,
+                entry_point="home",
+            )
+
+        try:
+            client.views_open(trigger_id=body["trigger_id"], view=modal)
+        except Exception as views_err:
+            # Modal open failed — most likely due to the video block requiring
+            # the video_url domain to be registered as a Slack media domain.
+            # Retry without the video block.
+            logger.warning(
+                f"views_open failed for {integration_id}, retrying without video: {views_err}"
+            )
+            if custom_flow != "k8s_saas":
+                modal = onboarding.build_integration_config_modal(
+                    team_id=team_id,
+                    integration_id=integration_id,
+                    existing_config=existing_config,
+                    entry_point="home",
+                    include_video=False,
+                )
+                client.views_open(trigger_id=body["trigger_id"], view=modal)
+            else:
+                raise
+
         logger.info(f"Opened {action_type} modal for {integration_id} from Home Tab")
 
     except Exception as e:
         logger.error(
             f"Failed to open integration modal from Home Tab: {e}", exc_info=True
         )
+        # Show error modal so the user knows something went wrong
+        try:
+            client.views_open(
+                trigger_id=body["trigger_id"],
+                view={
+                    "type": "modal",
+                    "title": {"type": "plain_text", "text": "Error"},
+                    "close": {"type": "plain_text", "text": "Close"},
+                    "blocks": [
+                        {
+                            "type": "section",
+                            "text": {
+                                "type": "mrkdwn",
+                                "text": (
+                                    ":warning: *Could not open settings*\n\n"
+                                    "Something went wrong opening the configuration for "
+                                    f"*{integration_id}*. Please try again."
+                                ),
+                            },
+                        }
+                    ],
+                },
+            )
+        except Exception:
+            pass
 
 
 @app.action("home_book_demo")
@@ -6686,7 +6717,6 @@ def register_all_handlers(bolt_app):
     bolt_app.action("dismiss_welcome")(handle_dismiss_welcome)
     bolt_app.action("k8s_saas_add_cluster")(handle_k8s_saas_add_cluster)
     bolt_app.action("k8s_saas_remove_cluster")(handle_k8s_saas_remove_cluster)
-    bolt_app.action("open_advanced_settings")(handle_open_advanced_settings)
     bolt_app.action("home_retry_load")(handle_home_retry_load)
     bolt_app.action("home_book_demo")(handle_home_book_demo)
     bolt_app.action("home_open_api_key_modal")(handle_home_api_key_modal)
@@ -6721,7 +6751,6 @@ def register_all_handlers(bolt_app):
     bolt_app.view("k8s_saas_cluster_created_modal")(
         handle_k8s_saas_cluster_created_close
     )
-    bolt_app.view("advanced_settings_submission")(handle_advanced_settings_submission)
     bolt_app.view("integration_config_submission")(handle_integration_config_submission)
     bolt_app.view("ai_model_config_submission")(handle_ai_model_config_submission)
 

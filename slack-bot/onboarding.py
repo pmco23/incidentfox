@@ -64,6 +64,13 @@ LLM_PROVIDERS = [
     ("xai", "xAI (Grok)", "xai/grok-3", "Grok models"),
     ("mistral", "Mistral AI", "mistral/mistral-large-latest", "Mistral models"),
     ("cohere", "Cohere", "cohere/command-r-plus", "Command R+ models"),
+    # --- Gateways ---
+    (
+        "cloudflare_ai",
+        "Cloudflare AI Gateway",
+        "openai/gpt-4o",
+        "Route through Cloudflare AI Gateway",
+    ),
     # --- Tier 4: Inference platforms (host other providers' models) ---
     ("groq", "Groq", "groq/llama-3.3-70b-versatile", "Ultra-fast inference"),
     (
@@ -84,6 +91,13 @@ LLM_PROVIDERS = [
     ("arcee", "Arcee AI", "arcee/virtuoso-large", "Trinity, Maestro, Virtuoso"),
     # --- Self-hosted ---
     ("ollama", "Ollama (Local)", "ollama/llama3", "Local models"),
+    # --- Custom ---
+    (
+        "custom_endpoint",
+        "Custom Endpoint",
+        "my-model",
+        "Any OpenAI-compatible endpoint",
+    ),
 ]
 
 # Additional model-prefix → provider aliases for models that don't use
@@ -975,6 +989,48 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         ],
     },
     {
+        "id": "cloudflare_ai",
+        "name": "Cloudflare AI Gateway",
+        "category": "llm",
+        "status": "active",
+        "icon": ":cloud:",
+        "icon_fallback": ":cloud:",
+        "description": "Route LLM requests through Cloudflare AI Gateway for caching, rate limiting, and analytics.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Go to https://dash.cloudflare.com/ → AI → AI Gateway\n"
+            "2. Create a gateway and copy the Gateway URL\n"
+            "3. Create an API token with AI Gateway permissions\n"
+            "4. Enter the gateway URL, token, and model below"
+        ),
+        "fields": [
+            {
+                "id": "api_base",
+                "name": "Gateway URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}",
+                "hint": "Your Cloudflare AI Gateway endpoint URL",
+            },
+            {
+                "id": "api_key",
+                "name": "Cloudflare API Token",
+                "type": "secret",
+                "required": False,
+                "placeholder": "cf-...",
+                "hint": "API token with AI Gateway permissions. Leave blank if your gateway doesn't require it.",
+            },
+            {
+                "id": "provider_api_key",
+                "name": "Provider API Key (optional)",
+                "type": "secret",
+                "required": False,
+                "placeholder": "sk-...",
+                "hint": "Upstream provider key for pass-through mode. Leave blank if keys are stored in Cloudflare.",
+            },
+        ],
+    },
+    {
         "id": "ollama",
         "name": "Ollama",
         "category": "llm",
@@ -996,6 +1052,55 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "required": True,
                 "placeholder": "http://localhost:11434",
                 "hint": "URL of your Ollama server",
+            },
+        ],
+    },
+    {
+        "id": "custom_endpoint",
+        "name": "Custom Endpoint",
+        "category": "llm",
+        "status": "active",
+        "icon": ":link:",
+        "icon_fallback": ":link:",
+        "description": "Connect to any OpenAI Chat Completions-compatible endpoint.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Enter the base URL of your OpenAI-compatible endpoint\n"
+            "2. Enter the model name your endpoint expects\n"
+            "3. Configure authentication (API key and/or custom headers)"
+        ),
+        "fields": [
+            {
+                "id": "api_base",
+                "name": "Endpoint URL",
+                "type": "string",
+                "required": True,
+                "placeholder": "https://your-gateway.example.com/v1",
+                "hint": "Base URL of your OpenAI-compatible endpoint",
+            },
+            {
+                "id": "api_key",
+                "name": "API Key (optional)",
+                "type": "secret",
+                "required": False,
+                "placeholder": "sk-...",
+                "hint": "Sent as Authorization: Bearer {key}. Leave blank if not needed.",
+            },
+            {
+                "id": "custom_header_name",
+                "name": "Custom Header Name (optional)",
+                "type": "string",
+                "required": False,
+                "placeholder": "e.g. cf-aig-authorization, X-Api-Key",
+                "hint": "Name of an additional auth header",
+            },
+            {
+                "id": "custom_header_value",
+                "name": "Custom Header Value (optional)",
+                "type": "secret",
+                "required": False,
+                "placeholder": "e.g. Bearer your-token",
+                "hint": "Value for the custom header above",
             },
         ],
     },
@@ -2185,6 +2290,77 @@ def validate_provider_api_key(
             return False, "GCP Project ID is required."
         return True, ""
 
+    if provider_id == "cloudflare_ai":
+        import requests as _requests
+
+        api_base = config.get("api_base", "")
+        if not api_base:
+            return False, "Gateway URL is required."
+        if not api_base.startswith("https://"):
+            return False, "Gateway URL must start with https://"
+
+        # Build gateway URL — ensure /compat suffix
+        gateway_url = api_base.rstrip("/")
+        if not gateway_url.endswith("/compat"):
+            gateway_url += "/compat"
+
+        # Build headers based on provided credentials
+        headers = {"Content-Type": "application/json"}
+        cf_token = api_key  # Cloudflare API Token → cf-aig-authorization
+        provider_key = config.get("provider_api_key", "")
+        if cf_token:
+            headers["cf-aig-authorization"] = f"Bearer {cf_token}"
+        if provider_key:
+            headers["Authorization"] = f"Bearer {provider_key}"
+
+        # Use the model as-is — user types e.g. "openai/gpt-4o", not "cloudflare_ai/..."
+        test_model = model_id
+
+        try:
+            resp = _requests.post(
+                f"{gateway_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": test_model,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            # Extract error message from response
+            try:
+                err = resp.json().get("error", {})
+                err_msg = err.get("message", "") if isinstance(err, dict) else str(err)
+            except Exception:
+                err_msg = resp.text[:300]
+            if resp.status_code in (401, 403):
+                return (
+                    False,
+                    f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}",
+                )
+            return (
+                False,
+                f"Gateway returned {resp.status_code}: {_sanitize(err_msg or 'unknown error')}",
+            )
+        except _requests.exceptions.ConnectionError:
+            return (
+                False,
+                "Could not connect to the gateway URL. Check the URL is correct.",
+            )
+        except _requests.exceptions.Timeout:
+            return False, "Gateway request timed out after 15 seconds."
+        except Exception as e:
+            return False, f"Gateway test failed: {_sanitize(str(e))}"
+
+    if provider_id == "custom_endpoint":
+        api_base = config.get("api_base", "")
+        if not api_base:
+            return False, "Endpoint URL is required."
+        if not api_base.startswith(("http://", "https://")):
+            return False, "Endpoint URL must start with http:// or https://"
+        return True, ""
+
     # --- Anthropic: optional key (uses IncidentFox default) ---
     if provider_id == "anthropic" and not api_key:
         return True, ""
@@ -2714,7 +2890,7 @@ def build_welcome_message(
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": ":bulb: Click *Configure* to connect integrations, set up a custom API endpoint, or bring your own Anthropic API key.",
+                    "text": ":bulb: Click *Configure* to connect integrations and set up your AI model.",
                 }
             ],
         }
@@ -2775,7 +2951,7 @@ def build_dm_welcome_message(trial_info: Optional[Dict] = None) -> list:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": ":bulb: Click *Configure* to connect integrations, set up a custom API endpoint, or bring your own API key.",
+                    "text": ":bulb: Click *Configure* to connect integrations and set up your AI model.",
                 }
             ],
         },
@@ -3160,7 +3336,7 @@ def build_integrations_page(
             }
         )
 
-    # Footer with Advanced Settings option
+    # Footer
     blocks.append({"type": "divider"})
     web_ui_url = os.environ.get("WEB_UI_URL")
     footer_lines = [
@@ -3183,35 +3359,6 @@ def build_integrations_page(
         }
     )
 
-    # Advanced Settings button (BYOK, HTTP proxy)
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":gear: *Advanced Settings* — Configure LLM proxy or bring your own API key",
-                }
-            ],
-        }
-    )
-    blocks.append(
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "action_id": "open_advanced_settings",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Advanced Settings",
-                        "emoji": True,
-                    },
-                }
-            ],
-        }
-    )
-
     # Store metadata for the handlers
     private_metadata = json.dumps(
         {
@@ -3228,160 +3375,6 @@ def build_integrations_page(
         "title": {"type": "plain_text", "text": "Set Up Integrations"},
         "submit": {"type": "plain_text", "text": "Done"},
         "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": blocks,
-    }
-
-
-def build_advanced_settings_modal(
-    team_id: str,
-    existing_api_key: bool = False,
-    existing_endpoint: str = None,
-) -> Dict[str, Any]:
-    """
-    Build Advanced Settings modal for BYOK API key and HTTP proxy settings.
-
-    Args:
-        team_id: Slack team ID
-        existing_api_key: Whether an API key is already configured
-        existing_endpoint: Existing API endpoint if configured
-
-    Returns:
-        Slack modal view object
-    """
-    blocks = []
-
-    # Header
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    ":gear: *Advanced Settings*\n"
-                    "Configure your own Anthropic API key or custom API endpoint."
-                ),
-            },
-        }
-    )
-
-    blocks.append({"type": "divider"})
-
-    # BYOK Section
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Bring Your Own Key (BYOK)*\n"
-                    "By default, IncidentFox uses our API key which includes a "
-                    "zero data retention agreement with Anthropic. You can optionally "
-                    "provide your own API key if you prefer to use your own account."
-                ),
-            },
-        }
-    )
-
-    # Status indicator
-    if existing_api_key:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": ":white_check_mark: You have a custom API key configured.",
-                    }
-                ],
-            }
-        )
-
-    # API Key input
-    blocks.append(
-        {
-            "type": "input",
-            "block_id": "api_key_block",
-            "optional": True,
-            "element": {
-                "type": "plain_text_input",
-                "action_id": "api_key_input",
-                "placeholder": {"type": "plain_text", "text": "sk-ant-api..."},
-            },
-            "label": {"type": "plain_text", "text": "Anthropic API Key"},
-            "hint": {
-                "type": "plain_text",
-                "text": "Leave blank to use IncidentFox's API key (recommended).",
-            },
-        }
-    )
-
-    # Security note - close to API key section
-    blocks.append(
-        {
-            "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":lock: Your API key is encrypted and stored securely. <https://console.anthropic.com/settings/keys|Get an API key>",
-                }
-            ],
-        }
-    )
-
-    blocks.append({"type": "divider"})
-
-    # HTTP Proxy / ML Gateway Section
-    blocks.append(
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    "*Custom API Endpoint*\n"
-                    "If your company uses an internal ML gateway or HTTP proxy for API calls, "
-                    "configure your custom endpoint here. If your proxy requires an API key, "
-                    "set it in the field above."
-                ),
-            },
-        }
-    )
-
-    # API Endpoint input
-    endpoint_element = {
-        "type": "plain_text_input",
-        "action_id": "api_endpoint_input",
-        "placeholder": {
-            "type": "plain_text",
-            "text": "https://api.anthropic.com (default)",
-        },
-    }
-    if existing_endpoint:
-        endpoint_element["initial_value"] = existing_endpoint
-
-    blocks.append(
-        {
-            "type": "input",
-            "block_id": "api_endpoint_block",
-            "optional": True,
-            "element": endpoint_element,
-            "label": {"type": "plain_text", "text": "API Endpoint (Optional)"},
-            "hint": {
-                "type": "plain_text",
-                "text": "Leave blank to use the default Anthropic API endpoint.",
-            },
-        }
-    )
-
-    # Store metadata
-    private_metadata = json.dumps({"team_id": team_id})
-
-    return {
-        "type": "modal",
-        "callback_id": "advanced_settings_submission",
-        "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": "Advanced Settings"},
-        "submit": {"type": "plain_text", "text": "Save"},
-        "close": {"type": "plain_text", "text": "Back"},
         "blocks": blocks,
     }
 
@@ -3467,6 +3460,17 @@ def build_ai_model_modal(
         if provider_schema:
             provider_name = provider_schema.get("name", provider_id)
 
+            # Cloudflare: map per-upstream provider_api_key for display
+            if (
+                provider_id == "cloudflare_ai"
+                and current_model
+                and "/" in current_model
+            ):
+                upstream = current_model.split("/")[0]
+                stored = existing_provider_config.get(f"provider_api_key_{upstream}")
+                if stored:
+                    existing_provider_config["provider_api_key"] = stored
+
             # Find model prefix hint
             model_placeholder = ""
             for pid, _name, prefix, _desc in LLM_PROVIDERS:
@@ -3484,6 +3488,8 @@ def build_ai_model_modal(
                 "bedrock",
                 "vertex_ai",
                 "ollama",
+                "cloudflare_ai",
+                "custom_endpoint",
                 "openrouter",
                 "groq",
                 "together_ai",
@@ -3500,7 +3506,11 @@ def build_ai_model_modal(
                     },
                 }
                 if current_model:
-                    model_element["initial_value"] = current_model
+                    # Strip provider prefix for display — user doesn't need to see it
+                    display_model = current_model
+                    if current_model.startswith(f"{provider_id}/"):
+                        display_model = current_model[len(provider_id) + 1 :]
+                    model_element["initial_value"] = display_model
                 hint_text = f"Enter the full model ID. Example: {model_placeholder}"
             else:
                 from model_catalog import get_models_for_provider
@@ -3595,6 +3605,7 @@ def build_ai_model_modal(
                 "fireworks_ai": "fireworks.ai/account/api-keys",
                 "zai": "open.z.ai",
                 "arcee": "models.arcee.ai",
+                "cloudflare_ai": "dash.cloudflare.com",
             }
 
             # Provider-specific fields (API key, endpoint, etc.)
@@ -3609,7 +3620,7 @@ def build_ai_model_modal(
                     field_placeholder = field_def.get("placeholder", "")
 
                     field_names.append(field_id)
-                    field_has_value = field_id in existing_provider_config
+                    field_has_value = bool(existing_provider_config.get(field_id))
                     make_optional = field_has_value or not field_required
 
                     if field_type == "secret":
@@ -3730,7 +3741,7 @@ def build_ai_model_modal(
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": ":lock: Using IncidentFox's Anthropic API key (zero data retention). You can configure your own key in *Advanced Settings*.",
+                                "text": ":lock: Using IncidentFox's Anthropic API key with zero data retention.",
                             }
                         ],
                     }
@@ -3781,6 +3792,7 @@ def build_integration_config_modal(
     integration_id: str = None,
     category_filter: str = "all",
     entry_point: str = "integrations",
+    include_video: bool = True,
 ) -> Dict[str, Any]:
     """
     Build integration configuration modal with video tutorial, instructions, and form fields.
@@ -3794,6 +3806,7 @@ def build_integration_config_modal(
         schema: Integration schema with fields definition (optional if integration_id provided)
         existing_config: Existing config values to pre-fill
         integration_id: Integration ID to look up from INTEGRATIONS
+        include_video: Whether to include the video tutorial block
 
     Returns:
         Slack modal view object
@@ -3934,7 +3947,7 @@ def build_integration_config_modal(
 
     # Video tutorial section (using Slack's video block for embedded player)
     video_config = schema.get("video")
-    if video_config:
+    if video_config and include_video:
         blocks.append(
             {
                 "type": "video",

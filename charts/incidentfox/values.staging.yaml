@@ -98,6 +98,22 @@ externalSecrets:
       secretKeyKey: LANGFUSE_SECRET_KEY
       publicKeyRemoteRefKey: incidentfox/staging/langfuse_public_key
       secretKeyRemoteRefKey: incidentfox/staging/langfuse_secret_key
+    googleChat:
+      enabled: true
+      secretName: incidentfox-google-chat
+      projectIdKey: project_id
+      serviceAccountKeyKey: service_account_key
+      projectIdRemoteRefKey: incidentfox/prod/google_chat_project_id
+      serviceAccountKeyRemoteRefKey: incidentfox/prod/google_chat_service_account_key
+    teams:
+      enabled: true
+      secretName: incidentfox-teams
+      appIdKey: app_id
+      appPasswordKey: app_password
+      tenantIdKey: tenant_id
+      appIdRemoteRefKey: incidentfox/prod/teams_app_id
+      appPasswordRemoteRefKey: incidentfox/prod/teams_app_password
+      tenantIdRemoteRefKey: incidentfox/prod/teams_tenant_id
     # JWT secret for sandbox credential injection
     jwtSecret:
       enabled: true
@@ -177,6 +193,7 @@ services:
       days: 7
     service:
       type: LoadBalancer
+      loadBalancerClass: "service.k8s.aws/nlb"
       annotations:
         service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
         service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
@@ -205,6 +222,29 @@ services:
     warmPool:
       enabled: true
       replicas: 3
+      autoscaler:
+        enabled: true
+        minReplicas: 3
+        maxReplicas: 10
+        buffer: 3
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilizationPercentage: 50
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0    # React to bursts immediately
+          policies:
+            - type: Pods
+              value: 4                     # Add up to 4 pods at once
+              periodSeconds: 30
+        scaleDown:
+          stabilizationWindowSeconds: 300  # Wait 5 min before scaling down
+          policies:
+            - type: Pods
+              value: 1                     # Remove 1 pod at a time
+              periodSeconds: 60
     startupProbe:
       enabled: true
       path: "/health"
@@ -219,7 +259,7 @@ services:
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox.svc.cluster.local:8085"
       - name: SANDBOX_TTL_MINUTES
-        value: "5"
+        value: "15"
     # Enable tracing in staging for debugging
     tracing:
       enabled: true
@@ -236,11 +276,11 @@ services:
   sandboxRouter:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/sandbox-router:latest"
-    replicas: 2
+    replicas: 1
     hpa:
       enabled: true
-      minReplicas: 2
-      maxReplicas: 10
+      minReplicas: 1
+      maxReplicas: 4
       targetCPUUtilizationPercentage: 70
 
   # Sandbox Cleanup for expired sandbox garbage collection
@@ -253,7 +293,7 @@ services:
   credentialResolver:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest"
-    replicas: 2
+    replicas: 1
     credentialSource: config_service
     jwtMode: strict
     sharedAnthropicKey:
@@ -301,5 +341,5 @@ services:
   k8sGateway:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-k8s-gateway:latest"
-    replicas: 2
+    replicas: 1
     logLevel: "INFO"
