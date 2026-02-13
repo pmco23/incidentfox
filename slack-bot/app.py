@@ -5478,6 +5478,10 @@ def handle_model_select_change(ack, body, client):
     if not selected_model or not view_id:
         return
 
+    # Snapshot the provider-switch sequence — if it changes, a provider switch
+    # happened and this model description update is stale.
+    seq_before = _provider_switch_seq.get(view_id, 0)
+
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
         team_id = private_metadata.get("team_id")
@@ -5512,6 +5516,13 @@ def handle_model_select_change(ack, body, client):
             existing_provider_config=existing_provider_config,
             model_description=description,
         )
+
+        # Skip if provider changed while we were building the modal
+        if _provider_switch_seq.get(view_id, 0) != seq_before:
+            logger.info(
+                f"Skipping stale model description update (provider switched, view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
     except Exception as e:
@@ -5578,6 +5589,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
     except Exception:
         existing_provider_config = {}
 
+    # Cloudflare: map per-upstream provider_api_key into generic field for the form loop
+    _cf_upstream = ""
+    if provider_id == "cloudflare_ai" and model_id and "/" in model_id:
+        _cf_upstream = model_id.split("/")[0]
+        stored_key = existing_provider_config.get(f"provider_api_key_{_cf_upstream}")
+        if stored_key:
+            existing_provider_config["provider_api_key"] = stored_key
+
     provider_config = {}
     for field_id in field_names:
         block_id = f"field_{field_id}"
@@ -5592,9 +5611,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
                     provider_config[field_id] = existing_provider_config[field_id]
             elif val:
                 provider_config[field_id] = val
-            elif field_id in existing_provider_config:
-                # Secret field left blank — preserve existing value
-                provider_config[field_id] = existing_provider_config[field_id]
+            # Blank field = user intentionally cleared it — don't preserve old value
         elif "selected_option" in field_value:
             selected = field_value.get("selected_option", {})
             if selected:
@@ -5605,6 +5622,17 @@ def handle_ai_model_config_submission(ack, body, client, view):
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             provider_config[field_id] = len(selected) > 0
+
+    # Cloudflare: store provider_api_key per upstream provider (openai, anthropic, etc.)
+    # Always clear the old generic key so it doesn't persist from previous saves
+    if provider_id == "cloudflare_ai":
+        provider_config["provider_api_key"] = ""
+        upstream = model_id.split("/")[0] if "/" in model_id else ""
+        if upstream:
+            # Move the form value to per-provider key (if user entered one)
+            generic_val = provider_config.get("provider_api_key", "")
+            if generic_val:
+                provider_config[f"provider_api_key_{upstream}"] = generic_val
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)
