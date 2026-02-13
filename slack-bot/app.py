@@ -5633,7 +5633,6 @@ def handle_ai_model_config_submission(ack, body, client, view):
             generic_val = provider_config.get("provider_api_key", "")
             if generic_val:
                 provider_config[f"provider_api_key_{upstream}"] = generic_val
-            provider_config["provider_api_key"] = ""  # always clear generic
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)
