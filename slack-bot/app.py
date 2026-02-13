@@ -5660,12 +5660,17 @@ def handle_ai_model_config_submission(ack, body, client, view):
             logger.info(f"Saved {provider_id} provider config for team {team_id}")
 
         # 6. Save LLM model preference
+        #    Prepend provider prefix for routing (user doesn't type it)
+        save_model_id = model_id
+        _prefix_providers = {"cloudflare_ai", "custom_endpoint"}
+        if provider_id in _prefix_providers and not model_id.startswith(f"{provider_id}/"):
+            save_model_id = f"{provider_id}/{model_id}"
         config_client.save_integration_config(
             slack_team_id=team_id,
             integration_id="llm",
-            config={"model": model_id},
+            config={"model": save_model_id},
         )
-        logger.info(f"Saved llm model={model_id} for team {team_id}")
+        logger.info(f"Saved llm model={save_model_id} for team {team_id}")
 
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
