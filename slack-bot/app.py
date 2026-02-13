@@ -6053,13 +6053,9 @@ def handle_integration_config_submission(ack, body, client, view):
                         integration_id=_integration_id,
                     )
                 except Exception as scan_err:
-                    logger.warning(
-                        f"Integration scan trigger failed: {scan_err}"
-                    )
+                    logger.warning(f"Integration scan trigger failed: {scan_err}")
 
-            threading.Thread(
-                target=_trigger_integration_scan, daemon=True
-            ).start()
+            threading.Thread(target=_trigger_integration_scan, daemon=True).start()
 
         except Exception as e:
             logger.error(f"Error saving integration config: {e}", exc_info=True)
@@ -6961,9 +6957,7 @@ if __name__ == "__main__":
                                 f"Onboarding scan trigger failed: {scan_err}"
                             )
 
-                    threading.Thread(
-                        target=_trigger_initial_scan, daemon=True
-                    ).start()
+                    threading.Thread(target=_trigger_initial_scan, daemon=True).start()
 
                 return render_template(
                     "success.html",

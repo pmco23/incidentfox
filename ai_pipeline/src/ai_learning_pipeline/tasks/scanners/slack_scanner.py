@@ -63,7 +63,11 @@ TOOL_PATTERNS: Dict[str, Dict[str, Any]] = {
         "url_paths": [],
     },
     "pagerduty": {
-        "keywords": [r"\bpagerduty\b", r"\bpd[- ]alert\b", r"\bon[- ]?call\b.*schedule"],
+        "keywords": [
+            r"\bpagerduty\b",
+            r"\bpd[- ]alert\b",
+            r"\bon[- ]?call\b.*schedule",
+        ],
         "domains": ["pagerduty.com"],
         "url_paths": [],
     },

@@ -44,9 +44,7 @@ class ScanTriggerRequest(BaseModel):
     team_node_id: str = Field(
         default="default", description="Team node ID within the org"
     )
-    trigger: str = Field(
-        ..., description="Trigger type: 'initial' or 'integration'"
-    )
+    trigger: str = Field(..., description="Trigger type: 'initial' or 'integration'")
     slack_team_id: Optional[str] = Field(
         None, description="Slack team ID (for initial scan, to fetch bot token)"
     )
@@ -103,9 +101,7 @@ async def _run_initial_scan(org_id: str, team_node_id: str, slack_team_id: str):
         _log("background_initial_scan_failed", org_id=org_id, error=str(e))
 
 
-async def _run_integration_scan(
-    org_id: str, team_node_id: str, integration_id: str
-):
+async def _run_integration_scan(org_id: str, team_node_id: str, integration_id: str):
     """Run integration-specific scan in background."""
     from .tasks.onboarding_scan import OnboardingScanTask
 
@@ -167,9 +163,7 @@ async def _get_bot_token(org_id: str, slack_team_id: str) -> Optional[str]:
     return None
 
 
-async def _notify_scan_results(
-    org_id: str, slack_team_id: str, recommendations: list
-):
+async def _notify_scan_results(org_id: str, slack_team_id: str, recommendations: list):
     """Notify scan results — placeholder for Slack DM notification."""
     # This will be handled by the slackbot polling pending changes
     # or via a callback. For now, just log.

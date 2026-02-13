@@ -200,27 +200,21 @@ class SignalAnalyzer:
                 )
 
             _log("analysis_completed", recommendations=len(recommendations))
-            return AnalysisResult(
-                recommendations=recommendations, raw_response=content
-            )
+            return AnalysisResult(recommendations=recommendations, raw_response=content)
 
         except Exception as e:
             _log("analysis_failed", error=str(e))
             # Fallback: heuristic recommendations based on signal counts
             return self._heuristic_analysis(grouped, existing_integrations)
 
-    def _group_signals(
-        self, signals: List[Signal]
-    ) -> Dict[str, List[Signal]]:
+    def _group_signals(self, signals: List[Signal]) -> Dict[str, List[Signal]]:
         """Group signals by integration_id."""
         grouped: Dict[str, List[Signal]] = defaultdict(list)
         for signal in signals:
             grouped[signal.integration_id].append(signal)
         return dict(grouped)
 
-    def _format_signals_summary(
-        self, grouped: Dict[str, List[Signal]]
-    ) -> str:
+    def _format_signals_summary(self, grouped: Dict[str, List[Signal]]) -> str:
         """Format grouped signals into a readable summary for LLM."""
         lines = []
         for integration_id, sigs in sorted(
