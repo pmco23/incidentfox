@@ -5624,12 +5624,16 @@ def handle_ai_model_config_submission(ack, body, client, view):
             provider_config[field_id] = len(selected) > 0
 
     # Cloudflare: store provider_api_key per upstream provider (openai, anthropic, etc.)
-    if provider_id == "cloudflare_ai" and "provider_api_key" in provider_config:
+    # Always clear the old generic key so it doesn't persist from previous saves
+    if provider_id == "cloudflare_ai":
+        provider_config["provider_api_key"] = ""
         upstream = model_id.split("/")[0] if "/" in model_id else ""
         if upstream:
-            provider_config[f"provider_api_key_{upstream}"] = provider_config.pop(
-                "provider_api_key"
-            )
+            # Move the form value to per-provider key (if user entered one)
+            generic_val = provider_config.get("provider_api_key", "")
+            if generic_val:
+                provider_config[f"provider_api_key_{upstream}"] = generic_val
+            provider_config["provider_api_key"] = ""  # always clear generic
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)

@@ -3620,7 +3620,7 @@ def build_ai_model_modal(
                     field_placeholder = field_def.get("placeholder", "")
 
                     field_names.append(field_id)
-                    field_has_value = field_id in existing_provider_config
+                    field_has_value = bool(existing_provider_config.get(field_id))
                     make_optional = field_has_value or not field_required
 
                     if field_type == "secret":
