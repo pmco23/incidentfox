@@ -777,4 +777,15 @@ services:
       enabled: true
       minAvailable: 1
 
-
+# Karpenter — dynamic node provisioning for burst workloads (production only)
+# Requires: Terraform karpenter_enabled=true + Karpenter Helm chart installed
+karpenter:
+  enabled: false
+  clusterName: ""
+  nodeRoleName: ""
+  capacityTypes: ["on-demand"]
+  limits:
+    cpu: "32"
+    memory: "128Gi"
+  consolidateAfter: "5m"
+  rootVolumeSize: "80Gi"
