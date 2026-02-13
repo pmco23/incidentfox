@@ -1016,9 +1016,9 @@ INTEGRATIONS: List[Dict[str, Any]] = [
                 "id": "api_key",
                 "name": "Cloudflare API Token",
                 "type": "secret",
-                "required": True,
+                "required": False,
                 "placeholder": "cf-...",
-                "hint": "API token with AI Gateway permissions",
+                "hint": "API token with AI Gateway permissions. Leave blank if your gateway doesn't require it.",
             },
             {
                 "id": "provider_api_key",
@@ -2291,14 +2291,70 @@ def validate_provider_api_key(
         return True, ""
 
     if provider_id == "cloudflare_ai":
+        import requests as _requests
+
         api_base = config.get("api_base", "")
         if not api_base:
             return False, "Gateway URL is required."
         if not api_base.startswith("https://"):
             return False, "Gateway URL must start with https://"
-        if not api_key:
-            return False, "Cloudflare API Token is required."
-        return True, ""
+
+        # Build gateway URL — ensure /compat suffix
+        gateway_url = api_base.rstrip("/")
+        if not gateway_url.endswith("/compat"):
+            gateway_url += "/compat"
+
+        # Build headers based on provided credentials
+        headers = {"Content-Type": "application/json"}
+        cf_token = api_key  # Cloudflare API Token → cf-aig-authorization
+        provider_key = config.get("provider_api_key", "")
+        if cf_token:
+            headers["cf-aig-authorization"] = f"Bearer {cf_token}"
+        if provider_key:
+            headers["Authorization"] = f"Bearer {provider_key}"
+
+        # Strip cloudflare_ai/ prefix for the model name
+        test_model = (
+            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
+        )
+
+        try:
+            resp = _requests.post(
+                f"{gateway_url}/chat/completions",
+                headers=headers,
+                json={
+                    "model": test_model,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "max_tokens": 1,
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return True, ""
+            # Extract error message from response
+            try:
+                err = resp.json().get("error", {})
+                err_msg = err.get("message", "") if isinstance(err, dict) else str(err)
+            except Exception:
+                err_msg = resp.text[:300]
+            if resp.status_code in (401, 403):
+                return (
+                    False,
+                    f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}",
+                )
+            return (
+                False,
+                f"Gateway returned {resp.status_code}: {_sanitize(err_msg or 'unknown error')}",
+            )
+        except _requests.exceptions.ConnectionError:
+            return (
+                False,
+                "Could not connect to the gateway URL. Check the URL is correct.",
+            )
+        except _requests.exceptions.Timeout:
+            return False, "Gateway request timed out after 15 seconds."
+        except Exception as e:
+            return False, f"Gateway test failed: {_sanitize(str(e))}"
 
     if provider_id == "custom_endpoint":
         api_base = config.get("api_base", "")
