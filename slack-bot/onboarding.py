@@ -3460,6 +3460,13 @@ def build_ai_model_modal(
         if provider_schema:
             provider_name = provider_schema.get("name", provider_id)
 
+            # Cloudflare: map per-upstream provider_api_key for display
+            if provider_id == "cloudflare_ai" and current_model and "/" in current_model:
+                upstream = current_model.split("/")[0]
+                stored = existing_provider_config.get(f"provider_api_key_{upstream}")
+                if stored:
+                    existing_provider_config["provider_api_key"] = stored
+
             # Find model prefix hint
             model_placeholder = ""
             for pid, _name, prefix, _desc in LLM_PROVIDERS:

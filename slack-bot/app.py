@@ -5589,6 +5589,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
     except Exception:
         existing_provider_config = {}
 
+    # Cloudflare: map per-upstream provider_api_key into generic field for the form loop
+    _cf_upstream = ""
+    if provider_id == "cloudflare_ai" and model_id and "/" in model_id:
+        _cf_upstream = model_id.split("/")[0]
+        stored_key = existing_provider_config.get(f"provider_api_key_{_cf_upstream}")
+        if stored_key:
+            existing_provider_config["provider_api_key"] = stored_key
+
     provider_config = {}
     for field_id in field_names:
         block_id = f"field_{field_id}"
@@ -5614,6 +5622,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             provider_config[field_id] = len(selected) > 0
+
+    # Cloudflare: store provider_api_key per upstream provider (openai, anthropic, etc.)
+    if provider_id == "cloudflare_ai" and "provider_api_key" in provider_config:
+        upstream = model_id.split("/")[0] if "/" in model_id else ""
+        if upstream:
+            provider_config[f"provider_api_key_{upstream}"] = provider_config.pop(
+                "provider_api_key"
+            )
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)
