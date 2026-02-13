@@ -406,7 +406,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
@@ -1147,7 +1147,7 @@ static_resources:
         thread_id: str,
         tenant_id: str,
         team_id: str,
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
     ) -> tuple[str, str]:
         """
         Create a SandboxClaim to bind to a warm pool pod.
@@ -1408,7 +1408,7 @@ static_resources:
         thread_id: str,
         tenant_id: str = "local",
         team_id: str = "local",
-        ttl_hours: int = 2,
+        ttl_hours: float = 2,
         jwt_token: Optional[str] = None,
         team_token: Optional[str] = None,
     ) -> SandboxInfo:
