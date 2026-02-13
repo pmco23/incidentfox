@@ -68,7 +68,7 @@ LLM_PROVIDERS = [
     (
         "cloudflare_ai",
         "Cloudflare AI Gateway",
-        "cloudflare_ai/openai/gpt-4o",
+        "openai/gpt-4o",
         "Route through Cloudflare AI Gateway",
     ),
     # --- Tier 4: Inference platforms (host other providers' models) ---
@@ -95,7 +95,7 @@ LLM_PROVIDERS = [
     (
         "custom_endpoint",
         "Custom Endpoint",
-        "custom_endpoint/my-model",
+        "my-model",
         "Any OpenAI-compatible endpoint",
     ),
 ]
@@ -2313,10 +2313,8 @@ def validate_provider_api_key(
         if provider_key:
             headers["Authorization"] = f"Bearer {provider_key}"
 
-        # Strip cloudflare_ai/ prefix for the model name
-        test_model = (
-            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        )
+        # Use the model as-is — user types e.g. "openai/gpt-4o", not "cloudflare_ai/..."
+        test_model = model_id
 
         try:
             resp = _requests.post(
@@ -2325,7 +2323,6 @@ def validate_provider_api_key(
                 json={
                     "model": test_model,
                     "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
                 },
                 timeout=15,
             )
@@ -3498,7 +3495,11 @@ def build_ai_model_modal(
                     },
                 }
                 if current_model:
-                    model_element["initial_value"] = current_model
+                    # Strip provider prefix for display — user doesn't need to see it
+                    display_model = current_model
+                    if current_model.startswith(f"{provider_id}/"):
+                        display_model = current_model[len(provider_id) + 1 :]
+                    model_element["initial_value"] = display_model
                 hint_text = f"Enter the full model ID. Example: {model_placeholder}"
             else:
                 from model_catalog import get_models_for_provider

@@ -5407,6 +5407,12 @@ def handle_open_ai_model_selector(ack, body, client):
         logger.warning(f"Failed to pre-fill AI model modal: {e}")
 
 
+# Guard against provider-switch race conditions: slow model catalog fetches
+# (e.g. OpenAI) can overwrite a fast provider switch (e.g. Cloudflare).
+# Each selection increments the counter; stale handlers skip their update.
+_provider_switch_seq: dict = {}  # view_id → sequence number
+
+
 @app.action("ai_provider_select")
 def handle_ai_provider_change(ack, body, client):
     """Handle provider dropdown change — update the modal with provider-specific fields."""
@@ -5421,6 +5427,10 @@ def handle_ai_provider_change(ack, body, client):
     )
     if not selected_provider or not view_id:
         return
+
+    # Claim a sequence number before doing any slow work
+    _provider_switch_seq[view_id] = _provider_switch_seq.get(view_id, 0) + 1
+    my_seq = _provider_switch_seq[view_id]
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5438,6 +5448,13 @@ def handle_ai_provider_change(ack, body, client):
             current_model=None,  # Don't carry over model from different provider
             existing_provider_config=existing_provider_config,
         )
+
+        # Skip update if user already switched to another provider
+        if _provider_switch_seq.get(view_id) != my_seq:
+            logger.info(
+                f"Skipping stale provider update for {selected_provider} (view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
         logger.info(
@@ -5660,12 +5677,19 @@ def handle_ai_model_config_submission(ack, body, client, view):
             logger.info(f"Saved {provider_id} provider config for team {team_id}")
 
         # 6. Save LLM model preference
+        #    Prepend provider prefix for routing (user doesn't type it)
+        save_model_id = model_id
+        _prefix_providers = {"cloudflare_ai", "custom_endpoint"}
+        if provider_id in _prefix_providers and not model_id.startswith(
+            f"{provider_id}/"
+        ):
+            save_model_id = f"{provider_id}/{model_id}"
         config_client.save_integration_config(
             slack_team_id=team_id,
             integration_id="llm",
-            config={"model": model_id},
+            config={"model": save_model_id},
         )
-        logger.info(f"Saved llm model={model_id} for team {team_id}")
+        logger.info(f"Saved llm model={save_model_id} for team {team_id}")
 
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
