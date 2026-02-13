@@ -783,54 +783,62 @@ static_resources:
             raise Exception(f"Failed to create sandbox: {e}")
 
     def get_sandbox(self, thread_id: str) -> Optional[SandboxInfo]:
-        """Get sandbox info for a thread. Returns info if sandbox exists."""
-        sandbox_name = f"investigation-{thread_id}"
+        """Get sandbox info for a thread. Returns info if sandbox exists.
 
-        try:
-            sandbox = self.custom_api.get_namespaced_custom_object(
-                group="agents.x-k8s.io",
-                version="v1alpha1",
-                namespace=self.namespace,
-                plural="sandboxes",
-                name=sandbox_name,
-            )
+        Checks both naming conventions:
+        - investigation-{thread_id} (direct creation)
+        - claim-{thread_id} (warm pool)
+        """
+        for prefix in ("investigation-", "claim-"):
+            sandbox_name = f"{prefix}{thread_id}"
+            try:
+                sandbox = self.custom_api.get_namespaced_custom_object(
+                    group="agents.x-k8s.io",
+                    version="v1alpha1",
+                    namespace=self.namespace,
+                    plural="sandboxes",
+                    name=sandbox_name,
+                )
 
-            created = sandbox.get("metadata", {}).get("creationTimestamp")
+                created = sandbox.get("metadata", {}).get("creationTimestamp")
 
-            return SandboxInfo(
-                name=sandbox_name,
-                thread_id=thread_id,
-                created_at=(
-                    datetime.fromisoformat(created.replace("Z", "+00:00"))
-                    if created
-                    else datetime.utcnow()
-                ),
-                namespace=self.namespace,
-            )
-        except ApiException as e:
-            if e.status == 404:
-                return None
-            raise
+                return SandboxInfo(
+                    name=sandbox_name,
+                    thread_id=thread_id,
+                    created_at=(
+                        datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        if created
+                        else datetime.utcnow()
+                    ),
+                    namespace=self.namespace,
+                )
+            except ApiException as e:
+                if e.status == 404:
+                    continue
+                raise
+        return None
 
     def delete_sandbox(self, thread_id: str):
-        """Delete a sandbox and clean up associated resources (ConfigMap)."""
-        sandbox_name = f"investigation-{thread_id}"
+        """Delete a sandbox and clean up associated resources (ConfigMap).
 
-        # Delete the sandbox custom resource
-        try:
-            self.custom_api.delete_namespaced_custom_object(
-                group="agents.x-k8s.io",
-                version="v1alpha1",
-                namespace=self.namespace,
-                plural="sandboxes",
-                name=sandbox_name,
-            )
-        except ApiException as e:
-            if e.status != 404:
-                raise
+        Handles both naming conventions (investigation-* and claim-*).
+        """
+        for prefix in ("investigation-", "claim-"):
+            sandbox_name = f"{prefix}{thread_id}"
+            try:
+                self.custom_api.delete_namespaced_custom_object(
+                    group="agents.x-k8s.io",
+                    version="v1alpha1",
+                    namespace=self.namespace,
+                    plural="sandboxes",
+                    name=sandbox_name,
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
 
-        # Clean up per-sandbox Envoy ConfigMap
-        self._delete_envoy_configmap(sandbox_name)
+            # Clean up per-sandbox Envoy ConfigMap
+            self._delete_envoy_configmap(sandbox_name)
 
     def wait_for_ready(self, thread_id: str, timeout: int = 120) -> bool:
         """
