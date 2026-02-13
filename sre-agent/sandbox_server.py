@@ -376,9 +376,7 @@ async def execute(request: ExecuteRequest):
                 f"📎 [SANDBOX] Downloading {len(request.file_downloads)} file(s) for thread {thread_id}"
             )
             saved_paths = _download_files_from_proxy(request.file_downloads, thread_id)
-            print(
-                f"📎 [SANDBOX] Downloaded {len(saved_paths)} file(s): {saved_paths}"
-            )
+            print(f"📎 [SANDBOX] Downloaded {len(saved_paths)} file(s): {saved_paths}")
 
         # Convert images to list of dicts if provided
         images_list = None
