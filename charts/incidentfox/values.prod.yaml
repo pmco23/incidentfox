@@ -216,6 +216,10 @@ services:
       image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-agent:latest"
       namespace: ""  # Same namespace as agent
       useGvisor: true
+    # Warm pool for instant sandbox provisioning (<2s)
+    warmPool:
+      enabled: true
+      replicas: 3
     startupProbe:
       enabled: true
       path: "/health"
@@ -229,6 +233,8 @@ services:
     extraEnv:
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox-prod.svc.cluster.local:8085"
+      - name: SANDBOX_TTL_MINUTES
+        value: "20"
     # Disable tracing in production (using OpenAI tracing UI)
     tracing:
       enabled: false
