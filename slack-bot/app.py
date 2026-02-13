@@ -5603,9 +5603,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
                     provider_config[field_id] = existing_provider_config[field_id]
             elif val:
                 provider_config[field_id] = val
-            elif field_id in existing_provider_config:
-                # Secret field left blank — preserve existing value
-                provider_config[field_id] = existing_provider_config[field_id]
+            # Blank field = user intentionally cleared it — don't preserve old value
         elif "selected_option" in field_value:
             selected = field_value.get("selected_option", {})
             if selected:
