@@ -1250,19 +1250,32 @@ static_resources:
             "team_id": team_id,
         }
 
-        try:
-            response = requests.post(
-                f"{router_url}/claim",
-                headers=headers,
-                json=payload,
-                timeout=10,
-            )
-            response.raise_for_status()
-            print(f"✅ Injected JWT into sandbox {sandbox_name} for thread {thread_id}")
-            return True
-        except requests.RequestException as e:
-            print(f"❌ Failed to inject JWT into {sandbox_name}: {e}")
-            return False
+        # Retry with backoff — DNS/Service for newly-bound warm pool pods
+        # may take a few seconds to propagate
+        for attempt in range(5):
+            try:
+                response = requests.post(
+                    f"{router_url}/claim",
+                    headers=headers,
+                    json=payload,
+                    timeout=10,
+                )
+                response.raise_for_status()
+                print(
+                    f"✅ Injected JWT into sandbox {sandbox_name} for thread {thread_id}"
+                )
+                return True
+            except requests.RequestException as e:
+                if attempt < 4:
+                    delay = min(1.0 * (2**attempt), 4.0)
+                    print(
+                        f"⚠️ JWT inject attempt {attempt + 1}/5 failed for {sandbox_name}, "
+                        f"retrying in {delay}s... ({e})"
+                    )
+                    time.sleep(delay)
+                else:
+                    print(f"❌ Failed to inject JWT into {sandbox_name}: {e}")
+                    return False
 
     def delete_sandbox_claim(self, thread_id: str):
         """Delete a SandboxClaim."""
