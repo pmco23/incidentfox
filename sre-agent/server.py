@@ -480,6 +480,10 @@ async def investigate(request: InvestigateRequest):
         # Check if warm pool is enabled
         use_warm_pool = os.getenv("USE_WARM_POOL", "false").lower() == "true"
 
+        # Sandbox TTL — configurable via env var (default: 120 minutes = 2 hours)
+        ttl_minutes = int(os.getenv("SANDBOX_TTL_MINUTES", "120"))
+        ttl_hours = ttl_minutes / 60
+
         # Create new sandbox with session JWT
         print(
             f"🔧 Creating sandbox for thread {thread_id} (tenant={tenant_id}, team={team_id}, warm_pool={use_warm_pool})"
@@ -493,6 +497,7 @@ async def investigate(request: InvestigateRequest):
                     thread_id,
                     tenant_id=tenant_id,
                     team_id=team_id,
+                    ttl_hours=ttl_hours,
                     jwt_token=jwt_token,
                     team_token=team_token,
                 )
@@ -507,6 +512,7 @@ async def investigate(request: InvestigateRequest):
                     thread_id,
                     tenant_id=tenant_id,
                     team_id=team_id,
+                    ttl_hours=ttl_hours,
                     jwt_token=jwt_token,
                     team_token=team_token,
                 )
