@@ -2314,11 +2314,7 @@ def validate_provider_api_key(
             headers["Authorization"] = f"Bearer {provider_key}"
 
         # Strip cloudflare_ai/ prefix for the model name
-        test_model = (
-            model_id.split("/", 1)[1]
-            if model_id and "/" in model_id
-            else "openai/gpt-4o-mini"
-        )
+        test_model = model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
 
         try:
             resp = _requests.post(
@@ -2333,21 +2329,15 @@ def validate_provider_api_key(
             )
             if resp.status_code == 200:
                 return True, ""
-            # Auth errors mean bad credentials
+            # Extract error message from response
+            try:
+                err = resp.json().get("error", {})
+                err_msg = err.get("message", "") if isinstance(err, dict) else str(err)
+            except Exception:
+                err_msg = resp.text[:300]
             if resp.status_code in (401, 403):
-                try:
-                    err = resp.json().get("error", {})
-                    err_msg = (
-                        err.get("message", "") if isinstance(err, dict) else str(err)
-                    )
-                except Exception:
-                    err_msg = resp.text[:300]
-                return (
-                    False,
-                    f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}",
-                )
-            # Other errors (400 bad model, 429 rate limit, etc.) — gateway is reachable, auth OK
-            return True, ""
+                return False, f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}"
+            return False, f"Gateway returned {resp.status_code}: {_sanitize(err_msg or 'unknown error')}"
         except _requests.exceptions.ConnectionError:
             return (
                 False,
