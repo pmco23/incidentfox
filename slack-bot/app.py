@@ -5663,7 +5663,9 @@ def handle_ai_model_config_submission(ack, body, client, view):
         #    Prepend provider prefix for routing (user doesn't type it)
         save_model_id = model_id
         _prefix_providers = {"cloudflare_ai", "custom_endpoint"}
-        if provider_id in _prefix_providers and not model_id.startswith(f"{provider_id}/"):
+        if provider_id in _prefix_providers and not model_id.startswith(
+            f"{provider_id}/"
+        ):
             save_model_id = f"{provider_id}/{model_id}"
         config_client.save_integration_config(
             slack_team_id=team_id,
