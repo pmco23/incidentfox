@@ -818,6 +818,65 @@ static_resources:
                 raise
         return None
 
+    def reset_sandbox_ttl(self, thread_id: str, ttl_hours: float = 2) -> bool:
+        """Reset the TTL (shutdownTime) for an existing sandbox on follow-up activity.
+
+        Extends the sandbox lifetime by a full TTL period from the current time.
+        Handles both naming conventions:
+        - claim-* (warm pool): patches SandboxClaim.spec.lifecycle.shutdownTime
+        - investigation-* (direct): patches Sandbox.spec.shutdownTime
+
+        Non-fatal: logs a warning on failure but doesn't break the follow-up flow.
+        """
+        new_shutdown_time = (
+            datetime.utcnow() + timedelta(hours=ttl_hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        template_namespace = os.getenv(
+            "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
+        )
+
+        # Try claim-* (warm pool) first, then investigation-* (direct)
+        patches = [
+            (
+                f"claim-{thread_id}",
+                "extensions.agents.x-k8s.io",
+                "sandboxclaims",
+                template_namespace,
+                {"spec": {"lifecycle": {"shutdownTime": new_shutdown_time}}},
+            ),
+            (
+                f"investigation-{thread_id}",
+                "agents.x-k8s.io",
+                "sandboxes",
+                self.namespace,
+                {"spec": {"shutdownTime": new_shutdown_time}},
+            ),
+        ]
+
+        for name, group, plural, namespace, body in patches:
+            try:
+                self.custom_api.patch_namespaced_custom_object(
+                    group=group,
+                    version="v1alpha1",
+                    namespace=namespace,
+                    plural=plural,
+                    name=name,
+                    body=body,
+                )
+                print(
+                    f"🔄 Reset TTL for {name} → {new_shutdown_time} (+{ttl_hours * 60:.0f}min)"
+                )
+                return True
+            except ApiException as e:
+                if e.status == 404:
+                    continue
+                print(f"⚠️ Failed to reset TTL for {name}: {e}")
+                return False
+
+        print(f"⚠️ No sandbox found to reset TTL for thread {thread_id}")
+        return False
+
     def delete_sandbox(self, thread_id: str):
         """Delete a sandbox and clean up associated resources (ConfigMap).
 
@@ -1149,15 +1208,16 @@ static_resources:
         except ApiException as e:
             raise Exception(f"Failed to create SandboxClaim: {e}")
 
-    def wait_for_claim_bound(self, claim_name: str, timeout: int = 5) -> Optional[str]:
+    def wait_for_claim_bound(self, claim_name: str, timeout: int = 60) -> Optional[str]:
         """
         Wait for SandboxClaim to bind to a warm pod.
 
-        Binding should be nearly instant if warm pods are available.
+        Binding is instant if warm pods are available. If the pool is exhausted,
+        waits for replenishment pods to become ready (up to timeout).
 
         Args:
             claim_name: Name of the SandboxClaim
-            timeout: Max wait time in seconds (default: 5)
+            timeout: Max wait time in seconds (default: 60)
 
         Returns:
             Sandbox name if bound, None if timeout
@@ -1166,6 +1226,7 @@ static_resources:
             "WARMPOOL_TEMPLATE_NAMESPACE", "incidentfox-prod"
         )
         start_time = time.time()
+        logged_pending = False
 
         while time.time() - start_time < timeout:
             try:
@@ -1189,25 +1250,43 @@ static_resources:
                 )
 
                 if is_ready and sandbox_name:
-                    print(f"✅ SandboxClaim {claim_name} bound to {sandbox_name}")
+                    elapsed = time.time() - start_time
+                    print(
+                        f"✅ SandboxClaim {claim_name} bound to {sandbox_name} ({elapsed:.1f}s)"
+                    )
                     return sandbox_name
 
-                # Check for terminal failure (skip transient "not ready" states)
+                # Check failure conditions — most are transient, keep waiting
                 for c in conditions:
                     if c.get("type") == "Ready" and c.get("status") == "False":
                         reason = c.get("message", "unknown")
-                        # "Sandbox is not ready" is transient — controller is still processing
-                        if reason != "Sandbox is not ready":
-                            print(f"❌ SandboxClaim {claim_name} failed: {reason}")
-                            return None
+
+                        # Transient states — pod is being created/scheduled, keep waiting
+                        transient_patterns = [
+                            "Sandbox is not ready",
+                            "Pod exists with phase: Pending",
+                            "please apply your changes",  # controller conflict, retries internally
+                        ]
+                        if any(p in reason for p in transient_patterns):
+                            if not logged_pending:
+                                print(
+                                    f"⏳ SandboxClaim {claim_name} waiting for pod: {reason}"
+                                )
+                                logged_pending = True
+                            break  # Continue polling
+
+                        # Terminal failure — give up
+                        print(f"❌ SandboxClaim {claim_name} failed: {reason}")
+                        return None
 
             except ApiException as e:
                 if e.status != 404:
                     raise
 
-            time.sleep(0.1)  # Poll quickly for instant binding
+            time.sleep(0.5)  # Poll every 500ms
 
-        print(f"⏰ SandboxClaim {claim_name} binding timed out after {timeout}s")
+        elapsed = time.time() - start_time
+        print(f"⏰ SandboxClaim {claim_name} binding timed out after {elapsed:.0f}s")
         return None
 
     def inject_jwt(
@@ -1341,9 +1420,10 @@ static_resources:
             # Use provided JWT or the one generated with the claim
             jwt_to_inject = jwt_token if jwt_token else claim_jwt
 
-            # Step 2: Wait for binding (should be < 1 second)
+            # Step 2: Wait for binding
+            # Instant if warm pods available; waits for replenishment if pool exhausted
             step2_start = time.time()
-            bound_sandbox = self.wait_for_claim_bound(claim_name, timeout=5)
+            bound_sandbox = self.wait_for_claim_bound(claim_name)
             step2_ms = (time.time() - step2_start) * 1000
             print(
                 f"⏱️ [WARMPOOL] Step 2 - Wait for binding: {step2_ms:.0f}ms (bound={bound_sandbox})"

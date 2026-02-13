@@ -540,6 +540,10 @@ async def investigate(request: InvestigateRequest):
         print(f"♻️  Reusing sandbox {sandbox_info.name} for follow-up")
         is_new = False
 
+        # Reset idle timeout — extend sandbox lifetime on activity
+        ttl_minutes = int(os.getenv("SANDBOX_TTL_MINUTES", "120"))
+        sandbox_manager.reset_sandbox_ttl(thread_id, ttl_hours=ttl_minutes / 60)
+
     # Convert images to dict format if provided
     images_list = None
     if request.images:
