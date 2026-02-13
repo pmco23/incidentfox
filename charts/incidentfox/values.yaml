@@ -280,12 +280,7 @@ services:
         limits:
           cpu: "200m"
           memory: "128Mi"
-      # HPA for warm pool auto-scaling
-      hpa:
-        enabled: false
-        minReplicas: 2
-        maxReplicas: 10
-        targetUtilizationPercentage: 80
+      # Auto-scaling: planned for KEDA-based implementation (follow-up PR)
     # Tracing configuration (supports multiple backends via OTEL)
     tracing:
       enabled: false

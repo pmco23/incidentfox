@@ -139,11 +139,21 @@ async def claim_sandbox(request: ClaimRequest):
     Once claimed, the sandbox is ready for use and Envoy will inject
     the JWT in ext_authz requests.
     """
+    import stat
     from pathlib import Path
 
-    # Write JWT to file (Envoy Lua filter reads this on each request)
     jwt_path = Path("/tmp/sandbox-jwt")
+
+    # Prevent re-claiming an already-claimed sandbox
+    if jwt_path.exists() and jwt_path.read_text().strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Sandbox already claimed",
+        )
+
+    # Write JWT to file (Envoy Lua filter reads this on each request)
     jwt_path.write_text(request.jwt_token)
+    jwt_path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600 — owner only
 
     # Set environment variables for tenant context
     # These are used by the agent for logging and context

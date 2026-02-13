@@ -113,7 +113,7 @@ class SandboxManager:
         try:
             # Try in-cluster config first (when running in K8s)
             k8s_config.load_incluster_config()
-        except:
+        except Exception:
             # Fall back to local kubeconfig (development)
             k8s_config.load_kube_config()
 

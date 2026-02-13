@@ -162,7 +162,7 @@ spec:
             # =================================================================
             # Warm Pool Configuration
             # =================================================================
-            {{- if .Values.services.agent.warmPool.enabled }}
+            {{- if and .Values.services.agent.sandbox.enabled .Values.services.agent.warmPool.enabled }}
             - name: USE_WARM_POOL
               value: "true"
             - name: WARMPOOL_TEMPLATE_NAME

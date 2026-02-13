@@ -481,7 +481,12 @@ async def investigate(request: InvestigateRequest):
         use_warm_pool = os.getenv("USE_WARM_POOL", "false").lower() == "true"
 
         # Sandbox TTL — configurable via env var (default: 120 minutes = 2 hours)
-        ttl_minutes = int(os.getenv("SANDBOX_TTL_MINUTES", "120"))
+        try:
+            ttl_minutes = int(os.getenv("SANDBOX_TTL_MINUTES", "120"))
+            if not (1 <= ttl_minutes <= 1440):
+                ttl_minutes = 120
+        except ValueError:
+            ttl_minutes = 120
         ttl_hours = ttl_minutes / 60
 
         # Create new sandbox with session JWT
