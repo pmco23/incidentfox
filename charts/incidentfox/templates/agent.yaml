@@ -73,6 +73,7 @@ spec:
     metadata:
       labels:
         app: incidentfox-agent
+        component: server
     spec:
       {{- if .Values.services.agent.serviceAccount.name }}
       serviceAccountName: {{ .Values.services.agent.serviceAccount.name | quote }}
@@ -130,6 +131,21 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.externalSecrets.contract.jwtSecret.secretName | default "incidentfox-jwt-secret" }}
                   key: {{ .Values.externalSecrets.contract.jwtSecret.secretKey | default "JWT_SECRET" }}
+            {{- end }}
+            # =================================================================
+            # Warm Pool Configuration
+            # =================================================================
+            {{- if and .Values.services.agent.sandbox.enabled .Values.services.agent.warmPool.enabled }}
+            - name: USE_WARM_POOL
+              value: "true"
+            - name: WARMPOOL_TEMPLATE_NAME
+              value: {{ .Values.services.agent.warmPool.templateName | quote }}
+            - name: WARMPOOL_TEMPLATE_NAMESPACE
+              value: {{ .Values.services.agent.sandbox.namespace | default .Values.namespace | quote }}
+            - name: WARMPOOL_NAME
+              value: {{ .Values.services.agent.warmPool.poolName | quote }}
+            - name: WARMPOOL_NAMESPACE
+              value: {{ .Values.services.agent.sandbox.namespace | default .Values.namespace | quote }}
             {{- end }}
             # =================================================================
             # Tracing configuration (Langfuse / OTEL)
@@ -210,8 +226,10 @@ metadata:
 spec:
   selector:
     app: incidentfox-agent
+    component: server
   ports:
     - port: {{ .Values.services.agent.servicePort }}
       targetPort: {{ .Values.services.agent.servicePort }}
       protocol: TCP
+      name: http
 {{- end }}
