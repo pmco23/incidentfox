@@ -2,7 +2,7 @@
 # =============================================================================
 # Karpenter NodePool + EC2NodeClass — burst node provisioning
 # =============================================================================
-# Auto-provisions ARM64 (Graviton) nodes when sandbox pods are Pending.
+# Auto-provisions AMD64 (x86) nodes when sandbox pods are Pending.
 # Consolidates and removes nodes when idle. gVisor installs automatically
 # via the gvisor-installer DaemonSet (tolerates all taints).
 # =============================================================================
@@ -22,7 +22,7 @@ spec:
       requirements:
         - key: kubernetes.io/arch
           operator: In
-          values: ["arm64"]
+          values: ["amd64"]
         - key: karpenter.sh/capacity-type
           operator: In
           values:
