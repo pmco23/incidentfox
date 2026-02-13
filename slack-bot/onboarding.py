@@ -2337,14 +2337,22 @@ def validate_provider_api_key(
             if resp.status_code in (401, 403):
                 try:
                     err = resp.json().get("error", {})
-                    err_msg = err.get("message", "") if isinstance(err, dict) else str(err)
+                    err_msg = (
+                        err.get("message", "") if isinstance(err, dict) else str(err)
+                    )
                 except Exception:
                     err_msg = resp.text[:300]
-                return False, f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}"
+                return (
+                    False,
+                    f"Authentication failed: {_sanitize(err_msg or 'invalid credentials')}",
+                )
             # Other errors (400 bad model, 429 rate limit, etc.) — gateway is reachable, auth OK
             return True, ""
         except _requests.exceptions.ConnectionError:
-            return False, "Could not connect to the gateway URL. Check the URL is correct."
+            return (
+                False,
+                "Could not connect to the gateway URL. Check the URL is correct.",
+            )
         except _requests.exceptions.Timeout:
             return False, "Gateway request timed out after 15 seconds."
         except Exception as e:

@@ -5514,7 +5514,8 @@ def handle_ai_model_config_submission(ack, body, client, view):
     dropdown_provider = (
         values.get("provider_block", {})
         .get("ai_provider_select", {})
-        .get("selected_option") or {}
+        .get("selected_option")
+        or {}
     ).get("value")
     if dropdown_provider:
         provider_id = dropdown_provider
