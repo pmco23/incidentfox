@@ -108,6 +108,27 @@ class SandboxManager:
         self.custom_api = client.CustomObjectsApi()
         self.core_api = client.CoreV1Api()
 
+    def _protect_pod_from_consolidation(self, pod_name: str) -> None:
+        """Annotate a pod with karpenter.sh/do-not-disrupt to prevent eviction.
+
+        Called after a sandbox is claimed or created so Karpenter won't evict
+        active investigation pods during node consolidation. Non-fatal if it fails.
+        """
+        try:
+            self.core_api.patch_namespaced_pod(
+                name=pod_name,
+                namespace=self.namespace,
+                body={
+                    "metadata": {
+                        "annotations": {
+                            "karpenter.sh/do-not-disrupt": "true"
+                        }
+                    }
+                },
+            )
+        except Exception as e:
+            print(f"⚠️ Failed to annotate pod {pod_name} with do-not-disrupt: {e}")
+
     def _load_k8s_config(self):
         """Load Kubernetes configuration."""
         try:
@@ -1540,6 +1561,7 @@ static_resources:
                     raise Exception(
                         f"Sandbox {sandbox_info.name} failed to become ready"
                     )
+                self._protect_pod_from_consolidation(sandbox_info.name)
                 return sandbox_info
 
             # Step 3: Inject JWT via /claim endpoint
@@ -1570,9 +1592,13 @@ static_resources:
                     raise Exception(
                         f"Sandbox {sandbox_info.name} failed to become ready"
                     )
+                self._protect_pod_from_consolidation(sandbox_info.name)
                 return sandbox_info
             step3_ms = (time.time() - step3_start) * 1000
             print(f"⏱️ [WARMPOOL] Step 3 - Inject JWT: {step3_ms:.0f}ms")
+
+            # Step 4: Protect from Karpenter consolidation
+            self._protect_pod_from_consolidation(bound_sandbox)
 
             total_ms = (time.time() - warmpool_start) * 1000
             print(

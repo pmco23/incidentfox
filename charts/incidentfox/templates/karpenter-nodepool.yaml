@@ -42,6 +42,9 @@ spec:
     cpu: {{ .Values.karpenter.limits.cpu | quote }}
     memory: {{ .Values.karpenter.limits.memory | quote }}
   disruption:
+    # WhenEmptyOrUnderutilized: consolidate underutilized nodes (e.g., nodes
+    # with only idle warm pool pods). Active investigation pods are protected
+    # via karpenter.sh/do-not-disrupt annotation (added at claim time).
     consolidationPolicy: WhenEmptyOrUnderutilized
     consolidateAfter: {{ .Values.karpenter.consolidateAfter | quote }}
     budgets:
