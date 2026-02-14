@@ -199,6 +199,16 @@ jobs:
         with:
           version: 'v3.14.0'
 
+      - name: Install cluster dependencies
+        if: ${{ github.event.inputs.environment == 'production' }}
+        env:
+          KARPENTER_ROLE_ARN: ${{ secrets.KARPENTER_ROLE_ARN }}
+          KARPENTER_QUEUE_NAME: ${{ secrets.KARPENTER_QUEUE_NAME }}
+          CLUSTER_NAME: ${{ env.EKS_CLUSTER }}
+        run: |
+          chmod +x scripts/setup-cluster-deps.sh
+          ./scripts/setup-cluster-deps.sh
+
       - name: Adopt orphaned resources for Helm
         run: |
           # Fix resources that exist but weren't created by this Helm release
@@ -344,6 +354,30 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           kubectl get pods -n ${{ env.HELM_NAMESPACE }} -o jsonpath='{range .items[*]}{.metadata.name}: {.status.containerStatuses[0].imageID}{"\n"}{end}' | grep -E "(agent|config-service|orchestrator|web-ui|ultimate-rag)" >> $GITHUB_STEP_SUMMARY || true
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Verify Karpenter (production)
+        if: ${{ github.event.inputs.environment == 'production' }}
+        run: |
+          echo "### Karpenter Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Check controller
+          if kubectl get pods -n karpenter -l app.kubernetes.io/name=karpenter --no-headers 2>/dev/null | grep -q Running; then
+            echo "- Karpenter controller: Running" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::warning::Karpenter controller not running"
+            echo "- Karpenter controller: **NOT RUNNING**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Check NodePool
+          if kubectl get nodepool sandbox-burst --no-headers 2>/dev/null; then
+            echo "- NodePool sandbox-burst: Created" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "::warning::NodePool sandbox-burst not found"
+            echo "- NodePool sandbox-burst: **NOT FOUND**" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
 
       - name: Summary
         run: |

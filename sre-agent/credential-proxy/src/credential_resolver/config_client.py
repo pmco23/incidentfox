@@ -143,10 +143,10 @@ class ConfigServiceClient:
             integration_config = integrations.get(integration_id, {})
 
             # Handle Anthropic free trial logic
+            # Pass full config for trial fields (is_trial, trial_expires_at)
+            # which live at the top level, not inside integrations.anthropic
             if integration_id == "anthropic":
-                return self._resolve_anthropic_credentials(
-                    integration_config, tenant_id
-                )
+                return self._resolve_anthropic_credentials(config, tenant_id)
 
             if not integration_config:
                 logger.warning(
@@ -185,27 +185,26 @@ class ConfigServiceClient:
     ) -> dict | None:
         """Resolve Anthropic credentials with subscription + trial support.
 
-        New access control logic (subscription-first):
+        Access control logic:
         1. Check if customer has ACCESS (valid trial OR active subscription)
         2. If access granted, determine which API key to use:
-           - Customer BYOK (api_key configured) -> use their key
+           - Customer BYOK (api_key in integrations.anthropic) -> use their key
            - No BYOK -> use our shared key with attribution
         3. If no access, DENY
 
-        This allows:
-        - Trial users to use our key OR bring their own
-        - Paid users to use our key OR bring their own
-        - Expired trials without subscription are blocked
-
         Args:
-            config: Anthropic integration config from Config Service
+            config: Full effective_config from Config Service (trial fields at
+                top level, API key inside integrations.anthropic)
             tenant_id: For attribution tagging
 
         Returns:
             Dict with api_key and optional attribution metadata, or None if access denied
         """
-        creds = self._extract_credentials(config)
+        # Get customer API key from integrations.anthropic
+        anthropic_config = config.get("integrations", {}).get("anthropic", {})
+        creds = self._extract_credentials(anthropic_config)
         customer_api_key = creds.get("api_key")
+        # Trial/subscription fields are at top level of effective_config
         is_trial = config.get("is_trial", False)
         trial_expires_at = config.get("trial_expires_at")
         subscription_status = config.get("subscription_status", "none")
