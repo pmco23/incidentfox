@@ -207,10 +207,6 @@ services:
       name: incidentfox-agent
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-prod-agent"
-    # K8s tools - agent can access customer namespaces via k8s-gateway
-    kubernetes:
-      enabled: true
-      namespace: "incidentfox-prod"
     # Enable sandbox mode with gVisor isolation
     sandbox:
       enabled: true
@@ -237,6 +233,8 @@ services:
       runAsNonRoot: true
       runAsUser: 1000
     extraEnv:
+      - name: CONFIG_SERVICE_URL
+        value: "http://incidentfox-config-service.incidentfox-prod.svc.cluster.local:8080"
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox-prod.svc.cluster.local:8085"
       - name: SANDBOX_TTL_MINUTES

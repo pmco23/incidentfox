@@ -139,7 +139,7 @@ externalSecrets:
       appIdRemoteRefKey: incidentfox/prod/teams_app_id
       appPasswordRemoteRefKey: incidentfox/prod/teams_app_password
       tenantIdRemoteRefKey: incidentfox/prod/teams_tenant_id
-    # JWT secret for sandbox credential injection (shared between unified-agent and credential-resolver)
+    # JWT secret for sandbox credential injection (shared between agent and credential-resolver)
     jwtSecret:
       enabled: true
       secretName: incidentfox-jwt-secret
@@ -217,16 +217,14 @@ services:
     # Admin RBAC (OIDC group -> permissions). Default keeps backwards-compatible admin:*.
     adminPermissionsDefault: "admin:*"
     adminGroupPermissionsJson: "{}"
-  # Agent - Investigation agent with sandbox isolation support
-  # Supports sre-agent (command override) or unified-agent (default Dockerfile CMD)
+  # Agent - SRE investigation agent with sandbox isolation support
   agent:
     enabled: true
-    image: "incidentfox/unified-agent:v1.0.0"
+    image: "incidentfox/agent:v1.0.0"
     replicas: 2
-    servicePort: 8888  # unified-agent=8888, sre-agent=8000
-    # Command override (empty list = use Dockerfile CMD)
-    # For sre-agent: ["python", "/app/server.py"]
-    command: []
+    servicePort: 8000
+    # Command override for the container entrypoint
+    command: ["python", "/app/server.py"]
     # Additional env vars injected into the agent container
     extraEnv: []
     # Time to allow for graceful shutdown (marking in-flight runs as failed)
@@ -237,11 +235,6 @@ services:
       create: true
       name: incidentfox-agent
       annotations: {}
-    # Kubernetes tools configuration (agent has in-cluster access)
-    kubernetes:
-      enabled: true
-      # Namespace for K8s tools to query (defaults to same namespace)
-      namespace: ""
     # Sandbox mode: creates isolated gVisor pods for each investigation
     # When disabled, agent runs investigations directly (dev/testing only)
     sandbox:
@@ -312,9 +305,11 @@ services:
       limits:
         cpu: "2000m"
         memory: "3Gi"
-    # Dedicated health server runs in separate thread, always responsive
+    # Dedicated health server (separate thread, always responsive)
     healthServer:
       port: 8081
+    # Max concurrent sandbox investigations
+    maxConcurrentInvestigations: 8
     startupProbe:
       enabled: false
       path: "/health"

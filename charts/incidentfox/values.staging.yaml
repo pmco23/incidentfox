@@ -212,10 +212,6 @@ services:
       name: incidentfox-agent
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-staging-agent"
-    # K8s tools - agent can access otel-demo namespace
-    kubernetes:
-      enabled: true
-      namespace: "otel-demo"
     # Enable sandbox mode with gVisor isolation
     sandbox:
       enabled: true
@@ -260,6 +256,8 @@ services:
       runAsNonRoot: true
       runAsUser: 1000
     extraEnv:
+      - name: CONFIG_SERVICE_URL
+        value: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox.svc.cluster.local:8085"
       - name: SANDBOX_TTL_MINUTES
