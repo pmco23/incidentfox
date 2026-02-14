@@ -117,19 +117,14 @@ class ConfigServiceClient:
         """
         try:
             # Call Config Service to get team's effective config
-            # Config service expects org_id in "slack-{team_id}" format
-            org_id = (
-                f"slack-{tenant_id}"
-                if not tenant_id.startswith("slack-")
-                else tenant_id
-            )
-            # Use "default" as node_id - the config is stored at org level
+            # Callers pass the real Config Service org_id as tenant_id
+            # and the real team_node_id as team_id
             response = await self._client.get(
                 f"{self.base_url}/api/v1/config/me",
                 headers={
                     "Accept": "application/json",
-                    "X-Org-Id": org_id,
-                    "X-Team-Node-Id": "default",
+                    "X-Org-Id": tenant_id,
+                    "X-Team-Node-Id": team_id,
                 },
             )
             response.raise_for_status()
@@ -204,10 +199,12 @@ class ConfigServiceClient:
         anthropic_config = config.get("integrations", {}).get("anthropic", {})
         creds = self._extract_credentials(anthropic_config)
         customer_api_key = creds.get("api_key")
-        # Trial/subscription fields are at top level of effective_config
-        is_trial = config.get("is_trial", False)
-        trial_expires_at = config.get("trial_expires_at")
-        subscription_status = config.get("subscription_status", "none")
+        # Trial/subscription fields may be at top level or inside integrations.anthropic
+        # Use `is not None` checks to avoid falsy values (False, "") falling through
+        is_trial = config.get("is_trial") if config.get("is_trial") is not None else anthropic_config.get("is_trial", False)
+        trial_expires_at = config.get("trial_expires_at") if config.get("trial_expires_at") is not None else anthropic_config.get("trial_expires_at")
+        subscription_status = config.get("subscription_status") if config.get("subscription_status") is not None else anthropic_config.get("subscription_status", "none")
+>>>>>>> 53a2f360 (fix: Trial field falsy-value bug, remove stale LLM_PROVIDER/LLM_MODEL, clean up debug logs)
 
         # Step 1: Check if customer has valid access (trial OR subscription)
         has_valid_trial = False
