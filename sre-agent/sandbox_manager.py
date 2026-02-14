@@ -119,11 +119,7 @@ class SandboxManager:
                 name=pod_name,
                 namespace=self.namespace,
                 body={
-                    "metadata": {
-                        "annotations": {
-                            "karpenter.sh/do-not-disrupt": "true"
-                        }
-                    }
+                    "metadata": {"annotations": {"karpenter.sh/do-not-disrupt": "true"}}
                 },
             )
         except Exception as e:
