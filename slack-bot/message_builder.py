@@ -164,13 +164,31 @@ def _process_text_with_images(text: str, images: Optional[List[dict]] = None) ->
     return segments
 
 
-def _render_image_block(image_url: str, alt: str) -> dict:
-    """Create a Slack image block using image_url (S3-hosted assets)."""
-    return {
-        "type": "image",
-        "image_url": image_url,
-        "alt_text": alt[:2000],  # Slack limit
-    }
+def _render_image_block(image_ref: str, alt: str) -> dict:
+    """
+    Create a Slack image block using either file_id (Slack-uploaded) or image_url (external).
+
+    Args:
+        image_ref: Either a Slack file_id (starts with 'F') or an external image URL
+        alt: Alt text for the image
+
+    Returns:
+        Slack image block dict
+    """
+    if image_ref.startswith('F'):
+        # Slack-uploaded file - use slack_file format
+        return {
+            "type": "image",
+            "slack_file": {"id": image_ref},
+            "alt_text": alt[:2000],
+        }
+    else:
+        # External URL - use image_url format
+        return {
+            "type": "image",
+            "image_url": image_ref,
+            "alt_text": alt[:2000],
+        }
 
 
 def build_progress_message(
