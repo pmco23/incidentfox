@@ -175,7 +175,7 @@ def _render_image_block(image_ref: str, alt: str) -> dict:
     Returns:
         Slack image block dict
     """
-    if image_ref.startswith('F'):
+    if image_ref.startswith("F"):
         # Slack-uploaded file - use slack_file format
         return {
             "type": "image",
