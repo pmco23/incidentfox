@@ -391,16 +391,16 @@ class ConfigServiceClient:
         """
         expires_at = datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)
 
-        # Store trial metadata (not the shared key)
-        # subscription_status="none" means they need to subscribe after trial
+        # Store trial metadata at org level (not nested under integrations)
+        # The credential-resolver checks these fields at the top level
         config = {
+            "is_trial": True,
+            "trial_expires_at": expires_at.isoformat(),
+            "trial_started_at": datetime.utcnow().isoformat(),
+            "subscription_status": "none",  # Must subscribe after trial
             "integrations": {
                 "anthropic": {
-                    "is_trial": True,
-                    "trial_expires_at": expires_at.isoformat(),
-                    "trial_started_at": datetime.utcnow().isoformat(),
                     "workspace_attribution": org_id,  # For cost tracking
-                    "subscription_status": "none",  # Must subscribe after trial
                 }
             }
         }
