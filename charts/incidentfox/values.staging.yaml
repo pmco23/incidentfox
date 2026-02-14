@@ -221,12 +221,12 @@ services:
     # Warm pool for instant sandbox provisioning (<2s)
     warmPool:
       enabled: true
-      replicas: 3
+      replicas: 1
       autoscaler:
         enabled: true
-        minReplicas: 3
-        maxReplicas: 10
-        buffer: 3
+        minReplicas: 1
+        maxReplicas: 3
+        buffer: 1
     hpa:
       enabled: true
       minReplicas: 2
@@ -307,9 +307,10 @@ services:
   knowledgeBase:
     enabled: false  # Deprecated - use ultimateRag instead
 
-  # Ultimate RAG - Knowledge base with graph queries, teaching, analytics
+  # Ultimate RAG - Disabled in staging to save r6i.xlarge node cost (~$184/mo)
+  # Enable temporarily when testing RAG changes before prod deploy
   ultimateRag:
-    enabled: true
+    enabled: false
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-ultimate-rag:latest"
     replicas: 1
     serviceAccountRoleArn: "arn:aws:iam::103002841599:role/incidentfox-raptor-kb-role"

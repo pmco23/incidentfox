@@ -166,7 +166,7 @@ services:
   configService:
     enabled: true
     image: "incidentfox/config-service:v1.0.0"
-    replicas: 2
+    replicas: 1
     servicePort: 8080
     resources:
       requests:
@@ -250,7 +250,7 @@ services:
     warmPool:
       enabled: false
       # Number of warm pods to maintain (replenished as pods are claimed)
-      replicas: 3
+      replicas: 1
       # Template name for warm pool pods
       templateName: incidentfox-warmpool-template
       # Warm pool name
@@ -279,11 +279,11 @@ services:
       # Polls /metrics/sandbox-demand endpoint and patches warm pool replicas
       autoscaler:
         enabled: false
-        minReplicas: 3
-        maxReplicas: 10
+        minReplicas: 1
+        maxReplicas: 5
         pollingInterval: 15    # seconds between metric polls
         cooldownPeriod: 300    # seconds before scaling down after last trigger
-        buffer: 3              # standby pods to maintain above active claims
+        buffer: 1              # standby pods to maintain above active claims
     # Tracing configuration (supports multiple backends via OTEL)
     tracing:
       enabled: false
@@ -772,4 +772,15 @@ services:
       enabled: true
       minAvailable: 1
 
-
+# Karpenter — dynamic node provisioning for burst workloads (production only)
+# Requires: Terraform karpenter_enabled=true + Karpenter Helm chart installed
+karpenter:
+  enabled: false
+  clusterName: ""
+  nodeRoleName: ""
+  capacityTypes: ["on-demand"]
+  limits:
+    cpu: "16"
+    memory: "64Gi"
+  consolidateAfter: "5m"
+  rootVolumeSize: "40Gi"

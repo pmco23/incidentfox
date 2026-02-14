@@ -293,6 +293,9 @@ spec:
           value: "unclaimed"
         - name: THREAD_ID
           value: "unclaimed"
+        # Config Service URL (must use correct namespace for DNS)
+        - name: CONFIG_SERVICE_URL
+          value: "http://incidentfox-config-service.{{ .Values.namespace }}.svc.cluster.local:8080"
         # Claude SDK: route API requests through Envoy proxy
         - name: ANTHROPIC_BASE_URL
           value: "http://localhost:8001"

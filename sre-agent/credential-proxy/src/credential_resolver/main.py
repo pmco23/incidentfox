@@ -1835,7 +1835,26 @@ async def ext_authz_check(request: Request, path: str = ""):
         f"sandbox={sandbox_name}, integration={integration_id}, host={target_host}"
     )
 
-    # 3. Get credentials and validate based on integration type
+    # 3. LLM bypass: when integration is "anthropic" but the configured model is
+    # non-Claude, skip anthropic credential check. The LLM proxy handles its own
+    # credential lookup for the actual provider (OpenAI, Gemini, etc.).
+    llm_model = os.getenv("LLM_MODEL", "")
+    if integration_id == "anthropic" and llm_model:
+        from .llm_proxy import is_claude_model
+
+        if not is_claude_model(llm_model):
+            logger.info(
+                f"LLM bypass: model={llm_model} is non-Claude, "
+                f"skipping anthropic credential check"
+            )
+            headers_to_add = {
+                "x-tenant-id": tenant_id,
+                "x-team-id": team_id,
+                "x-llm-model": llm_model,
+            }
+            return Response(status_code=200, headers=headers_to_add)
+
+    # 4. Get credentials and validate based on integration type
     creds = await get_credentials(tenant_id, team_id, integration_id)
 
     # Check LLM_MODEL — if set to a non-Claude model and integration is "anthropic",
@@ -1859,7 +1878,7 @@ async def ext_authz_check(request: Request, path: str = ""):
             detail=f"Credentials not configured for {integration_id}",
         )
 
-    # 4. Build auth headers and return them as HTTP response headers
+    # 5. Build auth headers and return them as HTTP response headers
     # Envoy's ext_authz will forward these based on allowed_upstream_headers config
     if llm_bypass:
         # Non-Claude LLM: skip anthropic auth headers, LLM proxy handles credentials
@@ -1871,11 +1890,11 @@ async def ext_authz_check(request: Request, path: str = ""):
     else:
         headers_to_add = build_auth_headers(integration_id, creds)
 
-    # 5. Add tenant context headers (needed by LLM proxy and other internal services)
+    # 6. Add tenant context headers (needed by LLM proxy and other internal services)
     headers_to_add["x-tenant-id"] = tenant_id
     headers_to_add["x-team-id"] = team_id
 
-    # 6. Add LLM model override if configured
+    # 7. Add LLM model override if configured
     if llm_model:
         headers_to_add["x-llm-model"] = llm_model
 
