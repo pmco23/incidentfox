@@ -225,12 +225,12 @@ services:
     # Warm pool for instant sandbox provisioning (<2s)
     warmPool:
       enabled: true
-      replicas: 3
+      replicas: 1
       autoscaler:
         enabled: true
-        minReplicas: 3
-        maxReplicas: 10
-        buffer: 3
+        minReplicas: 1
+        maxReplicas: 3
+        buffer: 1
     hpa:
       enabled: true
       minReplicas: 2
