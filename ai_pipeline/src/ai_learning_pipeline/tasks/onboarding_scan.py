@@ -622,7 +622,10 @@ class OnboardingScanTask:
                 )
 
                 if response.status_code != 200:
-                    return {"status": "failed_to_list_repos", "code": response.status_code}
+                    return {
+                        "status": "failed_to_list_repos",
+                        "code": response.status_code,
+                    }
 
                 repos = response.json()
                 if not isinstance(repos, list):
@@ -682,9 +685,7 @@ class OnboardingScanTask:
         if not documents:
             return {"status": "no_docs_found", "repos_scanned": len(repos)}
 
-        return await self._ingest_documents(
-            documents, tree=f"github_{self.org_id}"
-        )
+        return await self._ingest_documents(documents, tree=f"github_{self.org_id}")
 
     async def _scan_confluence(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -731,7 +732,8 @@ class OnboardingScanTask:
                                 documents.append(
                                     {
                                         "content": content,
-                                        "source_url": page_url or f"confluence://{title}",
+                                        "source_url": page_url
+                                        or f"confluence://{title}",
                                         "content_type": "markdown",
                                         "metadata": {
                                             "title": title,
@@ -747,9 +749,7 @@ class OnboardingScanTask:
         if not documents:
             return {"status": "no_pages_found"}
 
-        return await self._ingest_documents(
-            documents, tree=f"confluence_{self.org_id}"
-        )
+        return await self._ingest_documents(documents, tree=f"confluence_{self.org_id}")
 
     async def _ingest_documents(
         self, documents: List[Dict], tree: str
