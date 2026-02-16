@@ -60,6 +60,33 @@ def generate_session_id(space_id: str, thread_key: str) -> str:
     return f"gchat-{space_id.lower()[:20]}-{sanitized}"
 
 
+WELCOME_MESSAGE = (
+    "*Welcome to IncidentFox!*\n\n"
+    "IncidentFox is an AI-powered incident investigation assistant "
+    "for Google Chat\u2122.\n\n"
+    "Get started by mentioning me with a question or issue:\n"
+    "- `@IncidentFox investigate high error rate on checkout service`\n"
+    "- `@IncidentFox why is pod X crashing in namespace Y?`\n"
+    "- `@IncidentFox help` \u2014 see all available commands\n\n"
+    "I\u2019ll analyze logs, metrics, and infrastructure to help you "
+    "triage incidents faster."
+)
+
+HELP_MESSAGE = (
+    "*IncidentFox Help*\n\n"
+    "I\u2019m an AI-powered incident investigation assistant. "
+    "Mention me with a description of the issue and I\u2019ll investigate.\n\n"
+    "*Example prompts:*\n"
+    "- `@IncidentFox investigate high latency on the payments service`\n"
+    "- `@IncidentFox why are pods restarting in the production namespace?`\n"
+    "- `@IncidentFox check the error logs for the auth service`\n"
+    "- `@IncidentFox triage this alert: <paste alert details>`\n"
+    "- `@IncidentFox help` \u2014 show this help message\n\n"
+    "I can access your team\u2019s Kubernetes clusters, logs, metrics, and more "
+    "to help you find the root cause faster."
+)
+
+
 class GoogleChatIntegration:
     """
     Manages Google Chat integration lifecycle.
@@ -152,6 +179,15 @@ class GoogleChatIntegration:
             text_length=len(text),
         )
 
+        # Static help response — no LLM call
+        if text.lower() == "help":
+            _log(
+                "gchat_help_requested",
+                correlation_id=correlation_id,
+                space_id=space_id,
+            )
+            return {"text": HELP_MESSAGE}
+
         if not text:
             return {
                 "text": "Hey! What would you like me to investigate?",
@@ -172,11 +208,9 @@ class GoogleChatIntegration:
             )
         )
 
-        # Immediate "working on it" reply in the same thread
-        reply: Dict[str, Any] = {"text": "IncidentFox is working on it..."}
-        if thread_key:
-            reply["thread"] = {"name": thread_key}
-        return reply
+        # Return empty — sync createMessageAction can't reply in threads.
+        # The async handler sends a "working on it" + result via REST API.
+        return {}
 
     async def _process_message_async(
         self,
@@ -264,6 +298,15 @@ class GoogleChatIntegration:
                     error=str(e),
                 )
 
+            # Send "working on it" in the thread via REST API
+            await self._send_message_to_space(
+                space_name=space_name,
+                text="IncidentFox is working on it...",
+                thread_key=thread_key,
+                effective_config=effective_config,
+                correlation_id=correlation_id,
+            )
+
             run_id = uuid.uuid4().hex
 
             # Resolve output destinations
@@ -311,6 +354,7 @@ class GoogleChatIntegration:
                     ),
                     correlation_id=correlation_id,
                     agent_base_url=dedicated_agent_url,
+                    session_id=session_id,
                 )
             )
 
@@ -475,12 +519,7 @@ class GoogleChatIntegration:
             added_by=user_display_name,
         )
 
-        return {
-            "text": (
-                "Hi! I'm IncidentFox, your AI incident investigation assistant. "
-                "Mention me with a question or issue description, and I'll help investigate!"
-            ),
-        }
+        return {"text": WELCOME_MESSAGE}
 
     def _handle_removed_from_space(
         self,
