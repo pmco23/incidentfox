@@ -40,6 +40,18 @@ class Signal:
 
 
 @dataclass
+class CollectedMessage:
+    """A raw Slack message collected for RAG ingestion."""
+
+    channel_name: str
+    channel_id: str
+    user: str
+    text: str
+    ts: str
+    thread_ts: Optional[str] = None
+
+
+@dataclass
 class ScanResult:
     """Result of scanning a Slack workspace."""
 
@@ -47,6 +59,7 @@ class ScanResult:
     channels_scanned: int
     messages_scanned: int
     scan_duration_ms: float
+    collected_messages: List[CollectedMessage] = field(default_factory=list)
     error: Optional[str] = None
 
 
@@ -181,6 +194,7 @@ class SlackEnvironmentScanner:
 
         start = time.time()
         signals: List[Signal] = []
+        collected_messages: List[CollectedMessage] = []
         channels_scanned = 0
         messages_scanned = 0
 
@@ -209,17 +223,27 @@ class SlackEnvironmentScanner:
                 selected=len(target_channels),
             )
 
-            # 4. Scan messages in selected channels
+            # 4. Identify which channels are incident/ops-relevant for RAG
+            relevant_names: Set[str] = set()
+            for ch in target_channels:
+                name = ch.get("name", "").lower()
+                if any(re.search(p, name) for p in RELEVANT_CHANNEL_PATTERNS):
+                    relevant_names.add(name)
+
+            # 5. Scan messages in selected channels
             oldest = datetime.utcnow() - timedelta(days=self.lookback_days)
             for ch in target_channels:
-                ch_signals, msg_count = self._scan_channel_messages(
-                    ch["id"], ch["name"], oldest
+                ch_name = ch["name"]
+                collect_for_rag = ch_name.lower() in relevant_names
+                ch_signals, msg_count, ch_collected = self._scan_channel_messages(
+                    ch["id"], ch_name, oldest, collect_for_rag=collect_for_rag
                 )
                 signals.extend(ch_signals)
+                collected_messages.extend(ch_collected)
                 channels_scanned += 1
                 messages_scanned += msg_count
 
-            # 5. Deduplicate and aggregate
+            # 6. Deduplicate and aggregate
             signals = self._deduplicate_signals(signals)
 
             _log(
@@ -227,6 +251,7 @@ class SlackEnvironmentScanner:
                 channels_scanned=channels_scanned,
                 messages_scanned=messages_scanned,
                 signals_found=len(signals),
+                messages_collected_for_rag=len(collected_messages),
             )
 
             return ScanResult(
@@ -234,6 +259,7 @@ class SlackEnvironmentScanner:
                 channels_scanned=channels_scanned,
                 messages_scanned=messages_scanned,
                 scan_duration_ms=(time.time() - start) * 1000,
+                collected_messages=collected_messages,
             )
 
         except Exception as e:
@@ -243,6 +269,7 @@ class SlackEnvironmentScanner:
                 channels_scanned=channels_scanned,
                 messages_scanned=messages_scanned,
                 scan_duration_ms=(time.time() - start) * 1000,
+                collected_messages=collected_messages,
                 error=str(e),
             )
 
@@ -341,10 +368,20 @@ class SlackEnvironmentScanner:
         return signals
 
     def _scan_channel_messages(
-        self, channel_id: str, channel_name: str, oldest: datetime
-    ) -> tuple[List[Signal], int]:
-        """Scan messages in a channel for tool signals."""
+        self,
+        channel_id: str,
+        channel_name: str,
+        oldest: datetime,
+        collect_for_rag: bool = False,
+    ) -> tuple[List[Signal], int, List[CollectedMessage]]:
+        """Scan messages in a channel for tool signals.
+
+        Args:
+            collect_for_rag: If True, also collect raw messages for RAG ingestion
+                (only for incident/ops-relevant channels).
+        """
         signals: List[Signal] = []
+        collected: List[CollectedMessage] = []
         messages_scanned = 0
 
         result = self._api_request(
@@ -357,7 +394,7 @@ class SlackEnvironmentScanner:
         )
 
         if not result:
-            return signals, 0
+            return signals, 0, []
 
         messages = result.get("messages", [])
         messages_scanned = len(messages)
@@ -369,6 +406,19 @@ class SlackEnvironmentScanner:
 
             ts = float(msg.get("ts", 0))
             msg_time = datetime.fromtimestamp(ts) if ts else datetime.utcnow()
+
+            # Collect for RAG ingestion (incident/ops channels only)
+            if collect_for_rag and len(text) >= 20:
+                collected.append(
+                    CollectedMessage(
+                        channel_name=channel_name,
+                        channel_id=channel_id,
+                        user=msg.get("user", "unknown"),
+                        text=text,
+                        ts=msg.get("ts", ""),
+                        thread_ts=msg.get("thread_ts"),
+                    )
+                )
 
             # Check keyword patterns
             for integration_id, patterns in TOOL_PATTERNS.items():
@@ -411,7 +461,7 @@ class SlackEnvironmentScanner:
                         )
                     )
 
-        return signals, messages_scanned
+        return signals, messages_scanned, collected
 
     def _extract_urls(self, text: str) -> List[str]:
         """Extract URLs from Slack message text."""

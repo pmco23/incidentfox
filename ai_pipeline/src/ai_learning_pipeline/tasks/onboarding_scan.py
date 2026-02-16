@@ -22,7 +22,12 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-from .scanners.slack_scanner import ScanResult, Signal, SlackEnvironmentScanner
+from .scanners.slack_scanner import (
+    CollectedMessage,
+    ScanResult,
+    Signal,
+    SlackEnvironmentScanner,
+)
 
 
 def _log(event: str, **fields) -> None:
@@ -494,12 +499,20 @@ class OnboardingScanTask:
         else:
             result["recommendations"] = []
 
+        # 5. Ingest collected Slack knowledge into RAG
+        if scan_result.collected_messages:
+            ingest_result = await self._ingest_slack_knowledge(
+                scan_result.collected_messages
+            )
+            result["rag_ingestion"] = ingest_result
+
         result["completed_at"] = datetime.utcnow().isoformat()
 
         _log(
             "initial_scan_completed",
             signals=len(scan_result.signals),
             recommendations=len(analysis.recommendations),
+            messages_ingested=len(scan_result.collected_messages),
         )
 
         return result
@@ -512,9 +525,9 @@ class OnboardingScanTask:
         """
         Run scan after a new integration is configured.
 
-        For Phase 1, this is a stub that logs the event.
-        Future: scan integration-specific data (dashboards, repos, etc.)
-        and ingest knowledge + generate new recommendations.
+        Two responsibilities:
+        1. Fetch data from the integration and ingest knowledge into RAG
+        2. Re-analyze all signals — the new integration may reveal new recommendations
         """
         _log(
             "integration_scan_started",
@@ -528,18 +541,384 @@ class OnboardingScanTask:
             "started_at": datetime.utcnow().isoformat(),
         }
 
-        # Phase 1: Just log. Future phases will add per-integration scanners.
-        # e.g., GrafanaScanner to discover dashboards, GitHubScanner for repos
+        # 1. Fetch integration config if not provided
+        if not integration_config:
+            integration_config = await self._get_integration_config(integration_id)
 
+        # 2. Run integration-specific data ingestion
+        scanner_method = self._get_integration_scanner(integration_id)
+        if scanner_method:
+            try:
+                ingest_result = await scanner_method(integration_config or {})
+                result["ingestion"] = ingest_result
+            except Exception as e:
+                _log(
+                    "integration_scanner_failed",
+                    integration_id=integration_id,
+                    error=str(e),
+                )
+                result["ingestion"] = {"error": str(e)}
+        else:
+            _log(
+                "no_scanner_for_integration",
+                integration_id=integration_id,
+            )
+            result["ingestion"] = {"status": "no_scanner_available"}
+
+        # 3. Re-check for new recommendations based on updated integrations
+        existing = await self._get_existing_integrations()
+        # If the team already has pending signals from initial scan,
+        # re-analyzing could surface new recommendations now that
+        # this integration is connected. For now, just log.
         _log(
-            "integration_scan_stub",
+            "integration_scan_recheck",
             integration_id=integration_id,
-            message="Per-integration scanning not yet implemented",
+            current_integrations=existing,
         )
 
-        result["status"] = "stub"
         result["completed_at"] = datetime.utcnow().isoformat()
+
+        _log(
+            "integration_scan_completed",
+            integration_id=integration_id,
+            ingestion=result.get("ingestion", {}),
+        )
+
         return result
+
+    def _get_integration_scanner(self, integration_id: str):
+        """Return the scanner method for a given integration, or None."""
+        scanners = {
+            "github": self._scan_github,
+            "confluence": self._scan_confluence,
+        }
+        return scanners.get(integration_id)
+
+    async def _scan_github(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Scan a connected GitHub integration for operational knowledge.
+
+        Discovers repos, READMEs, runbooks, and incident-related docs
+        and ingests them into RAG.
+        """
+        # GitHub integration uses the GitHub App — repos are auto-discovered.
+        # We look for operational docs: runbooks, postmortems, READMEs.
+        github_org = config.get("account_login") or config.get("org")
+        if not github_org:
+            return {"status": "no_org_configured"}
+
+        documents = []
+
+        # Fetch repos via config service (which proxies GitHub App auth)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{self.config_service_url}/api/v1/internal/github"
+                    f"/repos?org_id={self.org_id}",
+                    headers={
+                        "X-Internal-Service": "ai_pipeline",
+                        "Content-Type": "application/json",
+                    },
+                )
+
+                if response.status_code != 200:
+                    return {"status": "failed_to_list_repos", "code": response.status_code}
+
+                repos = response.json()
+                if not isinstance(repos, list):
+                    repos = repos.get("repositories", [])
+
+        except Exception as e:
+            return {"status": "repos_fetch_error", "error": str(e)}
+
+        # For each repo, try to fetch operational docs
+        ops_paths = [
+            "README.md",
+            "docs/runbook.md",
+            "docs/runbooks/",
+            "runbook.md",
+            "RUNBOOK.md",
+            "docs/oncall.md",
+            "docs/incident-response.md",
+        ]
+
+        for repo in repos[:20]:  # Cap at 20 repos
+            repo_name = repo.get("full_name") or repo.get("name", "")
+            if not repo_name:
+                continue
+
+            for doc_path in ops_paths:
+                try:
+                    async with httpx.AsyncClient(timeout=15.0) as client:
+                        resp = await client.get(
+                            f"{self.config_service_url}/api/v1/internal/github"
+                            f"/file?org_id={self.org_id}"
+                            f"&repo={repo_name}&path={doc_path}",
+                            headers={
+                                "X-Internal-Service": "ai_pipeline",
+                                "Content-Type": "application/json",
+                            },
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            content = data.get("content", "")
+                            if content and len(content) >= 50:
+                                documents.append(
+                                    {
+                                        "content": content,
+                                        "source_url": f"github://{repo_name}/{doc_path}",
+                                        "content_type": "markdown",
+                                        "metadata": {
+                                            "repo": repo_name,
+                                            "path": doc_path,
+                                            "org_id": self.org_id,
+                                            "source": "integration_scan",
+                                        },
+                                    }
+                                )
+                except Exception:
+                    continue  # Best-effort per file
+
+        if not documents:
+            return {"status": "no_docs_found", "repos_scanned": len(repos)}
+
+        return await self._ingest_documents(
+            documents, tree=f"github_{self.org_id}"
+        )
+
+    async def _scan_confluence(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Scan a connected Confluence integration for operational knowledge.
+
+        Discovers runbook/incident spaces and ingests pages into RAG.
+        """
+        base_url = config.get("base_url") or config.get("url", "")
+        if not base_url:
+            return {"status": "no_url_configured"}
+
+        # Search for ops-relevant pages via config service proxy
+        search_queries = [
+            "runbook",
+            "incident response",
+            "on-call",
+            "postmortem",
+            "architecture",
+        ]
+
+        documents = []
+        for query in search_queries:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(
+                        f"{self.config_service_url}/api/v1/internal/confluence"
+                        f"/search?org_id={self.org_id}&query={query}&limit=10",
+                        headers={
+                            "X-Internal-Service": "ai_pipeline",
+                            "Content-Type": "application/json",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        pages = resp.json()
+                        if not isinstance(pages, list):
+                            pages = pages.get("results", [])
+
+                        for page in pages:
+                            content = page.get("body", "") or page.get("content", "")
+                            title = page.get("title", "Untitled")
+                            page_url = page.get("url", "")
+
+                            if content and len(content) >= 50:
+                                documents.append(
+                                    {
+                                        "content": content,
+                                        "source_url": page_url or f"confluence://{title}",
+                                        "content_type": "markdown",
+                                        "metadata": {
+                                            "title": title,
+                                            "org_id": self.org_id,
+                                            "source": "integration_scan",
+                                            "search_query": query,
+                                        },
+                                    }
+                                )
+            except Exception:
+                continue  # Best-effort per query
+
+        if not documents:
+            return {"status": "no_pages_found"}
+
+        return await self._ingest_documents(
+            documents, tree=f"confluence_{self.org_id}"
+        )
+
+    async def _ingest_documents(
+        self, documents: List[Dict], tree: str
+    ) -> Dict[str, Any]:
+        """Ingest a list of documents into RAG via /ingest/batch."""
+        payload = {
+            "documents": documents,
+            "tree": tree,
+            "build_hierarchy": False,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.rag_url}/ingest/batch",
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    _log(
+                        "documents_ingested",
+                        tree=tree,
+                        documents_sent=len(documents),
+                        chunks_created=data.get("chunks_created", 0),
+                    )
+                    return {
+                        "status": "ingested",
+                        "documents_sent": len(documents),
+                        "chunks_created": data.get("chunks_created", 0),
+                        "nodes_created": data.get("nodes_created", 0),
+                    }
+                else:
+                    return {
+                        "status": "ingest_failed",
+                        "documents_sent": len(documents),
+                        "error": f"HTTP {response.status_code}",
+                    }
+
+        except Exception as e:
+            return {
+                "status": "ingest_error",
+                "documents_sent": len(documents),
+                "error": str(e),
+            }
+
+    async def _get_integration_config(
+        self, integration_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch config for a specific integration from config service."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{self.config_service_url}/api/v2/orgs/{self.org_id}"
+                    f"/nodes/{self.team_node_id}/config/effective",
+                )
+
+                if response.status_code != 200:
+                    return None
+
+                config = response.json()
+                return config.get("integrations", {}).get(integration_id)
+
+        except Exception as e:
+            _log("get_integration_config_failed", error=str(e))
+            return None
+
+    async def _ingest_slack_knowledge(
+        self, messages: List[CollectedMessage]
+    ) -> Dict[str, Any]:
+        """
+        Ingest collected Slack messages into the RAG system.
+
+        Groups messages by channel, formats them as documents following the
+        existing SlackSource format ([TIMESTAMP] USER: TEXT), and POSTs to
+        the Ultimate RAG /ingest/batch endpoint.
+        """
+        if not messages:
+            return {"documents_sent": 0}
+
+        # Group messages by channel
+        by_channel: Dict[str, List[CollectedMessage]] = defaultdict(list)
+        for msg in messages:
+            by_channel[msg.channel_name].append(msg)
+
+        documents = []
+        for channel_name, ch_messages in by_channel.items():
+            # Sort by timestamp
+            ch_messages.sort(key=lambda m: m.ts)
+
+            # Format messages following existing SlackSource convention
+            lines = []
+            participants: set = set()
+            for msg in ch_messages:
+                ts_float = float(msg.ts) if msg.ts else 0
+                ts_str = (
+                    datetime.fromtimestamp(ts_float).strftime("%Y-%m-%d %H:%M")
+                    if ts_float
+                    else "unknown"
+                )
+                lines.append(f"[{ts_str}] {msg.user}: {msg.text}")
+                participants.add(msg.user)
+
+            content = "\n".join(lines)
+
+            # Skip very short documents
+            if len(content) < 100:
+                continue
+
+            documents.append(
+                {
+                    "content": content,
+                    "source_url": f"slack://#{channel_name}",
+                    "content_type": "slack_thread",
+                    "metadata": {
+                        "channel": channel_name,
+                        "message_count": len(ch_messages),
+                        "participants": list(participants),
+                        "org_id": self.org_id,
+                        "source": "onboarding_scan",
+                    },
+                }
+            )
+
+        if not documents:
+            return {"documents_sent": 0}
+
+        # POST to Ultimate RAG /ingest/batch
+        payload = {
+            "documents": documents,
+            "tree": f"slack_{self.org_id}",
+            "build_hierarchy": False,  # Fast ingest, hierarchy built later by cronjob
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.rag_url}/ingest/batch",
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    _log(
+                        "rag_ingestion_completed",
+                        documents_sent=len(documents),
+                        chunks_created=data.get("chunks_created", 0),
+                    )
+                    return {
+                        "documents_sent": len(documents),
+                        "chunks_created": data.get("chunks_created", 0),
+                        "nodes_created": data.get("nodes_created", 0),
+                    }
+                else:
+                    _log(
+                        "rag_ingestion_failed",
+                        status=response.status_code,
+                        body=response.text[:200],
+                    )
+                    return {
+                        "documents_sent": len(documents),
+                        "error": f"HTTP {response.status_code}",
+                    }
+
+        except Exception as e:
+            _log("rag_ingestion_error", error=str(e))
+            return {"documents_sent": len(documents), "error": str(e)}
 
     async def _get_existing_integrations(self) -> List[str]:
         """Fetch already-configured integrations from config service."""
