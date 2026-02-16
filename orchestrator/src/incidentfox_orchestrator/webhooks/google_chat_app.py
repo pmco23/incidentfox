@@ -48,16 +48,24 @@ def generate_session_id(space_id: str, thread_key: str) -> str:
     Generate session ID for thread-based conversational context.
 
     Uses space + thread key for stable ID across follow-up messages.
-    Sanitized for use as K8s DNS names (RFC 1123).
+    Sanitized for use as K8s resource names (RFC 1123: lowercase alphanumeric
+    and hyphens only, max 63 chars for labels).
 
     Example:
         space_id="ABC123", thread_key="spaces/ABC123/threads/xyz"
         -> "gchat-abc123-xyz"
     """
+    import re
+
+    def _sanitize(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
     # Extract thread ID from full thread name
     thread_id = thread_key.split("/")[-1] if thread_key else "main"
-    sanitized = thread_id.replace("/", "-").replace(".", "-").lower()[:50]
-    return f"gchat-{space_id.lower()[:20]}-{sanitized}"
+    sanitized_space = _sanitize(space_id)[:20]
+    sanitized_thread = _sanitize(thread_id)[:30]
+    # "gchat-" (6) + space (≤20) + "-" (1) + thread (≤30) = ≤57, under 63
+    return f"gchat-{sanitized_space}-{sanitized_thread}"
 
 
 WELCOME_MESSAGE = (
@@ -120,7 +128,7 @@ class GoogleChatIntegration:
         if event_type == "MESSAGE":
             return await self._handle_message(event_data, correlation_id)
         elif event_type == "ADDED_TO_SPACE":
-            return self._handle_added_to_space(event_data, correlation_id)
+            return await self._handle_added_to_space(event_data, correlation_id)
         elif event_type == "REMOVED_FROM_SPACE":
             return self._handle_removed_from_space(event_data, correlation_id)
         elif event_type == "CARD_CLICKED":
@@ -237,15 +245,35 @@ class GoogleChatIntegration:
 
             if not routing.get("found"):
                 _log(
-                    "gchat_no_routing",
+                    "gchat_no_routing_attempting_provision",
                     correlation_id=correlation_id,
                     space_id=space_id,
                     tried=routing.get("tried", []),
                 )
-                return
-
-            org_id = routing["org_id"]
-            team_node_id = routing["team_node_id"]
+                provision = await self._auto_provision(
+                    space_id=space_id,
+                    correlation_id=correlation_id,
+                )
+                if not provision:
+                    try:
+                        await self._send_message_to_space(
+                            space_name=space_name,
+                            text=(
+                                "Sorry, I couldn't set up IncidentFox automatically. "
+                                "Please contact your administrator to configure the integration."
+                            ),
+                            thread_key="",
+                            effective_config={},
+                            correlation_id=correlation_id,
+                        )
+                    except Exception:
+                        pass
+                    return
+                org_id = provision["org_id"]
+                team_node_id = provision["team_node_id"]
+            else:
+                org_id = routing["org_id"]
+                team_node_id = routing["team_node_id"]
 
             _log(
                 "gchat_routing_found",
@@ -498,7 +526,93 @@ class GoogleChatIntegration:
             r.raise_for_status()
             return r.status_code
 
-    def _handle_added_to_space(
+    async def _auto_provision(
+        self,
+        space_id: str,
+        correlation_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Auto-provision an org + team for a new Google Chat space.
+
+        Creates the org and default team in config-service, then registers
+        the routing identifier so subsequent messages are routed correctly.
+
+        Returns ``{"org_id": ..., "team_node_id": ...}`` on success, or None.
+        """
+        try:
+            admin_token = (os.getenv("ORCHESTRATOR_INTERNAL_ADMIN_TOKEN") or "").strip()
+            if not admin_token:
+                _log(
+                    "gchat_auto_provision_no_admin_token", correlation_id=correlation_id
+                )
+                return None
+
+            cfg = self.config_service
+
+            org_id = f"gchat-{space_id}"
+            org_name = f"Google Chat {space_id[:16]}"
+            team_node_id = "default"
+
+            # Step 1: Create org (idempotent)
+            await asyncio.to_thread(cfg.create_org_node, admin_token, org_id, org_name)
+
+            # Step 2: Create default team (idempotent)
+            await asyncio.to_thread(
+                cfg.create_team_node, admin_token, org_id, team_node_id, "Default Team"
+            )
+
+            # Step 3: Update routing to include this space ID.
+            existing_ids: list[str] = []
+            try:
+                eff = await asyncio.to_thread(
+                    cfg.get_effective_config_for_node,
+                    admin_token,
+                    org_id,
+                    team_node_id,
+                )
+                existing_ids = list(
+                    eff.get("routing", {}).get("google_chat_space_ids", [])
+                )
+            except Exception:
+                pass
+
+            if space_id not in existing_ids:
+                existing_ids.append(space_id)
+
+            await asyncio.to_thread(
+                cfg.patch_node_config,
+                admin_token,
+                org_id,
+                team_node_id,
+                {
+                    "routing": {"google_chat_space_ids": existing_ids},
+                    "integrations": {
+                        "anthropic": {
+                            "is_trial": True,
+                            "trial_expires_at": "2030-12-31T23:59:59.000000",
+                            "subscription_status": "active",
+                        },
+                    },
+                },
+            )
+
+            _log(
+                "gchat_auto_provision_success",
+                correlation_id=correlation_id,
+                org_id=org_id,
+                team_node_id=team_node_id,
+                space_id=space_id,
+            )
+            return {"org_id": org_id, "team_node_id": team_node_id}
+
+        except Exception as e:
+            _log(
+                "gchat_auto_provision_failed",
+                correlation_id=correlation_id,
+                error=str(e),
+            )
+            return None
+
+    async def _handle_added_to_space(
         self,
         event_data: Dict[str, Any],
         correlation_id: str,
@@ -507,6 +621,7 @@ class GoogleChatIntegration:
         space = event_data.get("space", {})
         space_name = space.get("name", "")
         space_type = space.get("type", "")  # ROOM, DM, etc.
+        space_id = space_name.split("/")[-1] if space_name else ""
 
         user = event_data.get("user", {})
         user_display_name = user.get("displayName", "")
@@ -518,6 +633,15 @@ class GoogleChatIntegration:
             space_type=space_type,
             added_by=user_display_name,
         )
+
+        # Proactively provision so first message routes correctly
+        if space_id:
+            asyncio.create_task(
+                self._auto_provision(
+                    space_id=space_id,
+                    correlation_id=correlation_id,
+                )
+            )
 
         return {"text": WELCOME_MESSAGE}
 
