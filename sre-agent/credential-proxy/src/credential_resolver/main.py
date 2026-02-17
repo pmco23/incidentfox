@@ -52,10 +52,9 @@ def _get_github_app_token(creds: dict) -> str | None:
         return _github_app_token_cache[cache_key]
 
     try:
-        import json
         import time
-        import urllib.request
 
+        import httpx
         import jwt
 
         # Generate JWT signed with app's private key
@@ -64,17 +63,16 @@ def _get_github_app_token(creds: dict) -> str | None:
         app_jwt = jwt.encode(payload, private_key, algorithm="RS256")
 
         # Exchange JWT for installation access token
-        req = urllib.request.Request(
-            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {app_jwt}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read())
-            token = result["token"]
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                headers={
+                    "Authorization": f"Bearer {app_jwt}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+            resp.raise_for_status()
+            token = resp.json()["token"]
             _github_app_token_cache[cache_key] = token
             logger.info(
                 f"Generated GitHub App installation token "
@@ -1052,7 +1050,11 @@ async def github_proxy(path: str, request: Request):
         )
 
     # Resolve the API token: GitHub App (preferred) or PAT fallback
-    api_token = _get_github_app_token(creds)
+    # Use asyncio.to_thread to avoid blocking the event loop when generating
+    # a new GitHub App token (cache misses involve a sync HTTP call)
+    import asyncio
+
+    api_token = await asyncio.to_thread(_get_github_app_token, creds)
     if api_token:
         logger.info("GitHub proxy: using GitHub App installation token")
     else:
