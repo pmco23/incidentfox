@@ -16,7 +16,13 @@ from sqlalchemy.orm import Session
 from src.db import repository
 from src.db.config_models import NodeConfiguration
 from src.db.config_repository import get_or_create_node_configuration
-from src.db.models import GitHubInstallation, OrgNode, SlackApp, SlackInstallation
+from src.db.models import (
+    GitHubInstallation,
+    Integration,
+    OrgNode,
+    SlackApp,
+    SlackInstallation,
+)
 from src.db.session import get_db
 
 logger = structlog.get_logger()
@@ -654,6 +660,58 @@ def create_pending_change_internal(
         requested_by=change.requested_by,
         requested_at=change.requested_at,
     )
+
+
+# ==================== Integration Credentials ====================
+
+
+@router.get("/credentials/{org_id}/{integration_id}")
+def get_integration_credentials(
+    org_id: str,
+    integration_id: str,
+    session: Session = Depends(get_db),
+    service: str = Depends(require_internal_service),
+):
+    """
+    Return decrypted credentials for an integration.
+
+    Used by AI Pipeline (and other internal services) to call external APIs
+    directly — avoids per-integration proxy endpoints in config_service.
+    The EncryptedJSONB column auto-decrypts on read.
+    """
+    integration = (
+        session.query(Integration)
+        .filter(
+            Integration.org_id == org_id,
+            Integration.integration_id == integration_id,
+        )
+        .first()
+    )
+
+    if not integration:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Integration '{integration_id}' not found for org '{org_id}'",
+        )
+
+    if integration.status == "not_configured":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Integration '{integration_id}' is not configured",
+        )
+
+    logger.info(
+        "credentials_fetched",
+        org_id=org_id,
+        integration_id=integration_id,
+        service=service,
+    )
+
+    return {
+        "integration_id": integration_id,
+        "status": integration.status,
+        "config": integration.config,  # Auto-decrypted by EncryptedJSONB
+    }
 
 
 # ==================== Routing Lookup ====================
