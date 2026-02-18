@@ -36,7 +36,9 @@ class CreateScheduledJobRequest(BaseModel):
         ..., max_length=128, description="Cron expression (e.g., '0 8,20 * * *')"
     )
     timezone: str = Field(
-        default="UTC", max_length=64, description="IANA timezone (e.g., 'America/Los_Angeles')"
+        default="UTC",
+        max_length=64,
+        description="IANA timezone (e.g., 'America/Los_Angeles')",
     )
     enabled: bool = Field(default=True)
     config: dict[str, Any] = Field(
@@ -96,7 +98,9 @@ class ScheduledJobResponse(BaseModel):
 # =============================================================================
 
 
-def _compute_next_run(schedule: str, tz_name: str, after: datetime | None = None) -> datetime:
+def _compute_next_run(
+    schedule: str, tz_name: str, after: datetime | None = None
+) -> datetime:
     """Compute next run time from cron expression and timezone."""
     import zoneinfo
 
@@ -138,9 +142,7 @@ def _validate_timezone(tz_name: str) -> None:
 # Team-facing routes
 # =============================================================================
 
-router = APIRouter(
-    prefix="/api/v1/config/me/scheduled-jobs", tags=["scheduled-jobs"]
-)
+router = APIRouter(prefix="/api/v1/config/me/scheduled-jobs", tags=["scheduled-jobs"])
 
 
 @router.get("", response_model=list[ScheduledJobResponse])
@@ -149,14 +151,18 @@ async def list_scheduled_jobs(
     team: TeamPrincipal = Depends(require_team_auth),
 ):
     """List all scheduled jobs for this team."""
-    jobs = db.execute(
-        select(ScheduledJob)
-        .where(
-            ScheduledJob.org_id == team.org_id,
-            ScheduledJob.team_node_id == team.team_node_id,
+    jobs = (
+        db.execute(
+            select(ScheduledJob)
+            .where(
+                ScheduledJob.org_id == team.org_id,
+                ScheduledJob.team_node_id == team.team_node_id,
+            )
+            .order_by(ScheduledJob.created_at)
         )
-        .order_by(ScheduledJob.created_at)
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [ScheduledJobResponse.from_model(j) for j in jobs]
 
 
@@ -301,9 +307,7 @@ async def delete_scheduled_job(
 # Internal routes (for orchestrator)
 # =============================================================================
 
-internal_router = APIRouter(
-    prefix="/api/v1/internal/scheduled-jobs", tags=["internal"]
-)
+internal_router = APIRouter(prefix="/api/v1/internal/scheduled-jobs", tags=["internal"])
 
 # Claim timeout: if a job was claimed more than 10 minutes ago and not
 # completed, consider it abandoned and re-claimable.
@@ -337,35 +341,41 @@ async def get_due_jobs(
     )
 
     # Find due, unclaimed (or stale-claimed) jobs
-    jobs = db.execute(
-        select(ScheduledJob)
-        .where(
-            ScheduledJob.enabled == True,  # noqa: E712
-            ScheduledJob.next_run_at <= now,
-            # Not claimed, or claim is stale
-            (ScheduledJob.claimed_at == None)  # noqa: E711
-            | (ScheduledJob.claimed_at < stale_threshold),
+    jobs = (
+        db.execute(
+            select(ScheduledJob)
+            .where(
+                ScheduledJob.enabled == True,  # noqa: E712
+                ScheduledJob.next_run_at <= now,
+                # Not claimed, or claim is stale
+                (ScheduledJob.claimed_at == None)  # noqa: E711
+                | (ScheduledJob.claimed_at < stale_threshold),
+            )
+            .order_by(ScheduledJob.next_run_at)
+            .limit(limit)
+            .with_for_update(skip_locked=True)
         )
-        .order_by(ScheduledJob.next_run_at)
-        .limit(limit)
-        .with_for_update(skip_locked=True)
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     # Claim all found jobs atomically
     result = []
     for job in jobs:
         job.claimed_at = now
         job.claimed_by = caller
-        result.append({
-            "id": str(job.id),
-            "org_id": job.org_id,
-            "team_node_id": job.team_node_id,
-            "name": job.name,
-            "job_type": job.job_type,
-            "schedule": job.schedule,
-            "timezone": job.timezone,
-            "config": job.config or {},
-        })
+        result.append(
+            {
+                "id": str(job.id),
+                "org_id": job.org_id,
+                "team_node_id": job.team_node_id,
+                "name": job.name,
+                "job_type": job.job_type,
+                "schedule": job.schedule,
+                "timezone": job.timezone,
+                "config": job.config or {},
+            }
+        )
 
     db.commit()
 

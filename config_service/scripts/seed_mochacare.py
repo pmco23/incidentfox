@@ -41,7 +41,6 @@ from datetime import datetime, timezone
 
 from croniter import croniter
 from sqlalchemy import select
-
 from src.core.dotenv import load_dotenv
 from src.db.config_models import NodeConfiguration
 from src.db.models import (
@@ -384,7 +383,9 @@ def main() -> None:
     print("  1. Set up Grafana Cloud and configure log drain from Vercel")
     print("  2. Deploy updated config-service and orchestrator")
     print("  3. Verify scheduled jobs appear: GET /api/v1/config/me/scheduled-jobs")
-    print("  4. Wait for first report or test with: POST /api/v1/internal/scheduled-jobs/due")
+    print(
+        "  4. Wait for first report or test with: POST /api/v1/internal/scheduled-jobs/due"
+    )
 
 
 if __name__ == "__main__":

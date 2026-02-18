@@ -38,12 +38,8 @@ def upgrade():
             server_default="agent_run",
         ),
         sa.Column("schedule", sa.String(128), nullable=False),
-        sa.Column(
-            "timezone", sa.String(64), nullable=False, server_default="UTC"
-        ),
-        sa.Column(
-            "enabled", sa.Boolean, nullable=False, server_default="true"
-        ),
+        sa.Column("timezone", sa.String(64), nullable=False, server_default="UTC"),
+        sa.Column("enabled", sa.Boolean, nullable=False, server_default="true"),
         sa.Column("config", JSONB, nullable=False, server_default="{}"),
         # Execution tracking
         sa.Column("last_run_at", sa.DateTime(timezone=True), nullable=True),

@@ -42,9 +42,7 @@ class ScheduledJob(Base):
     last_run_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    last_run_status: Mapped[Optional[str]] = mapped_column(
-        String(32), nullable=True
-    )
+    last_run_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     last_run_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     next_run_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
@@ -69,6 +67,8 @@ class ScheduledJob(Base):
     created_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
-        Index("ix_scheduled_jobs_due", "next_run_at", postgresql_where="enabled = true"),
+        Index(
+            "ix_scheduled_jobs_due", "next_run_at", postgresql_where="enabled = true"
+        ),
         Index("ix_scheduled_jobs_team", "org_id", "team_node_id"),
     )

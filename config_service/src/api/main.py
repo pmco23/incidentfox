@@ -7,10 +7,6 @@ from src.api.routes.auth_me import router as auth_router
 from src.api.routes.config_v2 import router as config_v2_router
 from src.api.routes.dependencies import router as dependencies_router
 from src.api.routes.github import router as github_router
-from src.api.routes.scheduled_jobs import (
-    internal_router as scheduled_jobs_internal_router,
-)
-from src.api.routes.scheduled_jobs import router as scheduled_jobs_router
 from src.api.routes.health import router as health_router
 from src.api.routes.integration_schemas import router as integration_schemas_router
 from src.api.routes.internal import router as internal_router
@@ -19,6 +15,10 @@ from src.api.routes.k8s_clusters import internal_router as k8s_internal_router
 from src.api.routes.k8s_clusters import router as k8s_clusters_router
 from src.api.routes.metrics import router as metrics_router
 from src.api.routes.remediation import router as remediation_router
+from src.api.routes.scheduled_jobs import (
+    internal_router as scheduled_jobs_internal_router,
+)
+from src.api.routes.scheduled_jobs import router as scheduled_jobs_router
 from src.api.routes.security import router as security_router
 from src.api.routes.sso import router as sso_router
 from src.api.routes.teaching import router as teaching_router

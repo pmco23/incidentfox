@@ -88,7 +88,9 @@ async def _execute_job(app, job: dict) -> None:
         if job_type == "agent_run":
             result = await _execute_agent_run(app, job)
             status = "success" if result.get("success") else "error"
-            error = None if status == "success" else result.get("result", "Unknown error")
+            error = (
+                None if status == "success" else result.get("result", "Unknown error")
+            )
         else:
             log.warning("scheduled_job_unknown_type")
             status = "error"
@@ -161,9 +163,7 @@ async def _get_team_token(app, org_id: str, team_node_id: str) -> str | None:
         return None
 
 
-async def _report_completion(
-    app, job_id: str, status: str, error: str | None
-) -> None:
+async def _report_completion(app, job_id: str, status: str, error: str | None) -> None:
     """Report job completion to config-service."""
     config_service = app.state.config_service
     base_url = config_service.base_url.rstrip("/")
