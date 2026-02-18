@@ -1376,6 +1376,7 @@ static_resources:
         tenant_id: str,
         team_id: str,
         team_token: Optional[str] = None,
+        configured_integrations: Optional[str] = None,
     ) -> bool:
         """
         Inject JWT and tenant context into a warm sandbox via /claim endpoint.
@@ -1402,6 +1403,8 @@ static_resources:
         }
         if team_token:
             payload["team_token"] = team_token
+        if configured_integrations:
+            payload["configured_integrations"] = configured_integrations
 
         # Try direct pod IP first (avoids DNS propagation delays)
         for attempt in range(5):
@@ -1517,6 +1520,12 @@ static_resources:
             # Use provided JWT or the one generated with the claim
             jwt_to_inject = jwt_token if jwt_token else claim_jwt
 
+            # Fetch configured integrations (non-sensitive metadata for system prompt)
+            configured_integrations = fetch_configured_integrations(
+                jwt_to_inject, tenant_id, team_id
+            )
+            print(f"📦 Configured integrations for sandbox: {configured_integrations}")
+
             # Step 2: Wait for binding
             # Instant if warm pods available; waits for replenishment if pool exhausted
             step2_start = time.time()
@@ -1557,6 +1566,7 @@ static_resources:
                 tenant_id=tenant_id,
                 team_id=team_id,
                 team_token=team_token,
+                configured_integrations=configured_integrations,
             ):
                 total_ms = (time.time() - warmpool_start) * 1000
                 print(

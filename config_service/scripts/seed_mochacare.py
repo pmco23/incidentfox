@@ -205,6 +205,9 @@ def main() -> None:
         config_json = {
             "team_name": team_name,
             "description": "SRE monitoring for MochaCare — AI agent infrastructure on Vercel",
+            "subscription_status": "active",
+            "is_trial": True,
+            "trial_expires_at": "2026-04-01T00:00:00Z",
             "routing": {
                 "slack_channel_ids": [slack_channel_id],
                 "github_repos": [github_repo] if github_repo else [],
