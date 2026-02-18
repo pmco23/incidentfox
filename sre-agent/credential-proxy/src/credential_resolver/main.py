@@ -275,6 +275,11 @@ def load_env_credentials() -> dict[str, dict]:
             "domain": os.getenv("VICTORIAMETRICS_URL"),
             "api_key": os.getenv("VICTORIAMETRICS_TOKEN"),
         },
+        "amplitude": {
+            "api_key": os.getenv("AMPLITUDE_API_KEY"),
+            "secret_key": os.getenv("AMPLITUDE_SECRET_KEY"),
+            "region": os.getenv("AMPLITUDE_REGION", "US"),
+        },
     }
 
 
@@ -420,6 +425,7 @@ async def list_integrations(request: Request):
         "blameless",
         "firehydrant",
         "victoriametrics",
+        "amplitude",
     ]
 
     available = []
@@ -551,6 +557,10 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
     if integration_id == "firehydrant":
         return bool(creds.get("api_key"))
 
+    # Amplitude: api_key + secret_key required (HTTP Basic auth)
+    if integration_id == "amplitude":
+        return bool(creds.get("api_key") and creds.get("secret_key"))
+
     # Default: api_key required (coralogix, incident_io, etc.)
     return bool(creds.get("api_key"))
 
@@ -651,6 +661,10 @@ def get_integration_metadata(integration_id: str, creds: dict) -> dict:
     elif integration_id == "victoriametrics":
         # Return URL
         return {"url": creds.get("domain")}
+
+    elif integration_id == "amplitude":
+        # Return region (US/EU) for API endpoint construction
+        return {"region": creds.get("region", "US")}
 
     # Default: just indicate it's configured (incident_io, etc.)
     return {}
@@ -1531,6 +1545,83 @@ async def pagerduty_proxy(path: str, request: Request):
 
 
 @app.api_route(
+    "/amplitude/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+async def amplitude_proxy(path: str, request: Request):
+    """Reverse proxy for Amplitude API requests.
+
+    Amplitude is SaaS at amplitude.com (US) or analytics.eu.amplitude.com (EU).
+    """
+    import httpx
+
+    logger.info(f"Amplitude proxy: {request.method} /{path}")
+
+    # Validate JWT and extract tenant context
+    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
+
+    # Get Amplitude credentials
+    creds = await get_credentials(tenant_id, team_id, "amplitude")
+    if not creds or not creds.get("api_key") or not creds.get("secret_key"):
+        logger.error(f"Amplitude not configured for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Amplitude integration not configured",
+        )
+
+    # Build Amplitude API URL (region-aware)
+    region = (creds.get("region") or "US").upper()
+    if region == "EU":
+        base = "https://analytics.eu.amplitude.com/api/2"
+    else:
+        base = "https://amplitude.com/api/2"
+    target_url = f"{base}/{path}"
+    logger.info(f"Amplitude proxy: forwarding to {target_url}")
+
+    # Build auth headers
+    auth_headers = build_auth_headers("amplitude", creds)
+
+    forward_headers = {
+        "Content-Type": request.headers.get("Content-Type", "application/json"),
+        "Accept": request.headers.get("Accept", "application/json"),
+        **auth_headers,
+    }
+
+    query_params = dict(request.query_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=forward_headers,
+                params=query_params,
+                content=body,
+            )
+
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers={
+                    "Content-Type": response.headers.get(
+                        "Content-Type", "application/json"
+                    )
+                },
+            )
+
+    except httpx.TimeoutException:
+        logger.error(f"Amplitude request timeout: {target_url}")
+        raise HTTPException(status_code=504, detail="Amplitude request timed out")
+    except httpx.RequestError as e:
+        logger.error(f"Amplitude request error: {e}")
+        raise HTTPException(status_code=502, detail=f"Amplitude request failed: {e}")
+
+
+@app.api_route(
     "/gitlab/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
@@ -2239,6 +2330,14 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         # GitLab uses PRIVATE-TOKEN header
         api_key = creds.get("api_key", "")
         return {"PRIVATE-TOKEN": api_key}
+
+    elif integration_id == "amplitude":
+        # Amplitude uses HTTP Basic auth (api_key:secret_key)
+        api_key = creds.get("api_key", "")
+        secret_key = creds.get("secret_key", "")
+        auth_string = f"{api_key}:{secret_key}"
+        encoded = base64.b64encode(auth_string.encode()).decode()
+        return {"Authorization": f"Basic {encoded}"}
 
     elif integration_id in [
         "openai",

@@ -600,6 +600,10 @@ static_resources:
                                         "name": "DATADOG_BASE_URL",
                                         "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/datadog",
                                     },
+                                    {
+                                        "name": "AMPLITUDE_BASE_URL",
+                                        "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/amplitude",
+                                    },
                                     # RAPTOR knowledge base: internal K8s service (no auth needed)
                                     {
                                         "name": "RAPTOR_URL",
