@@ -83,8 +83,14 @@ async def _execute_job(app, job: dict) -> None:
     team_node_id = job["team_node_id"]
     job_name = job.get("name")
 
-    _log("scheduled_job_executing", job_id=job_id, job_type=job_type,
-         org_id=org_id, team_node_id=team_node_id, job_name=job_name)
+    _log(
+        "scheduled_job_executing",
+        job_id=job_id,
+        job_type=job_type,
+        org_id=org_id,
+        team_node_id=team_node_id,
+        job_name=job_name,
+    )
 
     try:
         if job_type == "agent_run":
@@ -101,8 +107,12 @@ async def _execute_job(app, job: dict) -> None:
         _log("scheduled_job_completed", job_id=job_id, status=status)
 
     except Exception as e:
-        _log("scheduled_job_failed", job_id=job_id, error=str(e),
-             traceback=traceback.format_exc())
+        _log(
+            "scheduled_job_failed",
+            job_id=job_id,
+            error=str(e),
+            traceback=traceback.format_exc(),
+        )
         status = "error"
         error = str(e)
 
@@ -185,5 +195,8 @@ async def _report_completion(app, job_id: str, status: str, error: str | None) -
                     status_code=resp.status_code,
                 )
     except Exception:
-        _log("scheduler_completion_report_error", job_id=job_id,
-             error=traceback.format_exc())
+        _log(
+            "scheduler_completion_report_error",
+            job_id=job_id,
+            error=traceback.format_exc(),
+        )
