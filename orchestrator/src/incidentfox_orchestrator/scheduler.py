@@ -5,13 +5,12 @@ Started as a background asyncio task in the orchestrator's FastAPI lifespan.
 """
 
 import asyncio
+import json
 import os
+import traceback
 import uuid
 
 import httpx
-import structlog
-
-logger = structlog.get_logger(__name__)
 
 # How often to poll for due jobs (seconds)
 POLL_INTERVAL = int(os.getenv("SCHEDULER_POLL_INTERVAL", "30"))
@@ -20,9 +19,18 @@ POLL_INTERVAL = int(os.getenv("SCHEDULER_POLL_INTERVAL", "30"))
 SERVICE_ID = f"orchestrator-{uuid.uuid4().hex[:8]}"
 
 
+def _log(event: str, **fields) -> None:
+    """Structured JSON logging matching orchestrator convention."""
+    try:
+        payload = {"service": "scheduler", "event": event, **fields}
+        print(json.dumps(payload, default=str))
+    except Exception:
+        print(f"{event} {fields}")
+
+
 async def scheduler_loop(app) -> None:
     """Main scheduler loop. Polls for due jobs and dispatches them."""
-    logger.info("scheduler_started", poll_interval=POLL_INTERVAL, service_id=SERVICE_ID)
+    _log("scheduler_started", poll_interval=POLL_INTERVAL, service_id=SERVICE_ID)
 
     # Wait a bit on startup to let other services initialize
     await asyncio.sleep(5)
@@ -31,15 +39,15 @@ async def scheduler_loop(app) -> None:
         try:
             due_jobs = await _fetch_due_jobs(app)
             if due_jobs:
-                logger.info("scheduler_found_due_jobs", count=len(due_jobs))
+                _log("scheduler_found_due_jobs", count=len(due_jobs))
                 for job in due_jobs:
                     # Fire and forget — each job runs independently
                     asyncio.create_task(_execute_job(app, job))
         except asyncio.CancelledError:
-            logger.info("scheduler_cancelled")
+            _log("scheduler_cancelled")
             return
         except Exception:
-            logger.exception("scheduler_poll_error")
+            _log("scheduler_poll_error", error=traceback.format_exc())
 
         await asyncio.sleep(POLL_INTERVAL)
 
@@ -57,7 +65,7 @@ async def _fetch_due_jobs(app) -> list[dict]:
             headers={"X-Internal-Service": SERVICE_ID},
         )
         if resp.status_code != 200:
-            logger.warning(
+            _log(
                 "scheduler_fetch_failed",
                 status=resp.status_code,
                 body=resp.text[:200],
@@ -73,16 +81,10 @@ async def _execute_job(app, job: dict) -> None:
     job_type = job["job_type"]
     org_id = job["org_id"]
     team_node_id = job["team_node_id"]
+    job_name = job.get("name")
 
-    log = logger.bind(
-        job_id=job_id,
-        job_type=job_type,
-        org_id=org_id,
-        team_node_id=team_node_id,
-        job_name=job.get("name"),
-    )
-
-    log.info("scheduled_job_executing")
+    _log("scheduled_job_executing", job_id=job_id, job_type=job_type,
+         org_id=org_id, team_node_id=team_node_id, job_name=job_name)
 
     try:
         if job_type == "agent_run":
@@ -92,15 +94,15 @@ async def _execute_job(app, job: dict) -> None:
                 None if status == "success" else result.get("result", "Unknown error")
             )
         else:
-            log.warning("scheduled_job_unknown_type")
+            _log("scheduled_job_unknown_type", job_id=job_id, job_type=job_type)
             status = "error"
             error = f"Unknown job type: {job_type}"
-            result = {}
 
-        log.info("scheduled_job_completed", status=status)
+        _log("scheduled_job_completed", job_id=job_id, status=status)
 
     except Exception as e:
-        log.exception("scheduled_job_failed")
+        _log("scheduled_job_failed", job_id=job_id, error=str(e),
+             traceback=traceback.format_exc())
         status = "error"
         error = str(e)
 
@@ -154,7 +156,7 @@ async def _get_team_token(app, org_id: str, team_node_id: str) -> str | None:
         )
         if resp.status_code == 200:
             return resp.json().get("token")
-        logger.warning(
+        _log(
             "scheduler_token_fetch_failed",
             org_id=org_id,
             team_node_id=team_node_id,
@@ -177,10 +179,11 @@ async def _report_completion(app, job_id: str, status: str, error: str | None) -
                 headers={"X-Internal-Service": SERVICE_ID},
             )
             if resp.status_code != 200:
-                logger.warning(
+                _log(
                     "scheduler_completion_report_failed",
                     job_id=job_id,
                     status_code=resp.status_code,
                 )
     except Exception:
-        logger.exception("scheduler_completion_report_error", job_id=job_id)
+        _log("scheduler_completion_report_error", job_id=job_id,
+             error=traceback.format_exc())
