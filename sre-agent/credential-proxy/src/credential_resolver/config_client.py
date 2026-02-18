@@ -27,6 +27,10 @@ SHARED_ANTHROPIC_SECRET = os.getenv(
 _shared_key_cache: dict[str, tuple[str, datetime]] = {}
 SHARED_KEY_CACHE_TTL_SECONDS = 300  # 5 minutes
 
+# Cache for LLM model lookups (key: "tenant_id:team_id", value: (model_str, fetched_at))
+_llm_model_cache: dict[str, tuple[str, datetime]] = {}
+LLM_MODEL_CACHE_TTL_SECONDS = 30  # short TTL so local.yaml changes propagate quickly
+
 
 def get_shared_anthropic_key() -> Optional[str]:
     """Get shared Anthropic API key for free trials.
@@ -175,32 +179,86 @@ class ConfigServiceClient:
             logger.error(f"Config Service error: {e}")
             return None
 
+    async def get_llm_model(self, tenant_id: str, team_id: str) -> str | None:
+        """Get the configured LLM model string for a tenant/team.
+
+        Returns the value of integrations.llm.model from the effective config
+        (e.g. "openai/gpt-5.2"), or None if not configured.
+
+        Results are cached for LLM_MODEL_CACHE_TTL_SECONDS seconds so that
+        local.yaml changes hot-reload without requiring a container restart.
+        """
+        cache_key = f"{tenant_id}:{team_id}"
+        cached = _llm_model_cache.get(cache_key)
+        if cached:
+            model_str, fetched_at = cached
+            age = (datetime.utcnow() - fetched_at).total_seconds()
+            if age < LLM_MODEL_CACHE_TTL_SECONDS:
+                return model_str or None
+
+        try:
+            response = await self._client.get(
+                f"{self.base_url}/api/v1/config/me/effective",
+                headers={
+                    "Accept": "application/json",
+                    "X-Org-Id": tenant_id,
+                    "X-Team-Node-Id": team_id,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            effective = data.get("effective_config", data)
+            model_str = (
+                effective.get("integrations", {}).get("llm", {}).get("model", "") or ""
+            )
+            _llm_model_cache[cache_key] = (model_str, datetime.utcnow())
+            return model_str or None
+        except Exception as e:
+            logger.warning(f"Could not fetch LLM model for {tenant_id}/{team_id}: {e}")
+            return None
+
     def _resolve_anthropic_credentials(
         self, config: dict, tenant_id: str
     ) -> dict | None:
-        """Resolve Anthropic credentials with subscription + trial support.
+        """Resolve Anthropic credentials.
 
-        Access control logic:
-        1. Check if customer has ACCESS (valid trial OR active subscription)
-        2. If access granted, determine which API key to use:
-           - Customer BYOK (api_key in integrations.anthropic) -> use their key
-           - No BYOK -> use our shared key with attribution
-        3. If no access, DENY
+        Two distinct modes:
+
+        Local / self-hosted (tenant_id == "local"):
+          - No access control — operator owns the deployment.
+          - BYOK required; no shared key fallback.
+
+        SaaS (any other tenant):
+          - Must have a valid trial OR active subscription to access the platform,
+            even when bringing their own key.
+          - If authorized: BYOK if configured, else our shared key with attribution.
 
         Args:
             config: Full effective_config from Config Service (trial fields at
                 top level, API key inside integrations.anthropic)
-            tenant_id: For attribution tagging
+            tenant_id: For attribution tagging and mode detection
 
         Returns:
-            Dict with api_key and optional attribution metadata, or None if access denied
+            Dict with api_key and optional attribution metadata, or None if denied
         """
-        # Get customer API key from integrations.anthropic
         anthropic_config = config.get("integrations", {}).get("anthropic", {})
         creds = self._extract_credentials(anthropic_config)
         customer_api_key = creds.get("api_key")
-        # Trial/subscription fields may be at top level or inside integrations.anthropic
-        # Use `is not None` checks to avoid falsy values (False, "") falling through
+
+        # ── Local / self-hosted ───────────────────────────────────────────────
+        # tenant_id == "local" means the operator is running their own instance.
+        # No trial/subscription check — just use their own key.
+        if tenant_id == "local":
+            if customer_api_key:
+                logger.info("Using BYOK Anthropic key (local mode)")
+                return {"api_key": customer_api_key}
+            # No Anthropic key — fine if using a different LLM provider (OpenAI, Gemini,
+            # etc.); the LLM bypass in ext_authz_check handles that before reaching here.
+            return None
+
+        # ── SaaS ─────────────────────────────────────────────────────────────
+        # Trial/subscription fields may be at top level or inside integrations.anthropic.
+        # Use `is not None` checks to avoid falsy values (False, "") falling through.
         is_trial = (
             config.get("is_trial")
             if config.get("is_trial") is not None
@@ -217,7 +275,6 @@ class ConfigServiceClient:
             else anthropic_config.get("subscription_status", "none")
         )
 
-        # Step 1: Check if customer has valid access (trial OR subscription)
         has_valid_trial = False
         if is_trial and trial_expires_at:
             try:
@@ -230,11 +287,10 @@ class ConfigServiceClient:
                 has_valid_trial = now < expires_at
             except (ValueError, TypeError) as e:
                 logger.error(f"Invalid trial_expires_at format: {e}")
-                has_valid_trial = False
 
         has_active_subscription = subscription_status == "active"
 
-        # Deny access if neither trial nor subscription
+        # Access gate: must have trial or subscription (even for BYOK).
         if not has_valid_trial and not has_active_subscription:
             logger.warning(
                 f"Access denied for tenant={tenant_id}: "
@@ -242,16 +298,14 @@ class ConfigServiceClient:
             )
             return None
 
-        # Step 2: Customer has access - determine which API key to use
-        # If they configured their own key, use it (BYOK)
+        # Authorized — use BYOK if available, else fall back to shared key.
         if customer_api_key:
             logger.info(
-                f"Using customer's own Anthropic key for tenant={tenant_id} "
+                f"Using BYOK Anthropic key for tenant={tenant_id} "
                 f"(trial={has_valid_trial}, subscription={subscription_status})"
             )
             return {"api_key": customer_api_key}
 
-        # Otherwise, use our shared key with attribution for cost tracking
         shared_key = get_shared_anthropic_key()
         if not shared_key:
             logger.error(
@@ -263,10 +317,7 @@ class ConfigServiceClient:
             f"Using shared Anthropic key for tenant={tenant_id} "
             f"(trial={has_valid_trial}, subscription={subscription_status})"
         )
-        return {
-            "api_key": shared_key,
-            "workspace_attribution": tenant_id,
-        }
+        return {"api_key": shared_key, "workspace_attribution": tenant_id}
 
     def _extract_credentials(self, config: dict) -> dict:
         """Extract credential fields from integration config.

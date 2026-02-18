@@ -38,6 +38,10 @@ CONFIG_SERVICE_ADMIN_TOKEN = os.environ.get("CONFIG_SERVICE_ADMIN_TOKEN", "")
 FREE_TRIAL_DAYS = int(os.environ.get("FREE_TRIAL_DAYS", "7"))
 FREE_TRIAL_ENABLED = os.environ.get("FREE_TRIAL_ENABLED", "true").lower() == "true"
 
+# Local mode configuration
+# When CONFIG_MODE=local, use 'local' org instead of 'slack-{team_id}'
+CONFIG_MODE = os.environ.get("CONFIG_MODE", "")
+
 # NOTE: INCIDENTFOX_ANTHROPIC_API_KEY is no longer needed here.
 # The credential-resolver fetches the shared key from Secrets Manager at runtime.
 # We only store trial metadata (is_trial=True, expiration) during provisioning.
@@ -251,7 +255,11 @@ class ConfigServiceClient:
             del _team_token_cache[slack_team_id]
 
         # Issue new token
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         try:
@@ -440,6 +448,25 @@ class ConfigServiceClient:
         response.raise_for_status()
         return response.json()
 
+    def register_local_routing(self, workspace_id: str) -> None:
+        """Register the Slack workspace ID as a routing identifier in local mode.
+
+        Called at startup in single-workspace local mode so the routing lookup
+        works without requiring the user to manually configure SLACK_WORKSPACE_ID.
+
+        Args:
+            workspace_id: Slack workspace ID (e.g., "T09UF9JAHD1")
+        """
+        try:
+            self._update_config(
+                "local",
+                "default",
+                {"routing": {"slack_workspace_ids": [workspace_id]}},
+            )
+            logger.info(f"Registered local routing for workspace {workspace_id}")
+        except Exception as e:
+            logger.warning(f"Failed to register local routing for {workspace_id}: {e}")
+
     def get_workspace_config(
         self,
         slack_team_id: str,
@@ -452,7 +479,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails (non-404 errors).
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         url = f"{self.base_url}/api/v1/config/me"
@@ -653,7 +684,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails.
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         config = {
@@ -783,7 +818,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails.
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         update = {"integrations": {integration_id: config}}
