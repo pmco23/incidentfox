@@ -171,7 +171,7 @@ async def scan(
                 Document(
                     content=content,
                     source_url=page_url,
-                    content_type="markdown",
+                    content_type="text",  # HTML already stripped to plain text
                     metadata={
                         "title": title,
                         "page_id": page_id,
