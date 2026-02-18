@@ -18,13 +18,32 @@ from amplitude_client import amplitude_request, format_event_data
 
 def main():
     parser = argparse.ArgumentParser(description="Query Amplitude event segmentation")
-    parser.add_argument("--event", required=True, help="Event name (e.g., 'Button Clicked')")
-    parser.add_argument("--start", required=True, help="Start date (YYYYMMDD or YYYY-MM-DD)")
-    parser.add_argument("--end", required=True, help="End date (YYYYMMDD or YYYY-MM-DD)")
-    parser.add_argument("--interval", default="-300000", help="Interval: -300000 (realtime), 3600000 (hourly), 86400000 (daily), or use 'hourly'/'daily'/'realtime'")
-    parser.add_argument("--group-by", help="Group by event property (e.g., 'platform', 'country')")
-    parser.add_argument("--metric", default="uniques", help="Metric: uniques, totals, avg, pct_dau (default: uniques)")
-    parser.add_argument("--filters", help="JSON array of filters, e.g., '[{\"subprop_type\": \"event\", \"subprop_key\": \"platform\", \"subprop_op\": \"is\", \"subprop_value\": [\"iOS\"]}]'")
+    parser.add_argument(
+        "--event", required=True, help="Event name (e.g., 'Button Clicked')"
+    )
+    parser.add_argument(
+        "--start", required=True, help="Start date (YYYYMMDD or YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--end", required=True, help="End date (YYYYMMDD or YYYY-MM-DD)"
+    )
+    parser.add_argument(
+        "--interval",
+        default="-300000",
+        help="Interval: -300000 (realtime), 3600000 (hourly), 86400000 (daily), or use 'hourly'/'daily'/'realtime'",
+    )
+    parser.add_argument(
+        "--group-by", help="Group by event property (e.g., 'platform', 'country')"
+    )
+    parser.add_argument(
+        "--metric",
+        default="uniques",
+        help="Metric: uniques, totals, avg, pct_dau (default: uniques)",
+    )
+    parser.add_argument(
+        "--filters",
+        help='JSON array of filters, e.g., \'[{"subprop_type": "event", "subprop_key": "platform", "subprop_op": "is", "subprop_value": ["iOS"]}]\'',
+    )
     parser.add_argument("--raw", action="store_true", help="Output raw JSON response")
     args = parser.parse_args()
 

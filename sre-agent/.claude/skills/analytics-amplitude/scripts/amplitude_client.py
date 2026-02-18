@@ -128,7 +128,9 @@ def amplitude_request(
         )
 
         if response.status_code != 200:
-            print(f"ERROR: Amplitude API returned {response.status_code}", file=sys.stderr)
+            print(
+                f"ERROR: Amplitude API returned {response.status_code}", file=sys.stderr
+            )
             print(f"URL: {url}", file=sys.stderr)
             print(f"Response: {response.text[:500]}", file=sys.stderr)
             response.raise_for_status()
@@ -147,7 +149,11 @@ def format_event_data(data: dict[str, Any]) -> str:
 
     lines = []
     for i, label in enumerate(labels):
-        label_str = str(label) if not isinstance(label, list) else " > ".join(str(l) for l in label)
+        label_str = (
+            str(label)
+            if not isinstance(label, list)
+            else " > ".join(str(l) for l in label)
+        )
         if i < len(series) and series[i]:
             total = sum(v for v in series[i] if v is not None)
             lines.append(f"  {label_str}: {total:,.0f} total")

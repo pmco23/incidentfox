@@ -18,8 +18,12 @@ from amplitude_client import amplitude_request
 def main():
     parser = argparse.ArgumentParser(description="Get Amplitude user activity")
     parser.add_argument("--user", required=True, help="Amplitude user ID or email")
-    parser.add_argument("--offset", type=int, default=0, help="Pagination offset (default: 0)")
-    parser.add_argument("--limit", type=int, default=100, help="Max events to return (default: 100)")
+    parser.add_argument(
+        "--offset", type=int, default=0, help="Pagination offset (default: 0)"
+    )
+    parser.add_argument(
+        "--limit", type=int, default=100, help="Max events to return (default: 100)"
+    )
     parser.add_argument("--raw", action="store_true", help="Output raw JSON response")
     args = parser.parse_args()
 
