@@ -8,62 +8,25 @@ import json
 import subprocess
 from typing import Any
 
-_ALLOWED_SUBCOMMANDS = frozenset(
-    {
-        "ps",
-        "logs",
-        "inspect",
-        "stats",
-        "top",
-        "events",
-        "diff",
-        "images",
-        "info",
-        "version",
-    }
-)
+
+_ALLOWED_SUBCOMMANDS = frozenset({
+    "ps", "logs", "inspect", "stats", "top", "events", "diff",
+    "images", "info", "version",
+})
 
 # For multi-level commands (docker container ls, docker network inspect),
 # block destructive sub-subcommands
-_BLOCKED_SUB_SUBCOMMANDS = frozenset(
-    {
-        "rm",
-        "remove",
-        "prune",
-        "kill",
-        "stop",
-        "pause",
-        "unpause",
-        "create",
-        "run",
-        "exec",
-        "attach",
-        "commit",
-        "export",
-        "import",
-        "push",
-        "pull",
-        "build",
-        "tag",
-        "rmi",
-        "load",
-        "save",
-        "connect",
-        "disconnect",
-    }
-)
+_BLOCKED_SUB_SUBCOMMANDS = frozenset({
+    "rm", "remove", "prune", "kill", "stop", "pause", "unpause",
+    "create", "run", "exec", "attach", "commit", "export", "import",
+    "push", "pull", "build", "tag", "rmi", "load", "save",
+    "connect", "disconnect",
+})
 
 # These top-level commands are allowed but restricted to read-only sub-subcommands
-_MULTI_LEVEL_COMMANDS = frozenset(
-    {
-        "container",
-        "image",
-        "system",
-        "network",
-        "volume",
-        "compose",
-    }
-)
+_MULTI_LEVEL_COMMANDS = frozenset({
+    "container", "image", "system", "network", "volume", "compose",
+})
 
 
 def run_docker(

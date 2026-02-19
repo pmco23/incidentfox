@@ -149,11 +149,7 @@ def execute_search(
         "max_count": max_results,
     }
 
-    _verify_tls = os.getenv("SPLUNK_VERIFY_TLS", "true").lower() not in (
-        "false",
-        "0",
-        "no",
-    )
+    _verify_tls = os.getenv("SPLUNK_VERIFY_TLS", "true").lower() not in ("false", "0", "no")
     with httpx.Client(timeout=120.0, verify=_verify_tls) as client:
         # Create the job
         response = client.post(

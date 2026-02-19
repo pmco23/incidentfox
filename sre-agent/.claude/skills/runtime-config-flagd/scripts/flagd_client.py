@@ -74,36 +74,30 @@ def _run_kubectl(args: list[str], input_data: str | None = None) -> str:
         # the token on the command line via /proc/*/cmdline)
         with open(_SA_TOKEN_PATH) as f:
             token = f.read().strip()
-        kubeconfig_data = json.dumps(
-            {
-                "apiVersion": "v1",
-                "kind": "Config",
-                "clusters": [
-                    {
-                        "name": "in-cluster",
-                        "cluster": {
-                            "server": "https://kubernetes.default.svc",
-                            "certificate-authority": _SA_CA_PATH,
-                        },
-                    }
-                ],
-                "users": [
-                    {
-                        "name": "sa-user",
-                        "user": {"token": token},
-                    }
-                ],
-                "contexts": [
-                    {
-                        "name": "default",
-                        "context": {"cluster": "in-cluster", "user": "sa-user"},
-                    }
-                ],
-                "current-context": "default",
-            }
-        )
+        kubeconfig_data = json.dumps({
+            "apiVersion": "v1",
+            "kind": "Config",
+            "clusters": [{
+                "name": "in-cluster",
+                "cluster": {
+                    "server": "https://kubernetes.default.svc",
+                    "certificate-authority": _SA_CA_PATH,
+                },
+            }],
+            "users": [{
+                "name": "sa-user",
+                "user": {"token": token},
+            }],
+            "contexts": [{
+                "name": "default",
+                "context": {"cluster": "in-cluster", "user": "sa-user"},
+            }],
+            "current-context": "default",
+        })
         # Write to temp file; pass via KUBECONFIG env var
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".kubeconfig", delete=False)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".kubeconfig", delete=False
+        )
         try:
             tmp.write(kubeconfig_data)
             tmp.close()
