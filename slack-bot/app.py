@@ -118,6 +118,17 @@ else:
 
 # SRE Agent configuration
 SRE_AGENT_URL = os.environ.get("SRE_AGENT_URL", "http://localhost:8000")
+# Service-to-service auth token for sre-agent /investigate endpoint.
+# Must match INVESTIGATE_AUTH_TOKEN on the sre-agent side.
+SRE_AGENT_AUTH_TOKEN = os.environ.get("INVESTIGATE_AUTH_TOKEN", "")
+
+
+def _sre_agent_headers() -> dict:
+    """Build headers for sre-agent requests (SSE + service auth)."""
+    headers = {"Accept": "text/event-stream"}
+    if SRE_AGENT_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {SRE_AGENT_AUTH_TOKEN}"
+    return headers
 
 # Incident.io API configuration (API key fetched per-workspace from config-service)
 INCIDENT_IO_API_BASE = "https://api.incident.io"
@@ -2263,7 +2274,7 @@ def _handle_mention_impl(event, say, client, context):
             json=request_payload,
             stream=True,
             timeout=300,  # 5 minutes
-            headers={"Accept": "text/event-stream"},
+            headers=_sre_agent_headers(),
         )
 
         if response.status_code != 200:
@@ -2593,7 +2604,7 @@ def _run_auto_listen_investigation(event, client, context):
             json=request_payload,
             stream=True,
             timeout=300,
-            headers={"Accept": "text/event-stream"},
+            headers=_sre_agent_headers(),
         )
 
         if response.status_code != 200:
@@ -3002,7 +3013,7 @@ Use all available tools to gather context about this issue."""
             json=request_payload,
             stream=True,
             timeout=300,
-            headers={"Accept": "text/event-stream"},
+            headers=_sre_agent_headers(),
         )
 
         if response.status_code != 200:
@@ -3456,7 +3467,7 @@ def handle_message(event, client, context):
                 json=request_payload,
                 stream=True,
                 timeout=300,  # 5 minutes
-                headers={"Accept": "text/event-stream"},
+                headers=_sre_agent_headers(),
             )
 
             if response.status_code != 200:
@@ -3882,7 +3893,7 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
             json=request_payload,
             stream=True,
             timeout=300,
-            headers={"Accept": "text/event-stream"},
+            headers=_sre_agent_headers(),
         )
 
         if response.status_code != 200:
@@ -4606,6 +4617,7 @@ def handle_answer_submit(ack, body, client):
         response = requests.post(
             f"{SRE_AGENT_URL}/answer",
             json={"thread_id": thread_id, "answers": answers},
+            headers=_sre_agent_headers(),
             timeout=5,
         )
 

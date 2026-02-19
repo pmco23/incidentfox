@@ -493,6 +493,7 @@ static_resources:
                     "metadata": {
                         "labels": {
                             "app": "incidentfox-sandbox",  # Different from incidentfox-agent to avoid service routing
+                            "incidentfox.io/isolation": "sandbox",  # NetworkPolicy selector
                             "thread-id": thread_id,
                         }
                     },
@@ -538,28 +539,9 @@ static_resources:
                                         "name": "ANTHROPIC_API_KEY",
                                         "value": "sk-ant-placeholder-proxy-will-inject-real-key",
                                     },
-                                    # Gemini API key (used by credential-proxy for gemini/* models)
-                                    {
-                                        "name": "GEMINI_API_KEY",
-                                        "valueFrom": {
-                                            "secretKeyRef": {
-                                                "name": "incidentfox-secrets",
-                                                "key": "gemini-api-key",
-                                                "optional": True,
-                                            }
-                                        },
-                                    },
-                                    # OpenAI API key (used by credential-proxy for openai/* models)
-                                    {
-                                        "name": "OPENAI_API_KEY",
-                                        "valueFrom": {
-                                            "secretKeyRef": {
-                                                "name": "incidentfox-secrets",
-                                                "key": "openai-api-key",
-                                                "optional": True,
-                                            }
-                                        },
-                                    },
+                                    # NOTE: Gemini and OpenAI API keys are NOT mounted here.
+                                    # They are injected by credential-resolver's LLM proxy
+                                    # (same as Anthropic). Sandboxes never see real LLM keys.
                                     # Coralogix SDK: route API requests through proxy
                                     # (proxy injects Authorization header for Coralogix)
                                     {
@@ -629,7 +611,7 @@ static_resources:
                                         "value": configured_integrations,
                                     },
                                     # NOTE: Observability (Laminar/Langfuse) runs on the sre-agent server,
-                                    # not in sandbox pods. See agent.py init_observability().
+                                    # not in sandbox pods. No API keys should reach sandboxes.
                                     # Kubernetes: use in-cluster SA auth (incidentfox-sandbox-pod)
                                     # NOT kubeconfig — that resolves to EC2 node IAM identity
                                     # Dynamic values
@@ -726,8 +708,9 @@ static_resources:
             },
         }
 
-        # Add gVisor runtime for production (optional for local dev)
-        if os.getenv("USE_GVISOR", "false").lower() == "true":
+        # gVisor runtime is mandatory for sandbox isolation.
+        # Only disable for local dev where gVisor runtime class is unavailable.
+        if os.getenv("DISABLE_GVISOR", "false").lower() != "true":
             sandbox_manifest["spec"]["podTemplate"]["spec"][
                 "runtimeClassName"
             ] = "gvisor"
