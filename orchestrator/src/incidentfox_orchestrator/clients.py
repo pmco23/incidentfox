@@ -602,6 +602,9 @@ class AgentApiClient:
     ) -> dict[str, Any]:
         """Call the agent service's /investigate endpoint and consume the SSE stream."""
         base = agent_base_url.rstrip("/") if agent_base_url else self.base_url
+        # Validate URL scheme to prevent SSRF via config injection
+        if not base.startswith(("http://", "https://")):
+            raise ValueError(f"Invalid agent base URL scheme: {base[:30]}")
         url = f"{base}/investigate"
 
         # Build payload matching InvestigateRequest schema

@@ -1015,7 +1015,8 @@ async def _process_pagerduty_webhook(
         )
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"pagerduty_service_id": service_id},
         )
@@ -1035,8 +1036,9 @@ async def _process_pagerduty_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token, org_id=org_id, team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -1047,7 +1049,9 @@ async def _process_pagerduty_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"
@@ -2470,7 +2474,8 @@ async def _process_blameless_webhook(
         agent_api: AgentApiClient = request.app.state.agent_api
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"blameless_team_id": team_id},
         )
@@ -2490,8 +2495,9 @@ async def _process_blameless_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token, org_id=org_id, team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2502,7 +2508,9 @@ async def _process_blameless_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"
@@ -2679,7 +2687,8 @@ async def _process_firehydrant_webhook(
         agent_api: AgentApiClient = request.app.state.agent_api
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"firehydrant_team_id": team_id},
         )
@@ -2699,8 +2708,9 @@ async def _process_firehydrant_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token, org_id=org_id, team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2711,7 +2721,9 @@ async def _process_firehydrant_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"

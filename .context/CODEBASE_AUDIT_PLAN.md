@@ -265,83 +265,31 @@ This phase is highly parallelizable. Each tool port is independent:
 
 ---
 
-## Phase 4: Core Logic Review — slack-bot
+## Phase 4: Core Logic Review — slack-bot ✅ COMPLETE
 
-**Why**: This is the primary user-facing surface. The 8000+ line `app.py` is the biggest single-file risk.
+**Status**: Audited — 12 findings (3 P0, 4 P1, 3 P2, 2 P3), all deferred. Findings require architectural changes (Redis state store, SSE backpressure) beyond audit scope.
 
-### 4A. `app.py` structural review
-- [ ] Map the 8000+ line file: what are the major sections?
-- [ ] Identify dead code within app.py
-- [ ] Check error handling — do Slack API errors crash the bot?
-- [ ] Review multi-workspace OAuth handling
-- [ ] Check onboarding flow logic
-- [ ] Review SSE streaming from sre-agent — reconnection? Backpressure?
-
-### 4B. `modal_builder.py` (103KB)
-- [ ] Review modal construction — correct Slack Block Kit usage?
-- [ ] Check for XSS in user-supplied content rendered in modals
-- [ ] Verify input validation for modal submissions
-
-### 4C. Supporting modules
-- [ ] `config_client.py` — correct config-service integration?
-- [ ] `installation_store.py` — OAuth token storage
-- [ ] `markdown_utils.py` — Slack mrkdwn conversion
-
-### 4D. Run existing tests
-- [ ] Run slack-bot tests (test_assets.py, test_blocks.py, snapshots)
-- [ ] Check snapshot replay tests — are they up to date?
+See `.context/findings/phase-4-slack-bot-findings.md` for details.
 
 ---
 
-## Phase 5: Core Logic Review — web_ui
+## Phase 5: Core Logic Review — web_ui ✅ COMPLETE
 
-**Why**: Customer-facing admin console. Zero tests currently.
+**Status**: Audited — 13 findings (3 P0, 5 P1, 5 P2), 5 fixed, 8 deferred.
 
-### 5A. API routes audit
-- [ ] Review all ~70 API route files in `web_ui/src/app/api/`
-- [ ] Check upstream proxy pattern (`_utils/upstream.ts`) — proper error handling?
-- [ ] Verify auth is enforced on every route
-- [ ] Check for SSRF via proxy routes
-- [ ] Review SSE streaming in `team/agent/stream/route.ts`
+**Fixed**: XSS via dangerouslySetInnerHTML (P0), OIDC state validation CSRF (P0), missing auth on topology/nodes (P1), missing auth on integrations/schemas (P1), security headers in next.config (P2).
 
-### 5B. Auth & session management
-- [ ] Review `src/auth.ts` — next-auth configuration
-- [ ] Check session/login and session/logout routes
-- [ ] Review OIDC callback handling
-- [ ] Check cookie security (httpOnly, secure, sameSite)
-
-### 5C. Frontend components
-- [ ] Review `AgentRunnerModal` — the chat-like agent interaction
-- [ ] Check `useAgentStream` hook (307 lines) — SSE client logic
-- [ ] Review admin mode components — org tree, tokens, audit logs
-- [ ] Check for client-side data exposure (sensitive data in JS bundles?)
-
-### 5D. Build & config
-- [ ] Review `next.config.ts` — security headers? CSP?
-- [ ] Check `package.json` — the `tar@7.5.7` security override, why?
-- [ ] Verify TypeScript strict mode settings
+See `.context/findings/phase-5-web-ui-findings.md` for details.
 
 ---
 
-## Phase 6: Core Logic Review — orchestrator
+## Phase 6: Core Logic Review — orchestrator ✅ COMPLETE
 
-**Why**: Webhook router that will become the single entry point for all surfaces.
+**Status**: Audited — 17 findings (0 P0, 4 P1, 6 P2, 7 P3), 4 P1 fixed, 13 deferred.
 
-### 6A. Webhook handling
-- [ ] Review signature verification for each webhook type (Slack, GitHub, PagerDuty, Incident.io)
-- [ ] Check for replay attack protection
-- [ ] Review rate limiting
-- [ ] Check error handling — do webhook failures get retried? Dead-lettered?
+**Fixed**: SSRF URL scheme validation (P1), blocking event loop in PagerDuty/Blameless/FireHydrant handlers via asyncio.to_thread (P1 x3).
 
-### 6B. Team provisioning
-- [ ] Review auto-provisioning for MS Teams and Google Chat
-- [ ] Check for race conditions in provisioning
-- [ ] Review thread reply support
-
-### 6C. Run existing tests
-- [ ] Run orchestrator tests (e2e + unit)
-- [ ] Review RBAC matrix test
-- [ ] Check golden path test
+See `.context/findings/phase-6-orchestrator-findings.md` for details.
 
 ---
 
