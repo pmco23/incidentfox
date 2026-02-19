@@ -429,9 +429,7 @@ def handle_team_setup_choice(ack, body, client, view):
     ).get("value")
 
     new_team_name = (
-        values.get("new_team_block", {})
-        .get("new_team_input", {})
-        .get("value", "")
+        values.get("new_team_block", {}).get("new_team_input", {}).get("value", "")
         or ""
     ).strip()
 
