@@ -141,7 +141,11 @@ class TeamToken(Base):
         if self.expires_at is None:
             return False
         now = datetime.now(timezone.utc)
-        expires = self.expires_at.replace(tzinfo=timezone.utc) if self.expires_at.tzinfo is None else self.expires_at
+        expires = (
+            self.expires_at.replace(tzinfo=timezone.utc)
+            if self.expires_at.tzinfo is None
+            else self.expires_at
+        )
         return now > expires
 
     def has_permission(self, permission: str) -> bool:
@@ -191,7 +195,11 @@ class OrgAdminToken(Base):
         if self.expires_at is None:
             return False
         now = datetime.now(timezone.utc)
-        expires = self.expires_at.replace(tzinfo=timezone.utc) if self.expires_at.tzinfo is None else self.expires_at
+        expires = (
+            self.expires_at.replace(tzinfo=timezone.utc)
+            if self.expires_at.tzinfo is None
+            else self.expires_at
+        )
         return now > expires
 
 
