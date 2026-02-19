@@ -130,6 +130,7 @@ def _sre_agent_headers() -> dict:
         headers["Authorization"] = f"Bearer {SRE_AGENT_AUTH_TOKEN}"
     return headers
 
+
 # Incident.io API configuration (API key fetched per-workspace from config-service)
 INCIDENT_IO_API_BASE = "https://api.incident.io"
 

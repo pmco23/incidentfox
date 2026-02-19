@@ -66,7 +66,9 @@ INVESTIGATE_AUTH_TOKEN = os.getenv("INVESTIGATE_AUTH_TOKEN", "")
 if INVESTIGATE_AUTH_TOKEN:
     print("🔒 /investigate auth enabled (INVESTIGATE_AUTH_TOKEN is set)")
 else:
-    print("⚠️  /investigate auth disabled (INVESTIGATE_AUTH_TOKEN not set — local dev only)")
+    print(
+        "⚠️  /investigate auth disabled (INVESTIGATE_AUTH_TOKEN not set — local dev only)"
+    )
 
 
 def require_service_auth(request: Request) -> None:
