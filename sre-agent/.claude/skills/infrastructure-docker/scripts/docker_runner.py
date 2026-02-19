@@ -8,12 +8,26 @@ import json
 import subprocess
 from typing import Any
 
-
-_ALLOWED_SUBCOMMANDS = frozenset({
-    "ps", "logs", "inspect", "stats", "top", "events", "diff",
-    "images", "info", "version", "network", "volume", "compose",
-    "container", "image", "system",
-})
+_ALLOWED_SUBCOMMANDS = frozenset(
+    {
+        "ps",
+        "logs",
+        "inspect",
+        "stats",
+        "top",
+        "events",
+        "diff",
+        "images",
+        "info",
+        "version",
+        "network",
+        "volume",
+        "compose",
+        "container",
+        "image",
+        "system",
+    }
+)
 
 
 def run_docker(

@@ -249,10 +249,12 @@ class AnswerRequest(BaseModel):
     answers: dict
 
 
-_ALLOWED_DOWNLOAD_HOSTS = frozenset({
-    "files.slack.com",
-    "files-origin.slack.com",
-})
+_ALLOWED_DOWNLOAD_HOSTS = frozenset(
+    {
+        "files.slack.com",
+        "files-origin.slack.com",
+    }
+)
 
 
 def _validate_download_url(url: str) -> None:
@@ -267,6 +269,7 @@ def _validate_download_url(url: str) -> None:
         raise ValueError("Missing hostname in download URL")
     # Block private/internal IPs
     import ipaddress
+
     try:
         ip = ipaddress.ip_address(host)
         if ip.is_private or ip.is_loopback or ip.is_link_local:
@@ -278,7 +281,9 @@ def _validate_download_url(url: str) -> None:
     if host not in _ALLOWED_DOWNLOAD_HOSTS:
         # Allow env override for additional hosts (e.g., Google Drive, Teams)
         extra = os.getenv("ALLOWED_DOWNLOAD_HOSTS", "")
-        extra_hosts = frozenset(h.strip().lower() for h in extra.split(",") if h.strip())
+        extra_hosts = frozenset(
+            h.strip().lower() for h in extra.split(",") if h.strip()
+        )
         if host not in extra_hosts:
             raise ValueError(
                 f"Download host '{host}' not in allowlist. "
