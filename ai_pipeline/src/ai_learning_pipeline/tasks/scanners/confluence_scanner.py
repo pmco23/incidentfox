@@ -122,11 +122,7 @@ async def scan(
     """
     api_token = credentials.get("api_key") or credentials.get("api_token", "")
     email = credentials.get("email") or credentials.get("username", "")
-    base_url = (
-        config.get("base_url")
-        or config.get("url")
-        or config.get("domain", "")
-    )
+    base_url = config.get("base_url") or config.get("url") or config.get("domain", "")
 
     if not api_token or not email:
         _log("no_confluence_credentials")
@@ -155,9 +151,7 @@ async def scan(
             seen_ids.add(page_id)
 
             title = page.get("title", "Untitled")
-            body_html = (
-                page.get("body", {}).get("storage", {}).get("value", "")
-            )
+            body_html = page.get("body", {}).get("storage", {}).get("value", "")
             if not body_html:
                 continue
 
@@ -165,7 +159,9 @@ async def scan(
             if len(content) < 50 or len(content) > MAX_CONTENT_SIZE:
                 continue
 
-            page_url = f"{base_url.rstrip('/')}/wiki{page.get('_links', {}).get('webui', '')}"
+            page_url = (
+                f"{base_url.rstrip('/')}/wiki{page.get('_links', {}).get('webui', '')}"
+            )
 
             documents.append(
                 Document(

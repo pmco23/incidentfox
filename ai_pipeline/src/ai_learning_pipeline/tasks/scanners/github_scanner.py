@@ -166,11 +166,15 @@ def _github_api(
 
 def _list_repos(token: str, org: str) -> List[Dict[str, Any]]:
     """List repos for an org (or user if not an org)."""
-    repos = _github_api(f"/orgs/{org}/repos", token, {"per_page": 100, "sort": "pushed"})
+    repos = _github_api(
+        f"/orgs/{org}/repos", token, {"per_page": 100, "sort": "pushed"}
+    )
     if repos is not None:
         return repos[:MAX_REPOS]
 
-    repos = _github_api(f"/users/{org}/repos", token, {"per_page": 100, "sort": "pushed"})
+    repos = _github_api(
+        f"/users/{org}/repos", token, {"per_page": 100, "sort": "pushed"}
+    )
     return (repos or [])[:MAX_REPOS]
 
 
@@ -363,9 +367,7 @@ async def _generate_architecture_summary(
         return None
 
 
-def _format_architecture_document(
-    architecture: Dict[str, Any], org: str
-) -> str:
+def _format_architecture_document(architecture: Dict[str, Any], org: str) -> str:
     """Format the LLM's JSON output into a readable document for RAG."""
     lines = [f"# Architecture Map: {org}", ""]
 
@@ -479,7 +481,9 @@ async def scan(
     # Pass 2: Architecture map (LLM-generated summary)
     repo_signals = _collect_infra_signals(token, repos, github_org)
     if repo_signals:
-        arch_doc = await _generate_architecture_summary(repo_signals, github_org, org_id)
+        arch_doc = await _generate_architecture_summary(
+            repo_signals, github_org, org_id
+        )
         if arch_doc:
             documents.append(arch_doc)
 

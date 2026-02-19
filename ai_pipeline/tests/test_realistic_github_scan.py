@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-
 from ai_learning_pipeline.tasks.scanners import Document, get_scanner
 from ai_learning_pipeline.tasks.scanners.github_scanner import (
     INFRA_SIGNAL_FILES,
@@ -32,7 +31,6 @@ from ai_learning_pipeline.tasks.scanners.github_scanner import (
     _format_repo_summaries,
     _scan_ops_docs,
 )
-
 
 # ===================================================================
 # Real file contents from incidentfox/aws-playground
@@ -595,7 +593,9 @@ class TestRepoSummaryFormatting:
     def test_formats_multi_repo(self):
         """Should separate repos with dividers."""
         repo_signals = {
-            "incidentfox/aws-playground": {"docker-compose.yml": "services:\n  web: {}"},
+            "incidentfox/aws-playground": {
+                "docker-compose.yml": "services:\n  web: {}"
+            },
             "incidentfox/incidentfox": {"Dockerfile": "FROM python:3.11"},
         }
 
@@ -623,7 +623,13 @@ class TestArchitectureDocFormatting:
                     "repo": "incidentfox/aws-playground",
                     "language": "Go",
                     "framework": "gRPC",
-                    "dependencies": ["Kafka", "Payment", "Shipping", "Email", "Currency"],
+                    "dependencies": [
+                        "Kafka",
+                        "Payment",
+                        "Shipping",
+                        "Email",
+                        "Currency",
+                    ],
                     "deployment": "Kubernetes/Docker",
                     "description": "Handles checkout flow, publishes order events to Kafka",
                 },
@@ -670,7 +676,12 @@ class TestArchitectureDocFormatting:
                 "cloud_provider": "AWS",
                 "databases": ["PostgreSQL"],
                 "message_queues": ["Kafka"],
-                "monitoring": ["Prometheus", "Grafana", "Jaeger", "OpenTelemetry Collector"],
+                "monitoring": [
+                    "Prometheus",
+                    "Grafana",
+                    "Jaeger",
+                    "OpenTelemetry Collector",
+                ],
             },
             "service_dependencies": [
                 {"from": "checkout", "to": "Kafka", "type": "async/message"},
@@ -1027,7 +1038,9 @@ class TestRealisticOnboardingE2E:
 
         # Grafana URL should produce high-confidence signal
         url_signals = [
-            s for s in result.signals if s.signal_type == "url" and s.integration_id == "grafana"
+            s
+            for s in result.signals
+            if s.signal_type == "url" and s.integration_id == "grafana"
         ]
         assert len(url_signals) >= 1
         assert url_signals[0].confidence >= 0.9
@@ -1116,8 +1129,8 @@ class TestRealisticOnboardingE2E:
             patch("httpx.AsyncClient") as mock_http,
         ):
             mock_oai_client = AsyncMock()
-            mock_oai_client.chat.completions.create.return_value = (
-                mock_openai_response(arch_json)
+            mock_oai_client.chat.completions.create.return_value = mock_openai_response(
+                arch_json
             )
             mock_oai_cls.return_value = mock_oai_client
 
@@ -1151,9 +1164,7 @@ class TestRealisticOnboardingE2E:
 
         # Verify RAG ingest was called with correct payload
         post_calls = mock_client.post.call_args_list
-        ingest_calls = [
-            c for c in post_calls if "ingest/batch" in str(c)
-        ]
+        ingest_calls = [c for c in post_calls if "ingest/batch" in str(c)]
         assert len(ingest_calls) >= 1
 
         # Extract the payload sent to RAG

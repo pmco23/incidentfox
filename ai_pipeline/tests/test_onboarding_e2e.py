@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from ai_learning_pipeline.tasks.onboarding_scan import (
     AnalysisResult,
     IntegrationRecommender,
@@ -29,7 +28,6 @@ from ai_learning_pipeline.tasks.scanners.slack_scanner import (
     Signal,
     SlackEnvironmentScanner,
 )
-
 
 # ===================================================================
 # 1. Slack Scanner Tests
@@ -171,7 +169,9 @@ class TestSignalAnalyzer:
         # Patch OpenAI to raise an error
         with patch("openai.AsyncOpenAI") as mock_cls:
             mock_client = AsyncMock()
-            mock_client.chat.completions.create.side_effect = Exception("API unavailable")
+            mock_client.chat.completions.create.side_effect = Exception(
+                "API unavailable"
+            )
             mock_cls.return_value = mock_client
 
             result = await analyzer.analyze(
@@ -411,7 +411,9 @@ class TestGitHubScanner:
         assert len(docs) >= 1
 
         # Check for architecture map document
-        arch_docs = [d for d in docs if d.metadata.get("document_type") == "architecture_map"]
+        arch_docs = [
+            d for d in docs if d.metadata.get("document_type") == "architecture_map"
+        ]
         assert len(arch_docs) == 1
         arch = arch_docs[0]
         assert "payment-service" in arch.content
@@ -509,8 +511,8 @@ class TestOnboardingScanE2E:
         ):
             # OpenAI mock
             mock_oai_client = AsyncMock()
-            mock_oai_client.chat.completions.create.return_value = (
-                mock_openai_response(llm_recs)
+            mock_oai_client.chat.completions.create.return_value = mock_openai_response(
+                llm_recs
             )
             mock_oai.return_value = mock_oai_client
 
@@ -598,7 +600,11 @@ class TestIntegrationScanE2E:
         # Mock credentials endpoint
         creds_response = httpx.Response(
             200,
-            json={"integration_id": "github", "status": "connected", "config": {"api_key": "ghp_test"}},
+            json={
+                "integration_id": "github",
+                "status": "connected",
+                "config": {"api_key": "ghp_test"},
+            },
         )
 
         # Mock effective config
@@ -624,6 +630,7 @@ class TestIntegrationScanE2E:
                     content = github_file_contents.get(key)
                     if content:
                         import base64
+
                         return {
                             "content": base64.b64encode(content.encode()).decode(),
                             "size": len(content),
@@ -631,12 +638,14 @@ class TestIntegrationScanE2E:
                 return None
             return None
 
-        arch_response = json.dumps({
-            "services": [{"name": "payment-service", "language": "Python"}],
-            "infrastructure": {},
-            "service_dependencies": [],
-            "key_observations": [],
-        })
+        arch_response = json.dumps(
+            {
+                "services": [{"name": "payment-service", "language": "Python"}],
+                "infrastructure": {},
+                "service_dependencies": [],
+                "key_observations": [],
+            }
+        )
 
         with (
             patch(
@@ -647,7 +656,9 @@ class TestIntegrationScanE2E:
             patch("httpx.AsyncClient") as mock_http,
         ):
             mock_oai_client = AsyncMock()
-            mock_oai_client.chat.completions.create.return_value = mock_openai_response(arch_response)
+            mock_oai_client.chat.completions.create.return_value = mock_openai_response(
+                arch_response
+            )
             mock_oai_cls.return_value = mock_oai_client
 
             mock_client = AsyncMock()
@@ -672,4 +683,7 @@ class TestIntegrationScanE2E:
 
         assert result["trigger"] == "integration"
         assert result["integration_id"] == "github"
-        assert result.get("ingestion", {}).get("status") in ("ingested", "no_docs_found")
+        assert result.get("ingestion", {}).get("status") in (
+            "ingested",
+            "no_docs_found",
+        )

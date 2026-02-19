@@ -581,9 +581,7 @@ class OnboardingScanTask:
 
         return result
 
-    async def _fetch_credentials(
-        self, integration_id: str
-    ) -> Optional[Dict[str, Any]]:
+    async def _fetch_credentials(self, integration_id: str) -> Optional[Dict[str, Any]]:
         """
         Fetch decrypted credentials for an integration from config service.
 

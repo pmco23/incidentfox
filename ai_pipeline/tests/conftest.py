@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # --- Slack API mock data ---
 
 
@@ -108,10 +107,10 @@ def github_file_contents() -> Dict[str, str]:
     """Mock GitHub file contents keyed by path."""
     return {
         "payment-service/README.md": "# Payment Service\nHandles payment processing via Stripe API.\n\n## Running\n```\ndocker-compose up\n```",
-        "payment-service/Dockerfile": "FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nCMD [\"uvicorn\", \"main:app\"]\n",
+        "payment-service/Dockerfile": 'FROM python:3.11-slim\nWORKDIR /app\nCOPY requirements.txt .\nRUN pip install -r requirements.txt\nCOPY . .\nCMD ["uvicorn", "main:app"]\n',
         "payment-service/requirements.txt": "fastapi==0.104.0\nuvicorn==0.24.0\npsycopg2-binary==2.9.9\nredis==5.0.1\nstripe==7.0.0\n",
         "user-service/README.md": "# User Service\nManages user accounts and authentication.\n",
-        "user-service/Dockerfile": "FROM golang:1.21-alpine\nWORKDIR /app\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY . .\nRUN go build -o server .\nCMD [\"./server\"]\n",
+        "user-service/Dockerfile": 'FROM golang:1.21-alpine\nWORKDIR /app\nCOPY go.mod go.sum ./\nRUN go mod download\nCOPY . .\nRUN go build -o server .\nCMD ["./server"]\n',
         "user-service/go.mod": "module github.com/acme/user-service\n\ngo 1.21\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.9.1\n\tgorm.io/gorm v1.25.5\n)\n",
         "infra/k8s/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: payment-service\nspec:\n  replicas: 3\n  template:\n    spec:\n      containers:\n      - name: payment-service\n        image: acme/payment-service:latest\n        ports:\n        - containerPort: 8080\n",
     }

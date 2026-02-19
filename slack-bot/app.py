@@ -6831,7 +6831,9 @@ if __name__ == "__main__":
             )
             logger.warning("=" * 70)
             logger.warning("")
-            logger.warning(f"Missing environment variables: {', '.join(missing_tokens)}")
+            logger.warning(
+                f"Missing environment variables: {', '.join(missing_tokens)}"
+            )
             logger.warning("")
             logger.warning("To enable Slack integration, add these to your .env file:")
             logger.warning("  SLACK_BOT_TOKEN=xoxb-your-bot-token")

@@ -37,9 +37,7 @@ class IntegrationScanner(Protocol):
 
 # Registry: integration_id -> scanner module's scan function
 # Populated by importing scanner modules below
-SCANNER_REGISTRY: Dict[
-    str, Callable[..., Coroutine[Any, Any, List[Document]]]
-] = {}
+SCANNER_REGISTRY: Dict[str, Callable[..., Coroutine[Any, Any, List[Document]]]] = {}
 
 
 def register_scanner(
