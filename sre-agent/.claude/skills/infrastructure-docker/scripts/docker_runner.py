@@ -9,12 +9,27 @@ import subprocess
 from typing import Any
 
 
+_ALLOWED_SUBCOMMANDS = frozenset({
+    "ps", "logs", "inspect", "stats", "top", "events", "diff",
+    "images", "info", "version", "network", "volume", "compose",
+    "container", "image", "system",
+})
+
+
 def run_docker(
     args: list[str],
     cwd: str | None = None,
     timeout_s: float = 300.0,
 ) -> dict[str, Any]:
     """Run a docker command and return structured output."""
+    subcmd = args[0] if args else ""
+    if subcmd not in _ALLOWED_SUBCOMMANDS:
+        allowed = ", ".join(sorted(_ALLOWED_SUBCOMMANDS))
+        return {
+            "ok": False,
+            "error": f"Subcommand '{subcmd}' not allowed. Allowed: {allowed}",
+            "cmd": f"docker {' '.join(args)}",
+        }
     cmd = ["docker"] + args
     try:
         result = subprocess.run(

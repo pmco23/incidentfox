@@ -389,6 +389,7 @@ static_resources:
                     "sandbox": sandbox_name,
                 },
             ),
+            immutable=True,
             data={"envoy.yaml": envoy_config},
         )
 
@@ -398,9 +399,12 @@ static_resources:
             )
         except ApiException as e:
             if e.status == 409:
-                # ConfigMap already exists, update it
-                self.core_api.replace_namespaced_config_map(
-                    name=configmap_name, namespace=self.namespace, body=configmap
+                # ConfigMap already exists — delete and recreate (immutable ConfigMaps can't be patched)
+                self.core_api.delete_namespaced_config_map(
+                    name=configmap_name, namespace=self.namespace
+                )
+                self.core_api.create_namespaced_config_map(
+                    namespace=self.namespace, body=configmap
                 )
             else:
                 raise

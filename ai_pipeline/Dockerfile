@@ -17,6 +17,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy source code
 COPY src /app/src
 
+RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+USER appuser
+
 ENV PYTHONPATH=/app/src
 
 # Default command runs the scheduled tasks

@@ -62,8 +62,11 @@ RUN echo "" > ./ultimate_rag/__init__.py
 COPY ultimate_rag/entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
-# Create trees directory
-RUN mkdir -p /app/trees
+# Create trees directory and non-root user
+RUN mkdir -p /app/trees && \
+    useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
 
 # Environment
 ENV RAPTOR_TREES_DIR=/app/trees

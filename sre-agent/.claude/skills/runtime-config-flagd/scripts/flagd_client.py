@@ -13,16 +13,32 @@ Environment variables:
 
 import json
 import os
+import re
 import subprocess
 import sys
 from typing import Any
 
+_RFC1123_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$")
+
+
+def _validate_k8s_name(value: str, label: str) -> str:
+    """Validate a Kubernetes resource name against RFC 1123."""
+    if not _RFC1123_RE.match(value):
+        raise ValueError(
+            f"Invalid {label} name '{value}': must be lowercase alphanumeric/hyphens, 1-63 chars"
+        )
+    return value
+
 
 def get_config() -> dict[str, str]:
     """Get flagd configuration from environment."""
+    ns = os.getenv("FLAGD_NAMESPACE", "otel-demo")
+    cm = os.getenv("FLAGD_CONFIGMAP", "flagd-config")
+    _validate_k8s_name(ns, "namespace")
+    _validate_k8s_name(cm, "configmap")
     return {
-        "namespace": os.getenv("FLAGD_NAMESPACE", "otel-demo"),
-        "configmap": os.getenv("FLAGD_CONFIGMAP", "flagd-config"),
+        "namespace": ns,
+        "configmap": cm,
         "key": os.getenv("FLAGD_KEY", "demo.flagd.json"),
     }
 
