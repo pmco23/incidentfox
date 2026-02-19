@@ -112,6 +112,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.externalSecrets.contract.agentOpenAI.secretName | quote }}
                   key: {{ .Values.externalSecrets.contract.agentOpenAI.apiKeyKey | quote }}
+            {{- if .Values.externalSecrets.contract.ragApiKey }}
+            - name: RAG_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.ragApiKey.secretName | quote }}
+                  key: {{ .Values.externalSecrets.contract.ragApiKey.apiKeyKey | quote }}
+            {{- end }}
           volumeMounts:
             - name: trees-volume
               mountPath: /app/trees
