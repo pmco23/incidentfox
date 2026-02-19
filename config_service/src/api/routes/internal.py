@@ -4,6 +4,8 @@ These endpoints are not exposed externally and use internal auth.
 """
 
 import json
+import os
+import secrets
 import uuid as uuid_lib
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -29,6 +31,10 @@ logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/internal", tags=["internal"])
 
+# Internal service-to-service auth token.
+# In production, set via K8s Secret (shared between orchestrator, slack-bot, sre-agent).
+# If unset, auth check is header-presence-only (local dev with `make dev`).
+_INTERNAL_SERVICE_SECRET = os.getenv("INTERNAL_SERVICE_SECRET", "")
 
 # Priority order for routing identifiers (highest priority first)
 ROUTING_PRIORITY = [
@@ -46,10 +52,17 @@ ROUTING_PRIORITY = [
 def require_internal_service(
     x_internal_service: str = Header(default="", alias="X-Internal-Service"),
 ) -> str:
-    """Validate internal service header."""
+    """Validate internal service header.
+
+    In production (INTERNAL_SERVICE_SECRET set), verifies the header value
+    matches the shared secret. In local dev (unset), only checks presence.
+    """
     if not x_internal_service:
         raise HTTPException(status_code=401, detail="Missing internal service header")
-    # Accept any internal service header for now - can add verification later
+    if _INTERNAL_SERVICE_SECRET and not secrets.compare_digest(
+        x_internal_service, _INTERNAL_SERVICE_SECRET
+    ):
+        raise HTTPException(status_code=403, detail="Invalid internal service token")
     return x_internal_service
 
 

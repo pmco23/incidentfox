@@ -30,7 +30,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 
 def _log(phase: str, msg: str, **fields):
-    payload = {"phase": phase, "message": msg, **fields}
     print(f"\n{'='*60}")
     print(f"[{phase}] {msg}")
     if fields:
@@ -184,8 +183,6 @@ async def main():
 
     import httpx
     from ai_learning_pipeline.tasks.knowledge_extractor import KnowledgeExtractor
-    from ai_learning_pipeline.tasks.onboarding_scan import OnboardingScanTask
-    from ai_learning_pipeline.tasks.scanners import Document
 
     extractor = KnowledgeExtractor()
 

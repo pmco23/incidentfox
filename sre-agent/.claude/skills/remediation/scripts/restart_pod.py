@@ -13,12 +13,24 @@ Examples:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 from kubernetes import client
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
+
+_RFC1123_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$")
+
+
+def _validate_k8s_name(value: str, label: str) -> str:
+    """Validate a Kubernetes resource name against RFC 1123."""
+    if not _RFC1123_RE.match(value):
+        raise ValueError(
+            f"Invalid {label} name '{value}': must be lowercase alphanumeric/hyphens, 1-63 chars"
+        )
+    return value
 
 
 def get_k8s_client():
@@ -60,6 +72,8 @@ def main():
     args = parser.parse_args()
 
     try:
+        _validate_k8s_name(args.pod_name, "pod")
+        _validate_k8s_name(args.namespace, "namespace")
         core_v1 = get_k8s_client()
 
         # First, verify the pod exists

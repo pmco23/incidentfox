@@ -18,6 +18,10 @@ spec:
       imagePullSecrets:
 {{ toYaml .Values.global.imagePullSecrets | indent 8 }}
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: orchestrator
           image: {{ required "services.orchestrator.image is required" .Values.services.orchestrator.image }}
@@ -26,6 +30,12 @@ spec:
             - containerPort: {{ .Values.services.orchestrator.servicePort }}
           resources:
 {{ toYaml .Values.services.orchestrator.resources | indent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: DATABASE_URL
               valueFrom:

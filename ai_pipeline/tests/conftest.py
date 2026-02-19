@@ -1,9 +1,8 @@
 """Shared test fixtures for AI Learning Pipeline tests."""
 
-import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 

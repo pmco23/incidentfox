@@ -16,8 +16,25 @@ Examples:
 """
 
 import argparse
+import re
 import sys
 from pathlib import Path
+
+# RFC 1123 label: lowercase alphanumeric + hyphens, 1-63 chars, must start/end with alphanum
+_RFC1123_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$")
+
+
+def _validate_k8s_name(value: str, label: str) -> str:
+    """Validate a Kubernetes resource name against RFC 1123."""
+    if not _RFC1123_RE.match(value):
+        print(
+            f"Error: Invalid {label} name '{value}'. "
+            f"Must be lowercase alphanumeric/hyphens, 1-63 chars.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return value
+
 
 from kubernetes import client
 from kubernetes import config as k8s_config
@@ -64,6 +81,10 @@ def main():
         help="Show what would happen without executing",
     )
     args = parser.parse_args()
+
+    # Validate inputs before passing to kubectl/K8s API
+    _validate_k8s_name(args.deployment, "deployment")
+    _validate_k8s_name(args.namespace, "namespace")
 
     try:
         apps_v1 = get_k8s_clients()
@@ -158,7 +179,7 @@ def main():
 
             # Use kubectl-style rollback by patching annotations
             # This triggers a new rollout to the previous revision's spec
-            patch = {
+            {
                 "spec": {
                     "template": {
                         "metadata": {

@@ -641,9 +641,12 @@ def handle_answer_submit(ack, body, client):
 
     # Send answers to server
     try:
+        from investigation_handler import _sre_agent_headers
+
         response = requests.post(
             f"{SRE_AGENT_URL}/answer",
             json={"thread_id": thread_id, "answers": answers},
+            headers=_sre_agent_headers(),
             timeout=5,
         )
 
