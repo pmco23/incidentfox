@@ -2524,7 +2524,6 @@ def build_subagent_detail_modal(
     """
     import json
 
-
     # Use URL parameters (ignore deprecated file_id params)
     loading_icon = loading_url
     done_icon = done_url
