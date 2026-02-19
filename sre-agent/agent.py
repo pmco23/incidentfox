@@ -93,21 +93,26 @@ def _extract_images_from_text(text: str) -> tuple[str, list]:
         if path_str.startswith(("http://", "https://", "data:")):
             continue
 
-        # Resolve path
-        # Accept: ./path, /path, /workspace/path, attachments/path
+        # Resolve path — always relative to /workspace
+        # Reject absolute paths that don't start with /workspace
+        workspace = Path("/workspace")
         if path_str.startswith("./"):
-            full_path = Path("/workspace") / path_str[2:]
-        elif path_str.startswith("/"):
+            full_path = workspace / path_str[2:]
+        elif path_str.startswith("/workspace/"):
             full_path = Path(path_str)
-        elif path_str.startswith("attachments/"):
-            full_path = Path("/workspace") / path_str
+        elif path_str.startswith("/"):
+            # Reject other absolute paths (e.g. /var/run/secrets)
+            print(f"⚠️ [IMAGE] Rejecting absolute path: {path_str}")
+            continue
         else:
-            full_path = Path("/workspace") / path_str
+            full_path = workspace / path_str
 
-        # Security: only allow paths within /workspace
+        # Security: resolve symlinks and verify path is within /workspace
         try:
-            resolved = full_path.resolve()
-            if not str(resolved).startswith("/workspace"):
+            resolved = full_path.resolve(strict=False)
+            # Use Path containment check (not string prefix) to prevent
+            # bypass via paths like /workspacefoo
+            if workspace.resolve() not in resolved.parents and resolved != workspace.resolve():
                 print(f"⚠️ [IMAGE] Skipping path outside workspace: {path_str}")
                 continue
         except Exception:

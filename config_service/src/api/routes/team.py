@@ -35,25 +35,12 @@ router = APIRouter(prefix="/api/v1/team", tags=["team"])
 
 
 def require_write_access(team: TeamPrincipal) -> None:
-    """
-    Verify the team principal has write access.
-
-    Note: Visitor write access is now ALLOWED for the playground demo.
-    Visitors can configure integrations and agents to try out the product.
-    """
-    # Visitors are now allowed to write for playground demo
-    pass
-
-
-def _check_visitor_write_access(authorization: str) -> None:
-    """
-    Check if the authorization header contains a visitor token.
-
-    Note: Visitor write access is now ALLOWED for the playground demo.
-    Visitors can configure integrations and agents to try out the product.
-    """
-    # Visitors are now allowed to write for playground demo
-    pass
+    """Verify the team principal has write access. Visitors are read-only."""
+    if not team.can_write():
+        raise HTTPException(
+            status_code=403,
+            detail="Visitor accounts have read-only access",
+        )
 
 
 # =============================================================================

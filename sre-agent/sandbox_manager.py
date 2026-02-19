@@ -667,7 +667,7 @@ static_resources:
                             # Envoy sidecar - handles credential injection via ext_authz
                             {
                                 "name": "envoy",
-                                "image": "envoyproxy/envoy:v1.28-latest",
+                                "image": "envoyproxy/envoy:v1.28.7",
                                 "args": [
                                     "--config-path",
                                     "/etc/envoy/envoy.yaml",
@@ -1343,6 +1343,12 @@ static_resources:
         if configured_integrations:
             payload["configured_integrations"] = configured_integrations
 
+        # Build auth headers for /claim endpoint
+        claim_headers = {}
+        auth_token = os.getenv("INVESTIGATE_AUTH_TOKEN", "")
+        if auth_token:
+            claim_headers["Authorization"] = f"Bearer {auth_token}"
+
         # Try direct pod IP first (avoids DNS propagation delays)
         for attempt in range(5):
             pod_ip = self._get_sandbox_pod_ip(sandbox_name)
@@ -1351,6 +1357,7 @@ static_resources:
                     response = requests.post(
                         f"http://{pod_ip}:8888/claim",
                         json=payload,
+                        headers=claim_headers,
                         timeout=10,
                     )
                     response.raise_for_status()

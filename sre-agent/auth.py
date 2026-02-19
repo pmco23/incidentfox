@@ -23,7 +23,12 @@ import jwt
 
 # Shared secret between server and credential-resolver
 # In production, load from K8s Secret (same secret in both deployments)
-JWT_SECRET = os.getenv("JWT_SECRET", "incidentfox-sandbox-jwt-secret-change-in-prod")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+if not JWT_SECRET:
+    raise RuntimeError(
+        "JWT_SECRET environment variable is required. "
+        "Set it in .env for local dev or via K8s Secret in production."
+    )
 
 # JWT settings (must match credential-resolver/jwt_auth.py)
 JWT_ALGORITHM = "HS256"
