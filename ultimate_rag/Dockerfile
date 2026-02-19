@@ -5,6 +5,8 @@ FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
+RUN useradd -m -u 1000 appuser
+
 # Install system dependencies including AWS CLI
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
@@ -66,6 +68,9 @@ RUN chmod +x entrypoint.sh
 RUN mkdir -p /app/trees && \
     useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
+USER appuser
+
+RUN chown -R appuser:appuser /app /app/trees
 USER appuser
 
 # Environment

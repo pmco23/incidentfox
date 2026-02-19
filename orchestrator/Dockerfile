@@ -2,6 +2,8 @@ FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
+RUN useradd -m -u 1000 appuser
+
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
   gcc \
   && rm -rf /var/lib/apt/lists/*
@@ -28,6 +30,9 @@ RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser 
 USER appuser
 
 ENV PYTHONPATH=/app/src
+
+RUN chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8070
 

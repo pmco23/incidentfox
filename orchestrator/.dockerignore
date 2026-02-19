@@ -10,10 +10,10 @@ venv/
 .env.*
 .git/
 .gitignore
+.vscode/
+.idea/
 *.md
+!README.md
 tests/
 k8s/
 Makefile
-.vscode/
-.idea/
-uv.lock

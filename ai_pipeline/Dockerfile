@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN useradd -m -u 1000 appuser
+
 # Install system dependencies
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends curl && \
@@ -21,6 +23,9 @@ RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser 
 USER appuser
 
 ENV PYTHONPATH=/app/src
+
+RUN chown -R appuser:appuser /app
+USER appuser
 
 # Default command runs the scheduled tasks
 # Override with specific subcommands: run-ingestion, run-teaching, run-maintenance
