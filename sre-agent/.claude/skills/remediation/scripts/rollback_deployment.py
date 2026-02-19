@@ -20,7 +20,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # RFC 1123 label: lowercase alphanumeric + hyphens, 1-63 chars, must start/end with alphanum
 _RFC1123_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?$")
 
@@ -35,6 +34,7 @@ def _validate_k8s_name(value: str, label: str) -> str:
         )
         sys.exit(1)
     return value
+
 
 from kubernetes import client
 from kubernetes import config as k8s_config

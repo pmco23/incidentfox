@@ -112,7 +112,10 @@ def _extract_images_from_text(text: str) -> tuple[str, list]:
             resolved = full_path.resolve(strict=False)
             # Use Path containment check (not string prefix) to prevent
             # bypass via paths like /workspacefoo
-            if workspace.resolve() not in resolved.parents and resolved != workspace.resolve():
+            if (
+                workspace.resolve() not in resolved.parents
+                and resolved != workspace.resolve()
+            ):
                 print(f"⚠️ [IMAGE] Skipping path outside workspace: {path_str}")
                 continue
         except Exception:
