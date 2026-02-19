@@ -35,16 +35,25 @@ def _validate_k8s_name(value: str, label: str) -> str:
 
 
 def get_k8s_client():
-    """Get Kubernetes API client."""
+    """Get Kubernetes API client.
+
+    Prefers in-cluster service account auth (correct RBAC identity)
+    over kubeconfig (which may resolve to the EC2 node IAM identity).
+    """
     in_cluster = Path("/var/run/secrets/kubernetes.io/serviceaccount/token")
     kubeconfig = Path.home() / ".kube" / "config"
 
     if in_cluster.exists():
         k8s_config.load_incluster_config()
+        print("[k8s-auth] Using in-cluster service account", file=sys.stderr)
     elif kubeconfig.exists():
         k8s_config.load_kube_config()
+        print("[k8s-auth] Using kubeconfig (fallback)", file=sys.stderr)
     else:
-        print("Error: Kubernetes not configured.", file=sys.stderr)
+        print(
+            "Error: Kubernetes not configured. No in-cluster token or ~/.kube/config.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     return client.AppsV1Api()
