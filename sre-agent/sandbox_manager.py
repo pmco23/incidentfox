@@ -622,9 +622,10 @@ static_resources:
                                     {"name": "THREAD_ID", "value": thread_id},
                                     {"name": "SANDBOX_NAME", "value": sandbox_name},
                                     {"name": "NAMESPACE", "value": self.namespace},
-                                    # JWT for authenticating with credential-resolver
-                                    # (used by scripts that call credential-resolver directly)
-                                    {"name": "SANDBOX_JWT", "value": jwt_token},
+                                    # NOTE: SANDBOX_JWT is NOT set as an env var to avoid
+                                    # exposure via `kubectl get pod -o yaml` or /proc/*/environ.
+                                    # The /claim endpoint writes it to /tmp/sandbox-jwt and
+                                    # sets os.environ["SANDBOX_JWT"] for skill scripts.
                                 ],
                                 "resources": {
                                     "requests": {

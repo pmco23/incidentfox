@@ -20,12 +20,48 @@ _ALLOWED_SUBCOMMANDS = frozenset(
         "images",
         "info",
         "version",
-        "network",
-        "volume",
-        "compose",
+    }
+)
+
+# For multi-level commands (docker container ls, docker network inspect),
+# block destructive sub-subcommands
+_BLOCKED_SUB_SUBCOMMANDS = frozenset(
+    {
+        "rm",
+        "remove",
+        "prune",
+        "kill",
+        "stop",
+        "pause",
+        "unpause",
+        "create",
+        "run",
+        "exec",
+        "attach",
+        "commit",
+        "export",
+        "import",
+        "push",
+        "pull",
+        "build",
+        "tag",
+        "rmi",
+        "load",
+        "save",
+        "connect",
+        "disconnect",
+    }
+)
+
+# These top-level commands are allowed but restricted to read-only sub-subcommands
+_MULTI_LEVEL_COMMANDS = frozenset(
+    {
         "container",
         "image",
         "system",
+        "network",
+        "volume",
+        "compose",
     }
 )
 
@@ -37,13 +73,23 @@ def run_docker(
 ) -> dict[str, Any]:
     """Run a docker command and return structured output."""
     subcmd = args[0] if args else ""
-    if subcmd not in _ALLOWED_SUBCOMMANDS:
-        allowed = ", ".join(sorted(_ALLOWED_SUBCOMMANDS))
+    all_allowed = _ALLOWED_SUBCOMMANDS | _MULTI_LEVEL_COMMANDS
+    if subcmd not in all_allowed:
+        allowed = ", ".join(sorted(all_allowed))
         return {
             "ok": False,
             "error": f"Subcommand '{subcmd}' not allowed. Allowed: {allowed}",
             "cmd": f"docker {' '.join(args)}",
         }
+    # For multi-level commands, check that the sub-subcommand is not destructive
+    if subcmd in _MULTI_LEVEL_COMMANDS and len(args) > 1:
+        sub_subcmd = args[1]
+        if sub_subcmd in _BLOCKED_SUB_SUBCOMMANDS:
+            return {
+                "ok": False,
+                "error": f"Destructive operation 'docker {subcmd} {sub_subcmd}' is not allowed.",
+                "cmd": f"docker {' '.join(args)}",
+            }
     cmd = ["docker"] + args
     try:
         result = subprocess.run(
