@@ -135,83 +135,97 @@ This phase is highly parallelizable. Each tool port is independent:
 
 ---
 
-## Phase 1: Security Audit (Critical Path)
+## Phase 1: Security Audit (Critical Path) ✅ COMPLETE
 
 **Why**: This runs in customer environments with access to their K8s clusters, cloud accounts, and secrets. A security bug here is an existential risk.
 
-### 1A. Secrets & credential handling
-- [ ] Audit credential-proxy (Envoy + credential-resolver): verify sandboxes truly never see plaintext secrets
-- [ ] Review JWT auth flow: `sre-agent/credential-proxy/src/credential_resolver/jwt_auth.py`
-- [ ] Check for hardcoded secrets, API keys, or tokens in code (not just .env files)
-- [ ] Review `.env.example` — does it accidentally contain real values?
-- [ ] Audit ExternalSecrets → K8s Secrets flow in Helm chart
-- [ ] Review all `values.staging.yaml` / `values.prod.yaml` for leaked secrets
-- [ ] Check gitleaks config (`.gitleaks.toml`) and history for any past leaks
+**Results**: 28 findings across P0-P2. All P0/P1 fixed. P2 fixed. See `.context/findings/phase-1-security-findings.md`.
+**PRs**: #430 (longyi-07/p0-security-fixes)
 
-### 1B. Sandbox security (gVisor)
-- [ ] Review `sre-agent/sandbox_manager.py` (1700 lines) — this controls isolation
-- [ ] Verify gVisor runtime is enforced, not optional
-- [ ] Check sandbox pod specs for privilege escalation vectors (hostNetwork, hostPID, capabilities)
-- [ ] Review `sre-agent/k8s/sandbox-template.yaml` and warmpool variants
-- [ ] Verify network policies in `credential-proxy/k8s/networkpolicy.yaml`
-- [ ] Check if sandbox pods can reach the internet directly (should go through credential-proxy)
+### 1A. Secrets & credential handling ✅
+- [x] Audit credential-proxy (Envoy + credential-resolver): verify sandboxes truly never see plaintext secrets
+- [x] Review JWT auth flow: `sre-agent/credential-proxy/src/credential_resolver/jwt_auth.py`
+- [x] Check for hardcoded secrets, API keys, or tokens in code (not just .env files)
+- [x] Review `.env.example` — does it accidentally contain real values?
+- [x] Audit ExternalSecrets → K8s Secrets flow in Helm chart
+- [x] Review all `values.staging.yaml` / `values.prod.yaml` for leaked secrets
+- [x] Check gitleaks config (`.gitleaks.toml`) and history for any past leaks
+- **Fixed**: Hardcoded JWT default (P1-7), staging/prod secret separation (P1-11), Datadog key prefix in logs (P2-19), subscription status in logs (P2-20)
 
-### 1C. Auth & multi-tenancy
-- [ ] Audit tenant isolation in config-service: can tenant A see tenant B's data?
-- [ ] Review token hashing and auth in `config_service/src/api/routes/`
-- [ ] Check RBAC implementation in config-service
-- [ ] Review web_ui auth flow (next-auth, bearer tokens, OIDC)
-- [ ] Audit `web_ui/src/app/api/_utils/upstream.ts` — this proxies to backend services
-- [ ] Check for IDOR vulnerabilities in API routes (org/team ID validation)
+### 1B. Sandbox security (gVisor) ✅
+- [x] Review `sre-agent/sandbox_manager.py` (1700 lines) — this controls isolation
+- [x] Verify gVisor runtime is enforced, not optional
+- [x] Check sandbox pod specs for privilege escalation vectors (hostNetwork, hostPID, capabilities)
+- [x] Review `sre-agent/k8s/sandbox-template.yaml` and warmpool variants
+- [x] Verify network policies in `credential-proxy/k8s/networkpolicy.yaml`
+- [x] Check if sandbox pods can reach the internet directly (should go through credential-proxy)
+- **Fixed**: /investigate auth (P0-1), admin route scoping (P0-2), direct secret mounts removed (P0-3), NetworkPolicy for egress (P0-4), gVisor mandatory (P0-5), warm pool claim auth (P1-8), claim race condition (P1-9), ConfigMap RBAC scoping (P1-13), immutable ConfigMaps (P2-28)
 
-### 1D. Input validation & injection
-- [ ] Review all FastAPI endpoints for input validation (Pydantic models?)
-- [ ] Check for SQL injection in config-service (SQLAlchemy usage, raw queries?)
-- [ ] Look for command injection in sre-agent scripts
-- [ ] Review Slack input handling in `slack-bot/app.py` (8000+ lines)
-- [ ] Check webhook signature verification in orchestrator (`webhooks/signatures.py`)
+### 1C. Auth & multi-tenancy ✅
+- [x] Audit tenant isolation in config-service: can tenant A see tenant B's data?
+- [x] Review token hashing and auth in `config_service/src/api/routes/`
+- [x] Check RBAC implementation in config-service
+- [x] Review web_ui auth flow (next-auth, bearer tokens, OIDC)
+- [x] Audit `web_ui/src/app/api/_utils/upstream.ts` — this proxies to backend services
+- [x] Check for IDOR vulnerabilities in API routes (org/team ID validation)
+- **Fixed**: Visitor write access check (P1-10)
 
-### 1E. Docker & infrastructure security
-- [ ] Audit all 16 Dockerfiles for best practices (non-root, minimal images, pinned versions)
-- [ ] Review orchestrator Dockerfile CVE patching hack (setuptools vendor workaround)
-- [ ] Check `.dockerignore` files exist and exclude sensitive files
-- [ ] Review Terraform configs in `infra/` for security best practices
-- [ ] Audit Karpenter NodePool config for over-permissive instance types
-- [ ] Review IRSA (IAM Roles for Service Accounts) in Helm chart
+### 1D. Input validation & injection ✅
+- [x] Review all FastAPI endpoints for input validation (Pydantic models?)
+- [x] Check for SQL injection in config-service (SQLAlchemy usage, raw queries?)
+- [x] Look for command injection in sre-agent scripts
+- [x] Review Slack input handling in `slack-bot/app.py` (8000+ lines)
+- [x] Check webhook signature verification in orchestrator (`webhooks/signatures.py`)
+- **Fixed**: kubectl arg validation (P1-14), path traversal in file extraction (P1-15), SSRF on file proxy (P2-21), flagd kubectl validation (P2-26), docker subcommand whitelist (P2-27)
+
+### 1E. Docker & infrastructure security ✅
+- [x] Audit all 16 Dockerfiles for best practices (non-root, minimal images, pinned versions)
+- [x] Review orchestrator Dockerfile CVE patching hack (setuptools vendor workaround)
+- [x] Check `.dockerignore` files exist and exclude sensitive files
+- [x] Review Terraform configs in `infra/` for security best practices
+- [x] Audit Karpenter NodePool config for over-permissive instance types
+- [x] Review IRSA (IAM Roles for Service Accounts) in Helm chart
+- **Fixed**: Non-root USER in 4 Dockerfiles (P2-16), .dockerignore for 5 services (P2-18), floating image tags pinned (P1-12)
 
 ---
 
-## Phase 2: Core Logic Review — sre-agent
+## Phase 2: Core Logic Review — sre-agent ✅ COMPLETE
 
 **Why**: This is the brain of the product. Bugs here mean wrong answers for customers during incidents.
 
-### 2A. Agent core (`sre-agent/agent.py`)
-- [ ] Read and understand the full agent loop
-- [ ] Review Claude SDK usage — correct API patterns? Error handling?
-- [ ] Check skill loading mechanism — race conditions? Memory leaks on long runs?
-- [ ] Review subagent spawning logic
-- [ ] Verify streaming (SSE) is robust — what happens on disconnect?
-- [ ] Check for prompt injection vulnerabilities in skill content
+**Results**: 38 findings (9 P0, 13 P1, 20 P2, 12 P3). 31 fixed, 7 deferred. See `.context/findings/phase-2-sre-agent-findings.md`.
 
-### 2B. Server & API (`sre-agent/server.py`, `server_simple.py`)
-- [ ] Review FastAPI routes — correct auth? Rate limiting?
-- [ ] Check file proxy server (used by Slack for file sharing)
-- [ ] Review SSE streaming implementation
-- [ ] Check error handling — do errors leak internal details?
-- [ ] Review health check endpoints
+### 2A. Agent core (`sre-agent/agent.py`) ✅
+- [x] Read and understand the full agent loop
+- [x] Review Claude SDK usage — correct API patterns? Error handling?
+- [x] Check skill loading mechanism — race conditions? Memory leaks on long runs?
+- [x] Review subagent spawning logic
+- [x] Verify streaming (SSE) is robust — what happens on disconnect?
+- [x] Check for prompt injection vulnerabilities in skill content
+- **Fixed**: Path traversal (P0), error message sanitization (P0), concurrency guard (P1), cleanup unification (P1), log cleanup (P2)
 
-### 2C. Sandbox lifecycle (`sre-agent/sandbox_manager.py`)
-- [ ] Review pod creation, lifecycle, and cleanup
-- [ ] Check for resource leaks (orphaned pods, PVCs)
-- [ ] Review warmpool logic — race conditions on pod claiming?
-- [ ] Check timeout handling — do long-running investigations get cleaned up?
-- [ ] Review `sandbox_server.py` — what runs inside the sandbox?
+### 2B. Server & API (`sre-agent/server.py`, `server_simple.py`) ✅
+- [x] Review FastAPI routes — correct auth? Rate limiting?
+- [x] Check file proxy server (used by Slack for file sharing)
+- [x] Review SSE streaming implementation
+- [x] Check error handling — do errors leak internal details?
+- [x] Review health check endpoints
+- **Fixed**: SSRF redirect following (P1), sessions cleanup (P1), Content-Disposition sanitization (P2), input size limits (P2)
 
-### 2D. Skills & scripts
-- [ ] Audit all 24 skills in `sre-agent/.claude/skills/`
-- [ ] Check for dangerous operations (kubectl delete, scaling to 0, etc.) — are they gated?
-- [ ] Review remediation actions — what safeguards exist?
-- [ ] Check script execution environment — proper sandboxing?
+### 2C. Sandbox lifecycle (`sre-agent/sandbox_manager.py`) ✅
+- [x] Review pod creation, lifecycle, and cleanup
+- [x] Check for resource leaks (orphaned pods, PVCs)
+- [x] Review warmpool logic — race conditions on pod claiming?
+- [x] Check timeout handling — do long-running investigations get cleaned up?
+- [x] Review `sandbox_server.py` — what runs inside the sandbox?
+- **Fixed**: SANDBOX_JWT env var removal (P0), immutable ConfigMaps (P2-28 from Phase 1)
+
+### 2D. Skills & scripts ✅
+- [x] Audit all 45 skills in `sre-agent/.claude/skills/`
+- [x] Check for dangerous operations (kubectl delete, scaling to 0, etc.) — are they gated?
+- [x] Review remediation actions — what safeguards exist?
+- [x] Check script execution environment — proper sandboxing?
+- **Fixed**: SQL injection in PostgreSQL/MySQL (P0), dead container_exec.py removed (P0), SA token CLI exposure (P0), RFC 1123 validation (P1), scale-to-zero gate (P1), TLS verify configurable (P1), Docker destructive ops blocked (P2), URL injection (P2), env var redaction expanded (P2)
 
 ---
 

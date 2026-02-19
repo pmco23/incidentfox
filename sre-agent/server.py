@@ -18,6 +18,7 @@ File Proxy Pattern:
 import asyncio
 import logging
 import os
+import re
 import secrets
 import threading
 import time
@@ -34,7 +35,7 @@ from dotenv import load_dotenv
 from events import error_event
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sandbox_manager import (
     SandboxExecutionError,
     SandboxInfo,
@@ -104,6 +105,18 @@ _SESSION_JWT_TTL_HOURS = 24  # JWT valid for 24h (spans multiple sandbox lifetim
 _SESSION_JWT_REUSE_THRESHOLD_MINUTES = 30  # Reuse JWT if >30 min remaining
 
 
+def _cleanup_expired_sessions():
+    """Remove sessions whose JWTs have expired."""
+    now = datetime.now(timezone.utc)
+    expired = [
+        tid
+        for tid, session in _sessions.items()
+        if session.get("jwt_expiry") and session["jwt_expiry"] <= now
+    ]
+    for tid in expired:
+        del _sessions[tid]
+
+
 def get_or_create_session_jwt(
     thread_id: str, tenant_id: str, team_id: str
 ) -> tuple[str, datetime]:
@@ -120,6 +133,9 @@ def get_or_create_session_jwt(
     Returns:
         Tuple of (jwt_token, jwt_expiry)
     """
+    # Periodically clean up expired sessions to prevent unbounded growth
+    _cleanup_expired_sessions()
+
     session = _sessions.get(thread_id)
     now = datetime.now(timezone.utc)
 
@@ -203,9 +219,9 @@ app = FastAPI(
 
 class ImageData(BaseModel):
     type: str = "base64"  # Currently only base64 supported
-    media_type: str  # e.g., "image/png", "image/jpeg"
-    data: str  # Base64-encoded image data
-    filename: Optional[str] = None
+    media_type: str = Field(..., max_length=128)
+    data: str = Field(..., max_length=20_000_000)  # ~15MB decoded
+    filename: Optional[str] = Field(None, max_length=255)
 
 
 class FileAttachment(BaseModel):
@@ -216,23 +232,21 @@ class FileAttachment(BaseModel):
     The server generates download tokens and the sandbox downloads via proxy.
     """
 
-    filename: str  # Original filename (e.g., "data.csv", "logs.txt")
-    size: int  # File size in bytes
-    media_type: str  # MIME type (e.g., "text/csv", "application/json")
-    download_url: str  # Slack's url_private or url_private_download
-    auth_header: str  # "Bearer xoxb-..." for Slack API auth
+    filename: str = Field(..., max_length=255)
+    size: int = Field(..., ge=0, le=100_000_000)  # Max 100MB
+    media_type: str = Field(..., max_length=128)
+    download_url: str = Field(..., max_length=2048)
+    auth_header: str = Field(..., max_length=1024)
 
 
 class InvestigateRequest(BaseModel):
-    prompt: str
-    thread_id: Optional[str] = None  # For follow-ups, generate if not provided
-    tenant_id: Optional[str] = None  # Organization/tenant ID for credential lookup
-    team_id: Optional[str] = None  # Team node ID for credential lookup
-    team_token: Optional[str] = None  # Team token for config-driven agents
-    images: Optional[List[ImageData]] = None  # Optional attached images
-    file_attachments: Optional[List[FileAttachment]] = (
-        None  # File attachments (downloaded via proxy)
-    )
+    prompt: str = Field(..., min_length=1, max_length=500_000)
+    thread_id: Optional[str] = Field(None, max_length=128)
+    tenant_id: Optional[str] = Field(None, max_length=128)
+    team_id: Optional[str] = Field(None, max_length=128)
+    team_token: Optional[str] = Field(None, max_length=512)
+    images: Optional[List[ImageData]] = Field(None, max_length=10)
+    file_attachments: Optional[List[FileAttachment]] = Field(None, max_length=20)
 
 
 class InterruptRequest(BaseModel):
@@ -446,7 +460,9 @@ async def proxy_file_download(token: str):
     async def stream_file():
         """Stream file from source to sandbox."""
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(300.0), follow_redirects=False
+            ) as client:
                 async with client.stream(
                     "GET", download_url, headers={"Authorization": auth_header}
                 ) as response:
@@ -482,11 +498,18 @@ async def proxy_file_download(token: str):
     # If download fails, user needs to re-request the file
     del _file_download_tokens[token]
 
+    # Sanitize filename: strip path components, remove dangerous characters
+    safe_filename = os.path.basename(filename)
+    safe_filename = safe_filename.replace("\x00", "").replace('"', "").replace("\\", "")
+    safe_filename = re.sub(r"[^\w\.\-\(\) ]", "_", safe_filename)
+    if not safe_filename:
+        safe_filename = "download"
+
     return StreamingResponse(
         stream_file(),
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
         },
     )
 
