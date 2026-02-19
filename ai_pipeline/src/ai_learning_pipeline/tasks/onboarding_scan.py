@@ -425,9 +425,11 @@ class OnboardingScanTask:
         self,
         org_id: str,
         team_node_id: str,
+        channel_ids: Optional[List[str]] = None,
     ):
         self.org_id = org_id
         self.team_node_id = team_node_id
+        self.channel_ids = channel_ids  # Team-scoped channels (None = all)
 
         self.config_service_url = os.getenv(
             "CONFIG_SERVICE_URL", "http://config-service:8080"
@@ -455,8 +457,10 @@ class OnboardingScanTask:
             "started_at": datetime.utcnow().isoformat(),
         }
 
-        # 1. Scan Slack
-        scanner = SlackEnvironmentScanner(bot_token=slack_bot_token)
+        # 1. Scan Slack (scoped to team's channels if specified)
+        scanner = SlackEnvironmentScanner(
+            bot_token=slack_bot_token, channel_ids=self.channel_ids
+        )
         scan_result = scanner.scan()
 
         result["channels_scanned"] = scan_result.channels_scanned
@@ -645,7 +649,7 @@ class OnboardingScanTask:
 
         # Ingest into RAG
         return await self._ingest_documents(
-            documents, tree=f"{integration_id}_{self.org_id}"
+            documents, tree=f"{integration_id}_{self.org_id}_{self.team_node_id}"
         )
 
     async def _extract_knowledge_from_docs(
@@ -824,7 +828,7 @@ class OnboardingScanTask:
             )
 
         # Ingest via existing method
-        result = await self._ingest_documents(documents, tree=f"slack_{self.org_id}")
+        result = await self._ingest_documents(documents, tree=f"slack_{self.org_id}_{self.team_node_id}")
         result["items_extracted"] = len(knowledge_items)
         result["raw_messages_processed"] = len(messages)
 

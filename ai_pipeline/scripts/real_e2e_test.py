@@ -178,67 +178,74 @@ async def main():
     )
 
     # =========================================================
-    # PHASE 4: Ingest Slack Knowledge into RAG
+    # PHASE 4: LLM Knowledge Extraction + Ingest Slack into RAG
     # =========================================================
-    _log("PHASE 4", "Ingesting Slack messages into RAG...")
-
-    from collections import defaultdict
-    from datetime import datetime
+    _log("PHASE 4", "Extracting knowledge from Slack messages with LLM...")
 
     import httpx
+    from ai_learning_pipeline.tasks.knowledge_extractor import KnowledgeExtractor
     from ai_learning_pipeline.tasks.onboarding_scan import OnboardingScanTask
+    from ai_learning_pipeline.tasks.scanners import Document
 
-    # Build documents from collected messages
-    by_channel = defaultdict(list)
-    for msg in scan_result.collected_messages:
-        by_channel[msg.channel_name].append(msg)
+    extractor = KnowledgeExtractor()
 
-    slack_documents = []
-    for channel_name, ch_messages in by_channel.items():
-        ch_messages.sort(key=lambda m: m.ts)
-        lines = []
-        participants = set()
-        for msg in ch_messages:
-            ts_float = float(msg.ts) if msg.ts else 0
-            ts_str = (
-                datetime.fromtimestamp(ts_float).strftime("%Y-%m-%d %H:%M")
-                if ts_float
-                else "unknown"
-            )
-            lines.append(f"[{ts_str}] {msg.user}: {msg.text}")
-            participants.add(msg.user)
+    slack_knowledge_items = []
+    if scan_result.collected_messages:
+        start = time.time()
+        slack_knowledge_items = await extractor.extract_from_slack(
+            messages=scan_result.collected_messages,
+            org_id=org_id,
+        )
+        extract_time = time.time() - start
 
-        content = "\n".join(lines)
-        if len(content) < 100:
-            continue
-
-        slack_documents.append(
-            {
-                "content": content,
-                "source_url": f"slack://#{channel_name}",
-                "content_type": "slack_thread",
-                "metadata": {
-                    "channel": channel_name,
-                    "message_count": len(ch_messages),
-                    "participants": list(participants),
-                    "org_id": org_id,
-                    "source": "onboarding_scan",
-                },
-            }
+        _log(
+            "PHASE 4a",
+            "Slack knowledge extraction completed",
+            raw_messages=len(scan_result.collected_messages),
+            knowledge_items_extracted=len(slack_knowledge_items),
+            extract_duration_sec=f"{extract_time:.1f}",
         )
 
-    slack_ingest_result = None
-    if slack_documents:
-        payload = {
-            "documents": slack_documents,
-        }
+        if slack_knowledge_items:
+            print("\n  Extracted knowledge items:")
+            for item in slack_knowledge_items:
+                print(
+                    f"    - [{item.knowledge_type.upper()}] {item.title} "
+                    f"(confidence={item.confidence})"
+                )
+                entities_str = ", ".join(e.name for e in item.entities[:5])
+                if entities_str:
+                    print(f"      entities: {entities_str}")
+                print(f"      content: {item.content[:150]}...")
+
+        # Ingest extracted knowledge into RAG
+        slack_documents = []
+        for item in slack_knowledge_items:
+            slack_documents.append(
+                {
+                    "content": item.content,
+                    "source_url": item.source_url or f"slack://{org_id}",
+                    "content_type": "text",
+                    "metadata": {
+                        "title": item.title,
+                        "knowledge_type": item.knowledge_type,
+                        "entities": [
+                            {"name": e.name, "type": e.entity_type}
+                            for e in item.entities
+                        ],
+                        "confidence": item.confidence,
+                        "org_id": org_id,
+                        "source": "onboarding_scan",
+                    },
+                }
+            )
 
         start = time.time()
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     f"{rag_url}/ingest/batch",
-                    json=payload,
+                    json={"documents": slack_documents, "tree": f"slack_{org_id}"},
                     headers={"Content-Type": "application/json"},
                 )
                 slack_ingest_result = (
@@ -253,14 +260,15 @@ async def main():
         ingest_time = time.time() - start
 
         _log(
-            "PHASE 4 RESULT",
+            "PHASE 4b RESULT",
             "Slack knowledge ingested into RAG",
             documents_sent=len(slack_documents),
+            knowledge_types=list(set(item.knowledge_type for item in slack_knowledge_items)),
             result=json.dumps(slack_ingest_result, default=str)[:300],
             ingest_duration_sec=f"{ingest_time:.1f}",
         )
     else:
-        _log("PHASE 4 RESULT", "No Slack messages to ingest (0 documents)")
+        _log("PHASE 4 RESULT", "No Slack messages to extract (0 messages)")
 
     # =========================================================
     # PHASE 5: GitHub Scan (real GitHub API + real OpenAI)
@@ -312,32 +320,85 @@ async def main():
                     print(f"  Infrastructure: {json.dumps(infra, default=str)[:300]}")
 
     # =========================================================
-    # PHASE 6: Ingest GitHub Knowledge into RAG
+    # PHASE 6: LLM Knowledge Extraction + Ingest GitHub into RAG
     # =========================================================
-    _log("PHASE 6", "Ingesting GitHub documents into RAG...")
+    _log("PHASE 6", "Extracting knowledge from GitHub docs with LLM...")
 
     github_ingest_result = None
+    github_knowledge_items = []
     if github_docs:
-        payload = {
-            "documents": [
-                {
-                    "content": doc.content,
-                    "source_url": doc.source_url,
-                    "content_type": doc.content_type,
-                    "metadata": {
-                        k: v for k, v in doc.metadata.items() if k != "raw_architecture"
-                    },  # Skip large nested dict
-                }
-                for doc in github_docs
-            ],
-        }
+        # Separate architecture maps (already LLM-processed) from regular docs
+        arch_docs = [d for d in github_docs if d.metadata.get("document_type") == "architecture_map"]
+        regular_docs = [d for d in github_docs if d.metadata.get("document_type") != "architecture_map"]
+
+        start = time.time()
+        if regular_docs:
+            github_knowledge_items = await extractor.extract_from_documents(
+                documents=regular_docs,
+                source_type="github",
+            )
+        extract_time = time.time() - start
+
+        _log(
+            "PHASE 6a",
+            "GitHub knowledge extraction completed",
+            raw_docs=len(regular_docs),
+            arch_maps=len(arch_docs),
+            knowledge_items_extracted=len(github_knowledge_items),
+            extract_duration_sec=f"{extract_time:.1f}",
+        )
+
+        if github_knowledge_items:
+            print("\n  Extracted GitHub knowledge items:")
+            for item in github_knowledge_items:
+                print(
+                    f"    - [{item.knowledge_type.upper()}] {item.title} "
+                    f"(confidence={item.confidence})"
+                )
+                entities_str = ", ".join(e.name for e in item.entities[:5])
+                if entities_str:
+                    print(f"      entities: {entities_str}")
+                print(f"      content: {item.content[:150]}...")
+
+        # Build documents for ingestion
+        github_ingest_docs = []
+
+        # Architecture maps pass through with knowledge_type=relational
+        for doc in arch_docs:
+            meta = {k: v for k, v in doc.metadata.items() if k != "raw_architecture"}
+            meta["knowledge_type"] = "relational"
+            github_ingest_docs.append({
+                "content": doc.content,
+                "source_url": doc.source_url,
+                "content_type": doc.content_type,
+                "metadata": meta,
+            })
+
+        # Extracted knowledge items
+        for item in github_knowledge_items:
+            github_ingest_docs.append({
+                "content": item.content,
+                "source_url": item.source_url or "",
+                "content_type": "text",
+                "metadata": {
+                    "title": item.title,
+                    "knowledge_type": item.knowledge_type,
+                    "entities": [
+                        {"name": e.name, "type": e.entity_type}
+                        for e in item.entities
+                    ],
+                    "confidence": item.confidence,
+                    "org_id": org_id,
+                    "source": "integration_scan",
+                },
+            })
 
         start = time.time()
         try:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     f"{rag_url}/ingest/batch",
-                    json=payload,
+                    json={"documents": github_ingest_docs, "tree": f"github_{org_id}"},
                     headers={"Content-Type": "application/json"},
                 )
                 github_ingest_result = (
@@ -351,10 +412,16 @@ async def main():
             github_ingest_result = {"error": str(e)}
         ingest_time = time.time() - start
 
+        all_knowledge_types = (
+            ["relational"] * len(arch_docs)
+            + [item.knowledge_type for item in github_knowledge_items]
+        )
+
         _log(
-            "PHASE 6 RESULT",
+            "PHASE 6b RESULT",
             "GitHub knowledge ingested into RAG",
-            documents_sent=len(github_docs),
+            documents_sent=len(github_ingest_docs),
+            knowledge_types=list(set(all_knowledge_types)),
             result=json.dumps(github_ingest_result, default=str)[:300],
             ingest_duration_sec=f"{ingest_time:.1f}",
         )
@@ -391,26 +458,41 @@ async def main():
     print("\n" + "=" * 60)
     print("REAL E2E TEST SUMMARY")
     print("=" * 60)
-    print(f"  Slack channels scanned:      {scan_result.channels_scanned}")
-    print(f"  Slack messages scanned:       {scan_result.messages_scanned}")
-    print(f"  Signals discovered:           {len(scan_result.signals)}")
+    print(f"  Slack channels scanned:       {scan_result.channels_scanned}")
+    print(f"  Slack messages scanned:        {scan_result.messages_scanned}")
+    print(f"  Signals discovered:            {len(scan_result.signals)}")
     integrations_found = set(s.integration_id for s in scan_result.signals)
-    print(f"  Integrations detected:        {integrations_found}")
-    print(f"  LLM recommendations:          {len(analysis.recommendations)}")
-    print(f"  Pending changes created:      {len(change_ids)}")
-    print(f"  Slack docs ingested to RAG:   {len(slack_documents)}")
-    print(f"  GitHub docs ingested to RAG:  {len(github_docs)}")
+    print(f"  Integrations detected:         {integrations_found}")
+    print(f"  LLM recommendations:           {len(analysis.recommendations)}")
+    print(f"  Pending changes created:       {len(change_ids)}")
 
-    arch_docs = [
+    print(f"\n  --- Knowledge Extraction ---")
+    print(f"  Slack knowledge items:         {len(slack_knowledge_items)}")
+    slack_kt = set(item.knowledge_type for item in slack_knowledge_items) if slack_knowledge_items else set()
+    print(f"  Slack knowledge types:         {slack_kt or 'none'}")
+    print(f"  GitHub knowledge items:        {len(github_knowledge_items)}")
+    github_kt = set(item.knowledge_type for item in github_knowledge_items) if github_knowledge_items else set()
+    print(f"  GitHub knowledge types:        {github_kt or 'none'}")
+
+    print(f"\n  --- RAG Ingestion ---")
+    print(f"  Slack docs ingested to RAG:    {len(slack_documents) if 'slack_documents' in dir() else 0}")
+    print(f"  GitHub docs ingested to RAG:   {len(github_docs)}")
+
+    arch_docs_summary = [
         d for d in github_docs if d.metadata.get("document_type") == "architecture_map"
     ]
-    if arch_docs:
-        raw = arch_docs[0].metadata.get("raw_architecture", {})
-        print(f"  Architecture map services:    {len(raw.get('services', []))}")
+    if arch_docs_summary:
+        raw = arch_docs_summary[0].metadata.get("raw_architecture", {})
+        print(f"  Architecture map services:     {len(raw.get('services', []))}")
 
-    print(f"\n  Config service:               {config_url}")
-    print(f"  RAG service:                  {rag_url}")
-    print(f"  Org / Team:                   {org_id} / {team_node_id}")
+    all_types = slack_kt | github_kt
+    if arch_docs_summary:
+        all_types.add("relational")
+    print(f"\n  ALL KNOWLEDGE TYPES INGESTED:  {all_types}")
+
+    print(f"\n  Config service:                {config_url}")
+    print(f"  RAG service:                   {rag_url}")
+    print(f"  Org / Team:                    {org_id} / {team_node_id}")
     print("=" * 60)
 
 

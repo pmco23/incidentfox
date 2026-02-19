@@ -1178,4 +1178,4 @@ class TestRealisticOnboardingE2E:
         assert any("checkout" in c.lower() for c in doc_contents)
 
         # Tree should be scoped to integration + org
-        assert ingest_payload["tree"] == "github_org-incidentfox"
+        assert ingest_payload["tree"] == "github_org-incidentfox_default"
