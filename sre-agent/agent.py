@@ -753,7 +753,9 @@ class InteractiveAgentSession:
             raise RuntimeError("Session not started. Call start() first.")
 
         if self.is_running:
-            raise RuntimeError("Session already executing. Wait for current execution to complete.")
+            raise RuntimeError(
+                "Session already executing. Wait for current execution to complete."
+            )
 
         self.is_running = True
         self._was_interrupted = False
@@ -956,7 +958,9 @@ class InteractiveAgentSession:
                     "SDK JSON parsing error. The response was too large or malformed."
                 )
             elif "rate" in error_msg.lower() and "limit" in error_msg.lower():
-                error_msg = "API rate limit reached. Please wait a moment and try again."
+                error_msg = (
+                    "API rate limit reached. Please wait a moment and try again."
+                )
             else:
                 # Don't leak internal details (file paths, DB strings, SDK state)
                 error_msg = "An internal error occurred during the investigation."

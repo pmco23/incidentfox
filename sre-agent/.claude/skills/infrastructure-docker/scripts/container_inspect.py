@@ -28,9 +28,21 @@ def main():
     if args.json:
         # Redact environment variables in JSON output too
         _sensitive_patterns = [
-            "password", "secret", "token", "key", "credential",
-            "auth", "dsn", "url", "uri", "connection", "api_key",
-            "apikey", "access_key", "private", "jwt",
+            "password",
+            "secret",
+            "token",
+            "key",
+            "credential",
+            "auth",
+            "dsn",
+            "url",
+            "uri",
+            "connection",
+            "api_key",
+            "apikey",
+            "access_key",
+            "private",
+            "jwt",
         ]
         for item in result.get("inspection", []):
             env_list = item.get("Config", {}).get("Env", [])
@@ -38,9 +50,8 @@ def main():
                 key = e.split("=")[0] if "=" in e else e
                 val = e.split("=", 1)[1] if "=" in e else ""
                 key_lower = key.lower()
-                if (
-                    any(s in key_lower for s in _sensitive_patterns)
-                    or ("://" in val and "@" in val)
+                if any(s in key_lower for s in _sensitive_patterns) or (
+                    "://" in val and "@" in val
                 ):
                     env_list[i] = f"{key}=***REDACTED***"
         # Remove raw stdout to avoid leaking unredacted data
@@ -68,18 +79,29 @@ def main():
             if env:
                 print(f"\nEnvironment ({len(env)} vars):")
                 _sensitive_patterns = [
-                    "password", "secret", "token", "key", "credential",
-                    "auth", "dsn", "url", "uri", "connection", "api_key",
-                    "apikey", "access_key", "private", "jwt",
+                    "password",
+                    "secret",
+                    "token",
+                    "key",
+                    "credential",
+                    "auth",
+                    "dsn",
+                    "url",
+                    "uri",
+                    "connection",
+                    "api_key",
+                    "apikey",
+                    "access_key",
+                    "private",
+                    "jwt",
                 ]
                 for e in env[:20]:
                     key = e.split("=")[0] if "=" in e else e
                     val = e.split("=", 1)[1] if "=" in e else ""
                     key_lower = key.lower()
                     # Redact if key matches sensitive pattern or value looks like a URL with credentials
-                    if (
-                        any(s in key_lower for s in _sensitive_patterns)
-                        or ("://" in val and "@" in val)
+                    if any(s in key_lower for s in _sensitive_patterns) or (
+                        "://" in val and "@" in val
                     ):
                         print(f"  {key}=***REDACTED***")
                     else:
