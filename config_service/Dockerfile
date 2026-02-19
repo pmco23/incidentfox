@@ -39,13 +39,10 @@ COPY alembic.ini /app/alembic.ini
 COPY scripts /app/scripts
 COPY templates /app/templates
 
-RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app
 USER appuser
 
 ENV PYTHONPATH=/app
-
-RUN chown -R appuser:appuser /app
-USER appuser
 
 EXPOSE 8080
 

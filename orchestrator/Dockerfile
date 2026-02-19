@@ -26,13 +26,10 @@ RUN pip install --no-cache-dir --upgrade "wheel>=0.46.2" && \
     cp -r $SITE_PKGS/wheel $SITE_PKGS/setuptools/_vendor/ && \
     cp -r $SITE_PKGS/wheel-*.dist-info $SITE_PKGS/setuptools/_vendor/
 
-RUN useradd --create-home --shell /bin/bash appuser && chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app
 USER appuser
 
 ENV PYTHONPATH=/app/src
-
-RUN chown -R appuser:appuser /app
-USER appuser
 
 EXPOSE 8070
 
