@@ -122,7 +122,6 @@ UPDATE_INTERVAL_SECONDS = 0.5
 SLACK_APP_MODE = os.environ.get("SLACK_APP_MODE", "socket")
 
 
-
 # =============================================================================
 # Multi-App Handler Registration
 # =============================================================================

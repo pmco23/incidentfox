@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 def get_config_client():
     from config_client import get_config_client as _get_config_client
+
     return _get_config_client()
 
 
 def get_onboarding_modules():
     import onboarding
+
     return onboarding
 
 
@@ -2206,5 +2208,3 @@ def handle_model_options(ack, body):
     except Exception as e:
         logger.error(f"Failed to load model options: {e}", exc_info=True)
         ack(options=[])
-
-

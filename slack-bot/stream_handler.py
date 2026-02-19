@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 SRE_AGENT_URL = os.environ.get("SRE_AGENT_URL", "http://localhost:8000")
 UPDATE_INTERVAL_SECONDS = 0.5
 
+
 def parse_sse_event(line: str) -> Optional[dict]:
     """Parse an SSE data line into a dict."""
     if not line.startswith("data: "):
@@ -762,4 +763,3 @@ def handle_stream_event(state: MessageState, event: dict, client, team_id: str):
 
         # 3. Update the main investigation message to reflect timeout status
         update_slack_message(client, state, team_id)
-

@@ -41,11 +41,13 @@ INCIDENT_IO_API_BASE = "https://api.incident.io"
 
 def get_config_client():
     from config_client import get_config_client as _get_config_client
+
     return _get_config_client()
 
 
 def get_onboarding_modules():
     import onboarding
+
     return onboarding
 
 
@@ -723,7 +725,6 @@ def _handle_mention_impl(event, say, client, context):
 # Track threads where we've already sent a nudge (one nudge per user per thread)
 # Key: (thread_ts, user_id), Value: True
 _nudge_sent: Dict[tuple, bool] = {}
-
 
 
 def _run_auto_listen_investigation(event, client, context):
@@ -2349,4 +2350,3 @@ def handle_coralogix_dismiss(ack, body, respond):
     url = value["url"]
 
     logger.info(f"Coralogix investigation dismissed for: {url[:50]}...")
-
