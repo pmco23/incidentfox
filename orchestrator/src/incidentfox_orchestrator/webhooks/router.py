@@ -1038,7 +1038,9 @@ async def _process_pagerduty_webhook(
 
         imp = await asyncio.to_thread(
             cfg.issue_team_impersonation_token,
-            admin_token, org_id=org_id, team_node_id=team_node_id,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2497,7 +2499,9 @@ async def _process_blameless_webhook(
 
         imp = await asyncio.to_thread(
             cfg.issue_team_impersonation_token,
-            admin_token, org_id=org_id, team_node_id=team_node_id,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2710,7 +2714,9 @@ async def _process_firehydrant_webhook(
 
         imp = await asyncio.to_thread(
             cfg.issue_team_impersonation_token,
-            admin_token, org_id=org_id, team_node_id=team_node_id,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
