@@ -188,8 +188,9 @@ def register_all_handlers(bolt_app):
         handle_open_ai_model_selector,
         handle_open_api_key_modal,
         handle_open_setup_wizard,
+        handle_open_team_setup,
         handle_setup_team_command,
-        handle_setup_team_submission,
+        handle_team_setup_choice,
     )
 
     # Command handlers
@@ -222,6 +223,7 @@ def register_all_handlers(bolt_app):
     bolt_app.action("open_api_key_modal")(handle_open_api_key_modal)
     bolt_app.action("dismiss_setup_message")(handle_dismiss_setup)
     bolt_app.action("open_setup_wizard")(handle_open_setup_wizard)
+    bolt_app.action("open_team_setup")(handle_open_team_setup)
     bolt_app.action("dismiss_welcome")(handle_dismiss_welcome)
     bolt_app.action("k8s_saas_add_cluster")(handle_k8s_saas_add_cluster)
     bolt_app.action("k8s_saas_remove_cluster")(handle_k8s_saas_remove_cluster)
@@ -250,7 +252,7 @@ def register_all_handlers(bolt_app):
     )
 
     # View handlers
-    bolt_app.view("setup_team_submission")(handle_setup_team_submission)
+    bolt_app.view("team_setup_choice")(handle_team_setup_choice)
     bolt_app.view("api_key_submission")(handle_api_key_submission)
     bolt_app.view("integrations_page")(handle_integrations_page_done)
     bolt_app.view("k8s_saas_add_cluster_submission")(
