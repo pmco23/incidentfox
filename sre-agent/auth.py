@@ -17,6 +17,7 @@ Note: JWT validation is in credential-proxy/src/credential_resolver/jwt_auth.py
 """
 
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -62,6 +63,7 @@ def generate_sandbox_jwt(
         "aud": JWT_AUDIENCE,
         "iat": now,
         "exp": now + timedelta(hours=ttl_hours),
+        "jti": uuid.uuid4().hex,  # Unique ID for future revocation support
         # Custom claims
         "tenant_id": tenant_id,
         "team_id": team_id,

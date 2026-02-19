@@ -11,6 +11,7 @@ sandboxes can request credentials for their designated tenant/team.
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -21,6 +22,17 @@ from auth import generate_sandbox_jwt
 from kubernetes import client
 from kubernetes import config as k8s_config
 from kubernetes.client.rest import ApiException
+
+# K8s names must be lowercase alphanumeric + hyphens, 1-63 chars
+_K8S_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,61}[a-z0-9]$")
+
+
+def _validate_thread_id(thread_id: str) -> None:
+    """Validate thread_id is safe for use in K8s names and labels."""
+    if not thread_id or not _K8S_NAME_RE.match(thread_id):
+        raise ValueError(
+            f"Invalid thread_id '{thread_id}': must be lowercase alphanumeric/hyphens, 2-63 chars"
+        )
 
 
 def fetch_configured_integrations(jwt_token: str, tenant_id: str, team_id: str) -> str:
@@ -449,6 +461,7 @@ static_resources:
         Returns:
             SandboxInfo with details about the created sandbox
         """
+        _validate_thread_id(thread_id)
         sandbox_name = f"investigation-{thread_id}"
 
         # Calculate shutdown time (TTL-based cleanup)
@@ -695,6 +708,7 @@ static_resources:
                                     "runAsNonRoot": True,
                                     "runAsUser": 1000,
                                     "allowPrivilegeEscalation": False,
+                                    "capabilities": {"drop": ["ALL"]},
                                 },
                             },
                         ],
@@ -736,6 +750,13 @@ static_resources:
                 namespace=self.namespace,
             )
         except ApiException as e:
+            # Clean up the ConfigMap (contains JWT) to prevent orphaning
+            try:
+                self.core_api.delete_namespaced_config_map(
+                    name=envoy_configmap_name, namespace=self.namespace
+                )
+            except Exception:
+                pass  # Best-effort cleanup
             raise Exception(f"Failed to create sandbox: {e}")
 
     def get_sandbox(self, thread_id: str) -> Optional[SandboxInfo]:
@@ -1120,6 +1141,7 @@ static_resources:
         Returns:
             Tuple of (claim_name, jwt_token)
         """
+        _validate_thread_id(thread_id)
         claim_name = f"claim-{thread_id}"
         sandbox_name = f"investigation-{thread_id}"
 
