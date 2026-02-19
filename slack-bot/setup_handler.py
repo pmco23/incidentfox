@@ -9,12 +9,8 @@ import json
 import logging
 import os
 import re
-import threading
 import time
-import uuid
-from typing import Dict, Optional
-
-from state import _nudge_sent_channels
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 

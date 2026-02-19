@@ -5,16 +5,17 @@ Handles investigation session modals, tool output display, pagination,
 question answering (checkbox/toggle/submit), and user feedback.
 """
 
-import json
 import logging
 import os
 import re
-from typing import Dict, Optional
 
+import requests
 from state import (
-    MessageState,
+    _button_selections,
     _investigation_cache,
     _load_session_from_db,
+    _pending_questions,
+    _question_messages,
 )
 
 logger = logging.getLogger(__name__)
@@ -480,14 +481,6 @@ def handle_subagent_modal_pagination(ack, body, client):
         logger.error(f"Failed to update subagent modal for pagination: {e}")
 
 
-# Track button selections in memory (thread_id -> {q_idx: selected_value})
-_button_selections = {}
-
-# Track pending questions for displaying in submitted answer summary (thread_id -> questions list)
-_pending_questions = {}
-
-# Track question message timestamps for timeout updates (thread_id -> {message_ts, channel_id})
-_question_messages = {}
 
 
 def handle_checkbox_action(ack, body, client):

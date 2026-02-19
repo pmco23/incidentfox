@@ -7,10 +7,8 @@ auto-listen mode, and external alert integrations (Incident.io, Coralogix).
 
 import json
 import logging
-import os
 import re
 import threading
-import time
 from typing import Dict, Optional
 
 import requests
@@ -18,27 +16,19 @@ from file_handler import (
     _download_slack_image,
     _extract_file_attachments_from_event,
     _extract_images_from_event,
-    _upload_base64_file_to_slack,
-    _upload_base64_image_to_slack,
-    _upload_image_to_slack,
+    _get_file_attachment_metadata,
 )
 from state import (
     MessageState,
-    ThoughtSection,
+    _auto_listen_threads,
     _cache_timestamps,
-    _cleanup_old_cache_entries,
     _get_user_display_name,
     _investigation_cache,
-    _nudge_sent_channels,
     _persist_session_to_db,
     save_investigation_snapshot,
 )
 from stream_handler import (
     SRE_AGENT_URL,
-    UPDATE_INTERVAL_SECONDS,
-    build_final_blocks,
-    build_progress_blocks,
-    build_question_blocks,
     handle_stream_event,
     parse_sse_event,
     update_slack_message,
@@ -734,9 +724,6 @@ def _handle_mention_impl(event, say, client, context):
 # Key: (thread_ts, user_id), Value: True
 _nudge_sent: Dict[tuple, bool] = {}
 
-# Track threads where auto-listen is active (bot responds without @mention)
-# Key: (channel_id, thread_ts), Value: True
-_auto_listen_threads: Dict[tuple, bool] = {}
 
 
 def _run_auto_listen_investigation(event, client, context):

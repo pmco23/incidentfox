@@ -9,8 +9,6 @@ attachment metadata extraction from Slack events.
 import logging
 import os
 
-import requests
-
 logger = logging.getLogger(__name__)
 
 SRE_AGENT_URL = os.environ.get("SRE_AGENT_URL", "http://localhost:8000")

@@ -8,9 +8,7 @@ for progressive investigation updates, and managing the streaming lifecycle.
 import json
 import logging
 import os
-import re
-import time
-from typing import Dict, Optional
+from typing import Optional
 
 from file_handler import (
     _is_image_output,
@@ -21,12 +19,12 @@ from file_handler import (
 from state import (
     MessageState,
     ThoughtSection,
+    _auto_listen_threads,
     _cache_timestamps,
     _cleanup_old_cache_entries,
-    _get_user_display_name,
     _investigation_cache,
-    _persist_session_to_db,
-    save_investigation_snapshot,
+    _pending_questions,
+    _question_messages,
 )
 
 logger = logging.getLogger(__name__)

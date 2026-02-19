@@ -31,6 +31,19 @@ def get_config_client():
 # Key format: "{team_id}:{channel_id}"
 _nudge_sent_channels: set = set()
 
+# Track threads where auto-listen is active (bot responds without @mention)
+# Key: (channel_id, thread_ts), Value: True
+_auto_listen_threads: Dict[tuple, bool] = {}
+
+# Track button selections in memory (thread_id -> {q_idx: selected_value})
+_button_selections = {}
+
+# Track pending questions for displaying in submitted answer summary (thread_id -> questions list)
+_pending_questions = {}
+
+# Track question message timestamps for timeout updates (thread_id -> {message_ts, channel_id})
+_question_messages = {}
+
 # LRU cache for Slack user display name lookups (avoids repeated API calls
 # when the same users keep chatting in the same thread)
 _user_name_cache: Dict[str, str] = {}
