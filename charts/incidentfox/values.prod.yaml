@@ -104,6 +104,8 @@ externalSecrets:
       secretName: incidentfox-jwt-secret
       secretKey: JWT_SECRET
       remoteRefKey: incidentfox/prod/jwt_secret
+      investigateAuthTokenKey: INVESTIGATE_AUTH_TOKEN
+      investigateAuthTokenRemoteRefKey: incidentfox/prod/investigate_auth_token
     # Shared Anthropic key for free trials
     sharedAnthropicKey:
       enabled: true
