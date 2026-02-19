@@ -15,7 +15,7 @@ import os
 import urllib.parse
 import urllib.request
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from . import Document, register_scanner
 

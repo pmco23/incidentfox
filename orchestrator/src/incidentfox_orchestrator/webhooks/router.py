@@ -384,8 +384,6 @@ async def _process_github_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
     audit_api = None
 
@@ -491,7 +489,7 @@ async def _process_github_webhook(
                     )
                     return
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Construct message based on event type
         message = _build_github_message(event_type, payload)
@@ -988,7 +986,6 @@ async def _process_pagerduty_webhook(
     """Process PagerDuty webhook asynchronously."""
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
-        AuditApiClient,
         ConfigServiceClient,
     )
 
@@ -1001,15 +998,12 @@ async def _process_pagerduty_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
-    audit_api = None
 
     try:
         cfg: ConfigServiceClient = request.app.state.config_service
         agent_api: AgentApiClient = request.app.state.agent_api
-        audit_api = getattr(request.app.state, "audit_api", None)
+        getattr(request.app.state, "audit_api", None)
         correlation_service: Optional[CorrelationServiceClient] = getattr(
             request.app.state, "correlation_service", None
         )
@@ -1061,7 +1055,7 @@ async def _process_pagerduty_webhook(
         except Exception:
             pass  # Fall back to shared agent
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Build message
         event_type = event.get("event_type", "")
@@ -1383,7 +1377,6 @@ async def _process_incidentio_webhook(
 
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
-        AuditApiClient,
         ConfigServiceClient,
     )
 
@@ -1400,15 +1393,12 @@ async def _process_incidentio_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
-    audit_api = None
 
     try:
         cfg: ConfigServiceClient = request.app.state.config_service
         agent_api: AgentApiClient = request.app.state.agent_api
-        audit_api = getattr(request.app.state, "audit_api", None)
+        getattr(request.app.state, "audit_api", None)
         correlation_service: Optional[CorrelationServiceClient] = getattr(
             request.app.state, "correlation_service", None
         )
@@ -1472,7 +1462,7 @@ async def _process_incidentio_webhook(
         except Exception:
             pass  # Fall back to shared agent
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Build message - handle both public alerts and incidents
         if is_public_alert:

@@ -4,7 +4,7 @@ Modal Builder - Build Slack modals for detailed investigation views
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from markdown_utils import slack_mrkdwn
 
@@ -2533,7 +2533,6 @@ def build_subagent_detail_modal(
     """
     import json
 
-    from markdown_utils import slack_mrkdwn
 
     # Use URL parameters (ignore deprecated file_id params)
     loading_icon = loading_url

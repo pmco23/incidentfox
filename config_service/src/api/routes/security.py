@@ -941,7 +941,6 @@ async def test_sso_config(
 
     # Use provided values or fall back to stored config
     issuer = body.issuer or (config.issuer if config else None)
-    client_id = body.client_id or (config.client_id if config else None)
 
     if not issuer:
         return SSOTestResponse(success=False, message="Issuer URL is required")

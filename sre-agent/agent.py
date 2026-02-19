@@ -32,7 +32,7 @@ import mimetypes
 import os
 import re
 from pathlib import Path
-from typing import AsyncIterator, Optional, Union
+from typing import AsyncIterator
 
 # Claude SDK imports
 from claude_agent_sdk import (
@@ -43,7 +43,6 @@ from claude_agent_sdk import (
     ResultMessage,
     TextBlock,
 )
-from claude_agent_sdk.types import StreamEvent as SDKStreamEvent
 from dotenv import load_dotenv
 from events import (
     StreamEvent,

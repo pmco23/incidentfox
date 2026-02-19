@@ -16,7 +16,7 @@ import os
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 
 class _RestrictedUnpickler(pickle.Unpickler):
@@ -75,7 +75,7 @@ def safe_pickle_loads(data: bytes) -> Any:
 
 
 from .node import KnowledgeNode, KnowledgeTree, TreeForest
-from .types import ImportanceScore, KnowledgeType
+from .types import KnowledgeType
 
 logger = logging.getLogger(__name__)
 

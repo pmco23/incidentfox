@@ -7,11 +7,8 @@ GRAFANA_API_KEY in environment variables.
 
 import json
 import os
-import sys
-import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 

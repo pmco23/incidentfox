@@ -2659,7 +2659,6 @@ def extract_datadog_site(input_str: str) -> tuple[bool, str, str]:
         (is_valid, site, error_message)
         site is the normalized site value (e.g., "us5.datadoghq.com", "datadoghq.eu")
     """
-    import re
     from urllib.parse import urlparse
 
     if not input_str:
@@ -2728,7 +2727,6 @@ def extract_confluence_url(input_str: str) -> tuple[bool, str, str]:
     Returns:
         (is_valid, base_url, error_message)
     """
-    import re
     from urllib.parse import urlparse
 
     if not input_str:

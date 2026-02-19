@@ -7,9 +7,7 @@ Credentials are injected transparently by the proxy layer.
 Uses Splunk REST API for search operations.
 """
 
-import json
 import os
-import sys
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any

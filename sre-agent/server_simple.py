@@ -26,7 +26,6 @@ from typing import Dict, List, Optional
 
 import httpx
 from dotenv import load_dotenv
-from events import error_event, result_event
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -41,12 +40,12 @@ _file_download_tokens: Dict[str, dict] = {}
 _FILE_TOKEN_TTL_SECONDS = 3600  # 1 hour
 
 import asyncio
-from typing import AsyncIterator
 
 # Thread ID -> background task mapping
 _background_tasks: Dict[str, asyncio.Task] = {}
 _message_queues: Dict[str, asyncio.Queue] = {}  # Queue for sending prompts
 _response_queues: Dict[str, asyncio.Queue] = {}  # Queue for receiving events
+_active_sessions: Dict[str, object] = {}  # Thread ID -> agent session (for interrupt/answer)
 
 app = FastAPI(
     title="IncidentFox Investigation Server (Simple Mode)",
@@ -166,7 +165,6 @@ async def agent_background_task(thread_id: str):
     Background task that keeps ClaudeSDKClient alive for multi-turn conversations.
     Processes messages from queue and sends responses back.
     """
-    import json
 
     from agent import InteractiveAgentSession
 
@@ -432,7 +430,7 @@ async def answer(request: AnswerRequest):
 
     print(f"📬 Forwarding answer to thread {request.thread_id}")
 
-    session = _active_sessions[request.thread_id]
+    _active_sessions[request.thread_id]
     # TODO: Implement answer forwarding when InteractiveAgentSession supports it
 
     return {"status": "ok", "thread_id": request.thread_id}

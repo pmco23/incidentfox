@@ -170,7 +170,7 @@ def main():
 
             # Use kubectl-style rollback by patching annotations
             # This triggers a new rollout to the previous revision's spec
-            patch = {
+            {
                 "spec": {
                     "template": {
                         "metadata": {

@@ -382,7 +382,7 @@ async def update_config(
         )
 
     # Check if approval is required
-    approval_fields = get_fields_requiring_approval(
+    get_fields_requiring_approval(
         body.config,
         config.config_json,
         field_defs,

@@ -23,7 +23,6 @@ import secrets
 import threading
 import time
 import uuid
-from asyncio import Event
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer

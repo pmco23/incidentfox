@@ -26,7 +26,6 @@ from .knowledge_extractor import KnowledgeExtractor
 from .scanners import Document, get_scanner
 from .scanners.slack_scanner import (
     CollectedMessage,
-    ScanResult,
     Signal,
     SlackEnvironmentScanner,
 )

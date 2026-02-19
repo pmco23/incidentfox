@@ -7,9 +7,7 @@ Credentials are injected transparently by the proxy layer.
 Works with Elasticsearch 7.x, 8.x, and 9.x via REST API.
 """
 
-import json
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 

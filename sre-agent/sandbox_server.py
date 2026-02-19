@@ -510,7 +510,6 @@ async def execute(request: ExecuteRequest):
             )
 
         except Exception as e:
-            import traceback
 
             error_msg = str(e)
 

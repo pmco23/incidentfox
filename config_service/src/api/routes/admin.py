@@ -1013,7 +1013,7 @@ def admin_list_org_tokens(
 
     # Verify org exists (org root node has node_id == org_id)
     try:
-        org_node = get_org_node(session, org_id=org_id, node_id=org_id)
+        get_org_node(session, org_id=org_id, node_id=org_id)
     except ValueError:
         raise HTTPException(status_code=404, detail="Organization not found")
 

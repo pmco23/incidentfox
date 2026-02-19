@@ -13,9 +13,7 @@ Datadog Sites:
 - GOV: api.ddog-gov.com
 """
 
-import json
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 

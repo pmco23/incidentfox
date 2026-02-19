@@ -12,7 +12,7 @@ import structlog
 from croniter import croniter
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...db.scheduled_jobs import ScheduledJob

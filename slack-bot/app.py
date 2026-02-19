@@ -14,13 +14,13 @@ import os
 import re
 import threading
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Optional
 
 import requests
 from dotenv import load_dotenv
-from flask import Flask, make_response, redirect, render_template, request
+from flask import Flask, render_template, request
 from installation_store import ConfigServiceInstallationStore
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
@@ -4182,7 +4182,6 @@ def handle_view_full_output(ack, body, client):
     """Handle "View Full" button - show complete untruncated file content."""
     ack()
 
-    import json
 
     # Parse button value: thread_id|thought_idx|tool_idx
     button_value = body["actions"][0].get("value", "")
@@ -4278,7 +4277,6 @@ def handle_view_subagent_details(ack, body, client):
     """Handle "View Details" button for subagent - show all child tool calls."""
     ack()
 
-    import json
 
     # Parse button value: thread_id|thought_idx|task_idx|subagent_id
     button_value = body["actions"][0].get("value", "")

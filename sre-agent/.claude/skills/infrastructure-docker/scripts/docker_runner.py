@@ -4,7 +4,6 @@
 Provides subprocess-based Docker CLI execution with structured output.
 """
 
-import json
 import subprocess
 from typing import Any
 
