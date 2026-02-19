@@ -22,6 +22,7 @@ class Document:
     source_url: str
     content_type: str  # "markdown", "html", "plain_text", "slack_thread"
     metadata: Dict[str, Any] = field(default_factory=dict)
+    knowledge_type: Optional[str] = None  # "procedural", "factual", etc.
 
 
 class IntegrationScanner(Protocol):

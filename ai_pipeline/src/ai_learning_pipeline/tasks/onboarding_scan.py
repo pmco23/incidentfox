@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from .knowledge_extractor import KnowledgeExtractor
 from .scanners import Document, get_scanner
 from .scanners.slack_scanner import (
     CollectedMessage,
@@ -435,6 +436,7 @@ class OnboardingScanTask:
 
         self.analyzer = SignalAnalyzer()
         self.recommender = IntegrationRecommender(self.config_service_url)
+        self.knowledge_extractor = KnowledgeExtractor()
 
     async def run_initial_scan(self, slack_bot_token: str) -> Dict[str, Any]:
         """
@@ -638,25 +640,80 @@ class OnboardingScanTask:
         if not documents:
             return {"status": "no_docs_found"}
 
+        # LLM extraction: transform raw docs into classified knowledge
+        documents = await self._extract_knowledge_from_docs(documents, integration_id)
+
         # Ingest into RAG
         return await self._ingest_documents(
             documents, tree=f"{integration_id}_{self.org_id}"
         )
 
+    async def _extract_knowledge_from_docs(
+        self, documents: List[Document], source_type: str
+    ) -> List[Document]:
+        """Run LLM knowledge extraction on Document objects.
+
+        Transforms raw documents into classified knowledge items with
+        proper knowledge_type set.
+        """
+        knowledge_items = await self.knowledge_extractor.extract_from_documents(
+            documents=documents,
+            source_type=source_type,
+        )
+
+        if not knowledge_items:
+            return documents
+
+        result = []
+        for item in knowledge_items:
+            result.append(
+                Document(
+                    content=item.content,
+                    source_url=item.source_url or "",
+                    content_type="text",
+                    knowledge_type=item.knowledge_type,
+                    metadata={
+                        "title": item.title,
+                        "entities": [
+                            {"name": e.name, "type": e.entity_type}
+                            for e in item.entities
+                        ],
+                        "confidence": item.confidence,
+                        "org_id": self.org_id,
+                        "source": "integration_scan",
+                        **item.metadata,
+                    },
+                )
+            )
+
+        _log(
+            "knowledge_extracted",
+            source_type=source_type,
+            raw_documents=len(documents),
+            extracted_items=len(result),
+        )
+        return result
+
     async def _ingest_documents(
         self, documents: List[Document], tree: str
     ) -> Dict[str, Any]:
         """Ingest a list of documents into RAG via /ingest/batch."""
-        payload = {
-            "documents": [
+        doc_dicts = []
+        for doc in documents:
+            meta = dict(doc.metadata) if doc.metadata else {}
+            if doc.knowledge_type:
+                meta["knowledge_type"] = doc.knowledge_type
+            doc_dicts.append(
                 {
                     "content": doc.content,
                     "source_url": doc.source_url,
                     "content_type": doc.content_type,
-                    "metadata": doc.metadata,
+                    "metadata": meta,
                 }
-                for doc in documents
-            ],
+            )
+
+        payload = {
+            "documents": doc_dicts,
             "tree": tree,
             "build_hierarchy": False,
         }
@@ -724,101 +781,59 @@ class OnboardingScanTask:
         """
         Ingest collected Slack messages into the RAG system.
 
-        Groups messages by channel, formats them as documents following the
-        existing SlackSource format ([TIMESTAMP] USER: TEXT), and POSTs to
-        the Ultimate RAG /ingest/batch endpoint.
+        Uses LLM-powered KnowledgeExtractor to transform raw messages into
+        classified operational knowledge items before ingesting into RAG.
         """
         if not messages:
             return {"documents_sent": 0}
 
-        # Group messages by channel
-        by_channel: Dict[str, List[CollectedMessage]] = defaultdict(list)
-        for msg in messages:
-            by_channel[msg.channel_name].append(msg)
+        # LLM extraction: transform raw messages into knowledge items
+        knowledge_items = await self.knowledge_extractor.extract_from_slack(
+            messages=messages,
+            org_id=self.org_id,
+        )
 
+        if not knowledge_items:
+            _log(
+                "slack_knowledge_extraction_empty",
+                raw_messages=len(messages),
+            )
+            return {"documents_sent": 0, "items_extracted": 0}
+
+        # Convert KnowledgeItems to Document objects for ingestion
         documents = []
-        for channel_name, ch_messages in by_channel.items():
-            # Sort by timestamp
-            ch_messages.sort(key=lambda m: m.ts)
-
-            # Format messages following existing SlackSource convention
-            lines = []
-            participants: set = set()
-            for msg in ch_messages:
-                ts_float = float(msg.ts) if msg.ts else 0
-                ts_str = (
-                    datetime.fromtimestamp(ts_float).strftime("%Y-%m-%d %H:%M")
-                    if ts_float
-                    else "unknown"
-                )
-                lines.append(f"[{ts_str}] {msg.user}: {msg.text}")
-                participants.add(msg.user)
-
-            content = "\n".join(lines)
-
-            # Skip very short documents
-            if len(content) < 100:
-                continue
-
+        for item in knowledge_items:
             documents.append(
-                {
-                    "content": content,
-                    "source_url": f"slack://#{channel_name}",
-                    "content_type": "slack_thread",
-                    "metadata": {
-                        "channel": channel_name,
-                        "message_count": len(ch_messages),
-                        "participants": list(participants),
+                Document(
+                    content=item.content,
+                    source_url=item.source_url or f"slack://{self.org_id}",
+                    content_type="text",
+                    knowledge_type=item.knowledge_type,
+                    metadata={
+                        "title": item.title,
+                        "entities": [
+                            {"name": e.name, "type": e.entity_type}
+                            for e in item.entities
+                        ],
+                        "confidence": item.confidence,
                         "org_id": self.org_id,
                         "source": "onboarding_scan",
+                        **item.metadata,
                     },
-                }
+                )
             )
 
-        if not documents:
-            return {"documents_sent": 0}
+        # Ingest via existing method
+        result = await self._ingest_documents(documents, tree=f"slack_{self.org_id}")
+        result["items_extracted"] = len(knowledge_items)
+        result["raw_messages_processed"] = len(messages)
 
-        # POST to Ultimate RAG /ingest/batch
-        payload = {
-            "documents": documents,
-            "tree": f"slack_{self.org_id}",
-            "build_hierarchy": False,  # Fast ingest, hierarchy built later by cronjob
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.post(
-                    f"{self.rag_url}/ingest/batch",
-                    json=payload,
-                    headers={"Content-Type": "application/json"},
-                )
-
-                if response.status_code == 200:
-                    data = response.json()
-                    _log(
-                        "rag_ingestion_completed",
-                        documents_sent=len(documents),
-                        chunks_created=data.get("chunks_created", 0),
-                    )
-                    return {
-                        "documents_sent": len(documents),
-                        "chunks_created": data.get("chunks_created", 0),
-                        "nodes_created": data.get("nodes_created", 0),
-                    }
-                else:
-                    _log(
-                        "rag_ingestion_failed",
-                        status=response.status_code,
-                        body=response.text[:200],
-                    )
-                    return {
-                        "documents_sent": len(documents),
-                        "error": f"HTTP {response.status_code}",
-                    }
-
-        except Exception as e:
-            _log("rag_ingestion_error", error=str(e))
-            return {"documents_sent": len(documents), "error": str(e)}
+        _log(
+            "slack_knowledge_ingested",
+            raw_messages=len(messages),
+            items_extracted=len(knowledge_items),
+        )
+        return result
 
     async def _get_existing_integrations(self) -> List[str]:
         """Fetch already-configured integrations from config service."""

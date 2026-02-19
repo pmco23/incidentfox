@@ -215,6 +215,65 @@ class MessageState:
     # Key: tool_use_id of Task tool, Value: {description, subagent_type, completed, tools: [...]}
     subagents: Dict[str, dict] = field(default_factory=dict)
 
+    def to_dict(self) -> dict:
+        """Serialize to dict for DB persistence. Strips base64 image data."""
+
+        def _strip_base64(items):
+            if not items:
+                return items
+            return [{k: v for k, v in item.items() if k != "data"} for item in items]
+
+        return {
+            "channel_id": self.channel_id,
+            "message_ts": self.message_ts,
+            "thread_ts": self.thread_ts,
+            "thread_id": self.thread_id,
+            "thoughts": [
+                {"text": t.text, "tools": t.tools, "completed": t.completed}
+                for t in self.thoughts
+            ],
+            "final_result": self.final_result,
+            "result_images": _strip_base64(self.result_images),
+            "result_files": _strip_base64(self.result_files),
+            "error": self.error,
+            "timeline": self.timeline,
+            "trigger_user_id": self.trigger_user_id,
+            "trigger_text": self.trigger_text,
+            "subagents": self.subagents,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "MessageState":
+        """Deserialize from dict (DB retrieval)."""
+        thoughts = []
+        for t in data.get("thoughts", []):
+            if isinstance(t, ThoughtSection):
+                thoughts.append(t)
+            elif isinstance(t, dict):
+                thoughts.append(
+                    ThoughtSection(
+                        text=t.get("text", ""),
+                        tools=t.get("tools", []),
+                        completed=t.get("completed", False),
+                    )
+                )
+        state = cls(
+            channel_id=data.get("channel_id", ""),
+            message_ts=data.get("message_ts", ""),
+            thread_ts=data.get("thread_ts", ""),
+            thread_id=data.get("thread_id", ""),
+        )
+        state.thoughts = thoughts
+        state.final_result = data.get("final_result")
+        state.result_images = data.get("result_images")
+        state.result_files = data.get("result_files")
+        state.error = data.get("error")
+        state.timeline = data.get("timeline", [])
+        state.trigger_user_id = data.get("trigger_user_id")
+        state.trigger_text = data.get("trigger_text")
+        state.subagents = data.get("subagents", {})
+        return state
+
     @property
     def current_thought(self) -> str:
         """Get the current (last) thought text."""
@@ -240,10 +299,10 @@ class MessageState:
 
 # In-memory cache for investigation state (for modal views)
 # Keyed by message_ts (unique per message, unlike thread_id which is shared)
-# In production: use Redis keyed by message_ts
+# Falls back to config-service DB on cache miss (persisted for 3 days)
 _investigation_cache: Dict[str, MessageState] = {}
 _cache_timestamps: Dict[str, float] = {}  # Track when entries were added
-CACHE_TTL_HOURS = 24  # Keep cache entries for 24 hours
+CACHE_TTL_HOURS = 24  # Keep in-memory cache entries for 24 hours
 
 
 def _cleanup_old_cache_entries():
@@ -267,6 +326,48 @@ def _cleanup_old_cache_entries():
         logger.info(
             f"Cache cleanup: removed {len(expired_keys)} expired entries, {len(_investigation_cache)} remaining"
         )
+
+
+def _persist_session_to_db(
+    state: MessageState, org_id: str = None, team_node_id: str = None
+):
+    """Persist session state to config-service DB (fire-and-forget in background thread)."""
+    import threading
+
+    def _save():
+        try:
+            config_client = get_config_client()
+            config_client.save_session_state(
+                message_ts=state.message_ts,
+                state_json=state.to_dict(),
+                thread_ts=state.thread_ts,
+                org_id=org_id,
+                team_node_id=team_node_id,
+            )
+            logger.info(
+                f"Persisted session state to DB for message_ts={state.message_ts}"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist session state to DB: {e}")
+
+    threading.Thread(target=_save, daemon=True).start()
+
+
+def _load_session_from_db(message_ts: str) -> Optional[MessageState]:
+    """Load session state from config-service DB. Returns MessageState or None."""
+    try:
+        config_client = get_config_client()
+        state_json = config_client.get_session_state(message_ts)
+        if state_json:
+            state = MessageState.from_dict(state_json)
+            # Populate in-memory cache for subsequent accesses
+            _investigation_cache[message_ts] = state
+            _cache_timestamps[message_ts] = time.time()
+            logger.info(f"Loaded session state from DB for message_ts={message_ts}")
+            return state
+    except Exception as e:
+        logger.warning(f"Failed to load session state from DB: {e}")
+    return None
 
 
 def save_investigation_snapshot(state: MessageState):
@@ -2185,6 +2286,9 @@ def _handle_mention_impl(event, say, client, context):
 
         _investigation_cache[state.message_ts] = state
         _cache_timestamps[state.message_ts] = time.time()
+        _persist_session_to_db(
+            state, org_id=resolved_org_id, team_node_id=resolved_team_node_id
+        )
 
         logger.info(
             f"✅ Investigation stream completed (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -2510,6 +2614,9 @@ def _run_auto_listen_investigation(event, client, context):
 
         _investigation_cache[state.message_ts] = state
         _cache_timestamps[state.message_ts] = time.time()
+        _persist_session_to_db(
+            state, org_id=resolved_org_id, team_node_id=resolved_team_node_id
+        )
 
         if event_count == 0 and not state.error:
             state.error = "No response received from agent"
@@ -2918,6 +3025,9 @@ Use all available tools to gather context about this issue."""
 
         _investigation_cache[state.message_ts] = state
         _cache_timestamps[state.message_ts] = time.time()
+        _persist_session_to_db(
+            state, org_id=resolved_org_id, team_node_id=resolved_team_node_id
+        )
 
         logger.info(
             f"✅ Auto-investigation completed for Incident.io alert (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -3369,6 +3479,9 @@ def handle_message(event, client, context):
 
             _investigation_cache[state.message_ts] = state
             _cache_timestamps[state.message_ts] = time.time()
+            _persist_session_to_db(
+                state, org_id=resolved_org_id, team_node_id=resolved_team_node_id
+            )
 
             logger.info(
                 f"✅ DM investigation completed (processed {event_count} events)"
@@ -3792,6 +3905,9 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
 
         _investigation_cache[state.message_ts] = state
         _cache_timestamps[state.message_ts] = time.time()
+        _persist_session_to_db(
+            state, org_id=resolved_org_id, team_node_id=resolved_team_node_id
+        )
 
         logger.info(
             f"✅ Coralogix investigation completed (processed {event_count} events, final_result={'present' if state.final_result else 'missing'})"
@@ -3869,12 +3985,14 @@ def handle_view_session(ack, body, client):
     # Get message_ts from button value (unique per message, unlike thread_id)
     message_ts = body["actions"][0].get("value", "unknown")
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache first, then DB
     logger.info(f"View Session clicked: message_ts={message_ts}")
-    logger.info(f"Cache keys: {list(_investigation_cache.keys())}")
     state = _investigation_cache.get(message_ts)
     if not state:
-        logger.warning(f"No cached state for message_ts: {message_ts}")
+        logger.info(f"Cache miss for message_ts={message_ts}, trying DB...")
+        state = _load_session_from_db(message_ts)
+    if not state:
+        logger.warning(f"No cached or persisted state for message_ts: {message_ts}")
         # Show error modal
         client.views_open(
             trigger_id=body["trigger_id"],
@@ -3946,8 +4064,10 @@ def handle_modal_pagination(ack, body, client):
         logger.error(f"Failed to parse pagination data: {e}")
         return
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache, then DB
     state = _investigation_cache.get(thread_id)
+    if not state:
+        state = _load_session_from_db(thread_id)
     if not state:
         logger.warning(f"No cached state for pagination: {thread_id}")
         return
@@ -4014,8 +4134,10 @@ def handle_view_tool_output(ack, body, client):
         logger.warning("Invalid tool index in view_tool_output")
         return
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache, then DB
     state = _investigation_cache.get(thread_id)
+    if not state:
+        state = _load_session_from_db(thread_id)
     if not state or tool_idx >= len(state.timeline):
         logger.warning(f"Tool not found: thread_id={thread_id}, idx={tool_idx}")
         return
@@ -4060,8 +4182,10 @@ def handle_view_full_output(ack, body, client):
         logger.warning(f"Invalid button value: {button_value}")
         return
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache, then DB
     state = _investigation_cache.get(thread_id)
+    if not state:
+        state = _load_session_from_db(thread_id)
     if not state:
         logger.warning(f"No cached state for thread_id: {thread_id}")
         return
@@ -4156,8 +4280,10 @@ def handle_view_subagent_details(ack, body, client):
         logger.warning(f"Invalid button value for subagent details: {button_value}")
         return
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache, then DB
     state = _investigation_cache.get(thread_id)
+    if not state:
+        state = _load_session_from_db(thread_id)
     if not state:
         logger.warning(f"No cached state for thread_id: {thread_id}")
         return
@@ -4243,8 +4369,10 @@ def handle_subagent_modal_pagination(ack, body, client):
         logger.error(f"Failed to parse subagent pagination data: {e}")
         return
 
-    # Lookup investigation state
+    # Lookup investigation state: try in-memory cache, then DB
     state = _investigation_cache.get(thread_id)
+    if not state:
+        state = _load_session_from_db(thread_id)
     if not state:
         logger.warning(f"No cached state for subagent pagination: {thread_id}")
         return
@@ -4900,6 +5028,243 @@ def handle_api_key_submission(ack, body, client, view):
             logger.warning(f"Failed to send DM confirmation: {dm_error}")
 
     logger.info(f"API key saved for team {team_id}")
+
+
+@app.command("/setup-team")
+def handle_setup_team_command(ack, body, client):
+    """Open a modal to create a dedicated team for this channel."""
+    ack()
+
+    slack_team_id = body.get("team_id")
+    channel_id = body.get("channel_id")
+    channel_name = body.get("channel_name", "")
+    user_id = body.get("user_id")
+
+    if not slack_team_id or not channel_id:
+        logger.error("Missing team_id or channel_id in /setup-team command")
+        return
+
+    try:
+        cc = get_config_client()
+
+        # Check if this channel is already routed to a non-default team
+        routing = cc.lookup_routing(channel_id, workspace_id=slack_team_id)
+        if routing and routing.get("found"):
+            team_node_id = routing.get("team_node_id", "default")
+            matched_by = routing.get("matched_by", "")
+
+            if team_node_id != "default" and matched_by == "slack_channel_id":
+                web_ui_url = os.environ.get("WEB_UI_URL", "")
+                msg = f"This channel is already configured as team *{team_node_id}*."
+                if web_ui_url:
+                    msg += f"\nConfigure it at <{web_ui_url}/team/tools|Web Dashboard>."
+                client.chat_postEphemeral(channel=channel_id, user=user_id, text=msg)
+                return
+
+        # Sanitize channel name to use as default team name
+        default_name = (
+            re.sub(r"[^a-z0-9-]", "-", channel_name.lower()).strip("-") or "new-team"
+        )
+
+        private_metadata = json.dumps(
+            {
+                "slack_team_id": slack_team_id,
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+            }
+        )
+
+        modal = {
+            "type": "modal",
+            "callback_id": "setup_team_submission",
+            "private_metadata": private_metadata,
+            "title": {"type": "plain_text", "text": "Create Team"},
+            "submit": {"type": "plain_text", "text": "Create Team"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": (
+                            f"Create a dedicated team for *#{channel_name}* with its own "
+                            "integrations, agent config, and prompts.\n\n"
+                            "Messages in this channel will use the team's configuration "
+                            "instead of the workspace defaults."
+                        ),
+                    },
+                },
+                {"type": "divider"},
+                {
+                    "type": "input",
+                    "block_id": "team_name_block",
+                    "label": {"type": "plain_text", "text": "Team Name"},
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "team_name_input",
+                        "initial_value": default_name,
+                        "placeholder": {
+                            "type": "plain_text",
+                            "text": "e.g. payments-team",
+                        },
+                        "max_length": 64,
+                    },
+                    "hint": {
+                        "type": "plain_text",
+                        "text": "Lowercase letters, numbers, and hyphens. This becomes the team ID.",
+                    },
+                },
+            ],
+        }
+
+        client.views_open(trigger_id=body["trigger_id"], view=modal)
+        logger.info(
+            f"Opened /setup-team modal for channel {channel_id} in workspace {slack_team_id}"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to open /setup-team modal: {e}", exc_info=True)
+        if user_id and channel_id:
+            try:
+                client.chat_postEphemeral(
+                    channel=channel_id,
+                    user=user_id,
+                    text=":warning: Failed to open team setup. Please try again.",
+                )
+            except Exception:
+                pass
+
+
+@app.view("setup_team_submission")
+def handle_setup_team_submission(ack, body, client, view):
+    """Handle the team creation modal submission."""
+    private_metadata = json.loads(view.get("private_metadata", "{}"))
+    slack_team_id = private_metadata.get("slack_team_id")
+    channel_id = private_metadata.get("channel_id")
+    channel_name = private_metadata.get("channel_name", "")
+
+    # Extract and validate team name
+    values = view.get("state", {}).get("values", {})
+    raw_name = (
+        values.get("team_name_block", {})
+        .get("team_name_input", {})
+        .get("value", "")
+        .strip()
+    )
+
+    # Sanitize to slug
+    team_node_id = re.sub(r"[^a-z0-9-]", "-", raw_name.lower()).strip("-")
+    team_node_id = re.sub(r"-+", "-", team_node_id)  # collapse multiple hyphens
+
+    if not team_node_id:
+        ack(
+            response_action="errors",
+            errors={
+                "team_name_block": "Team name must contain at least one letter or number."
+            },
+        )
+        return
+
+    if team_node_id == "default":
+        ack(
+            response_action="errors",
+            errors={
+                "team_name_block": '"default" is reserved. Choose a different name.'
+            },
+        )
+        return
+
+    try:
+        cc = get_config_client()
+        result = cc.setup_team(
+            slack_team_id=slack_team_id,
+            team_node_id=team_node_id,
+            team_name=raw_name,
+            channel_id=channel_id,
+        )
+
+        if result.get("already_existed"):
+            ack(
+                response_action="errors",
+                errors={
+                    "team_name_block": f'A team named "{team_node_id}" already exists. Choose a different name.'
+                },
+            )
+            return
+
+        token = result.get("token", "")
+        web_ui_url = os.environ.get("WEB_UI_URL", "")
+
+        # Build confirmation view with the token shown once
+        confirm_blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Team Created"},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*Team:* `{team_node_id}`\n"
+                        f"*Channel:* #{channel_name}\n\n"
+                        "This channel now uses its own team configuration."
+                    ),
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        "*Save this token now — you will not see it again.*\n\n"
+                        "Use it to sign in to the web dashboard where you can configure "
+                        "this team's integrations, agents, and prompts."
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"```{token}```",
+                },
+            },
+        ]
+
+        if web_ui_url:
+            confirm_blocks.append({"type": "divider"})
+            confirm_blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"<{web_ui_url}/team/tools|Open Web Dashboard>",
+                    },
+                }
+            )
+
+        ack(
+            response_action="update",
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Team Created"},
+                "close": {"type": "plain_text", "text": "Done"},
+                "blocks": confirm_blocks,
+            },
+        )
+
+        logger.info(
+            f"Created team {team_node_id} for channel {channel_id} in workspace {slack_team_id}"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create team: {e}", exc_info=True)
+        ack(
+            response_action="errors",
+            errors={"team_name_block": "Something went wrong. Please try again."},
+        )
 
 
 @app.action("open_setup_wizard")
@@ -6735,6 +7100,9 @@ def register_all_handlers(bolt_app):
     Bolt App instances (one per white-label Slack app). The handler
     functions are defined above as module-level functions.
     """
+    # Command handlers
+    bolt_app.command("/setup-team")(handle_setup_team_command)
+
     # Event handlers
     bolt_app.event("app_mention")(handle_mention)
     bolt_app.event("message")(handle_message)
@@ -6790,6 +7158,7 @@ def register_all_handlers(bolt_app):
     )
 
     # View handlers
+    bolt_app.view("setup_team_submission")(handle_setup_team_submission)
     bolt_app.view("api_key_submission")(handle_api_key_submission)
     bolt_app.view("integrations_page")(handle_integrations_page_done)
     bolt_app.view("k8s_saas_add_cluster_submission")(

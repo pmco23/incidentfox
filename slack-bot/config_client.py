@@ -228,6 +228,76 @@ class ConfigServiceClient:
         response.raise_for_status()
         return response.json()
 
+    def list_team_nodes(self, org_id: str) -> list:
+        """List all team nodes in an org.
+
+        Returns:
+            List of node dicts with org_id, node_id, parent_id, node_type, name.
+            Returns empty list on error.
+        """
+        url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/nodes"
+        try:
+            response = self._session.get(url, headers=self._headers(), timeout=10)
+            response.raise_for_status()
+            return [n for n in response.json() if n.get("node_type") == "team"]
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to list team nodes for {org_id}: {e}")
+            return []
+
+    def setup_team(
+        self,
+        slack_team_id: str,
+        team_node_id: str,
+        team_name: str,
+        channel_id: str,
+    ) -> Dict[str, Any]:
+        """Create a team node, mint a token, and wire a channel to it.
+
+        Args:
+            slack_team_id: Slack workspace ID
+            team_node_id: Desired team node ID (slug)
+            team_name: Human-readable team name
+            channel_id: Slack channel ID to route to this team
+
+        Returns:
+            Dict with team_node_id, token, already_existed.
+
+        Raises:
+            requests.exceptions.RequestException on network/server errors.
+        """
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
+
+        # Create team node (idempotent — returns exists: True if duplicate)
+        create_result = self._create_team_node(org_id, team_node_id, team_name)
+        already_existed = create_result.get("exists", False)
+
+        if already_existed:
+            return {
+                "team_node_id": team_node_id,
+                "token": None,
+                "already_existed": True,
+            }
+
+        # Mint team token
+        token_response = self._issue_team_token(org_id, team_node_id)
+        token = token_response.get("token")
+
+        # Wire channel to this team
+        self._update_config(
+            org_id,
+            team_node_id,
+            {"routing": {"slack_channel_ids": [channel_id]}},
+        )
+
+        return {
+            "team_node_id": team_node_id,
+            "token": token,
+            "already_existed": False,
+        }
+
     def get_team_token(self, slack_team_id: str) -> Optional[str]:
         """
         Get a team token for Config Service API access.
@@ -1157,6 +1227,57 @@ class ConfigServiceClient:
                 status_code=status_code,
                 response_text=response_text,
             ) from e
+
+    # =========================================================================
+    # Session Cache (for View Session persistence)
+    # =========================================================================
+
+    def save_session_state(
+        self,
+        message_ts: str,
+        state_json: dict,
+        thread_ts: Optional[str] = None,
+        org_id: Optional[str] = None,
+        team_node_id: Optional[str] = None,
+    ) -> bool:
+        """Persist session state to DB for the View Session modal."""
+        url = f"{self.base_url}/api/v1/internal/session-cache/{message_ts}"
+        payload = {
+            "state_json": state_json,
+            "thread_ts": thread_ts,
+            "org_id": org_id,
+            "team_node_id": team_node_id,
+        }
+        try:
+            response = self._session.put(
+                url,
+                json=payload,
+                headers=self._get_internal_headers(),
+                timeout=10,
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to save session state for {message_ts}: {e}")
+            return False
+
+    def get_session_state(self, message_ts: str) -> Optional[dict]:
+        """Fetch persisted session state from DB. Returns state_json dict or None."""
+        url = f"{self.base_url}/api/v1/internal/session-cache/{message_ts}"
+        try:
+            response = self._session.get(
+                url,
+                headers=self._get_internal_headers(),
+                timeout=10,
+            )
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            return data.get("state_json")
+        except Exception as e:
+            logger.warning(f"Failed to fetch session state for {message_ts}: {e}")
+            return None
 
 
 # Global client instance
