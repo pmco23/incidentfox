@@ -320,11 +320,11 @@ services:
     replicas: 1
     resources:
       requests:
-        cpu: "200m"
-        memory: "512Mi"
+        cpu: "250m"
+        memory: "4Gi"
       limits:
-        cpu: "1000m"
-        memory: "2Gi"
+        cpu: "2000m"
+        memory: "8Gi"
     serviceAccountRoleArn: "arn:aws:iam::103002841599:role/incidentfox-raptor-kb-role"
     defaultTree: "mega_ultra_v2"
     s3:
