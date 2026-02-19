@@ -183,8 +183,6 @@ async def main():
 
     import httpx
     from ai_learning_pipeline.tasks.knowledge_extractor import KnowledgeExtractor
-    from ai_learning_pipeline.tasks.onboarding_scan import OnboardingScanTask
-    from ai_learning_pipeline.tasks.scanners import Document
 
     extractor = KnowledgeExtractor()
 

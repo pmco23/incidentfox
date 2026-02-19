@@ -2925,8 +2925,6 @@ async def _process_vercel_webhook(request: Request, project_id: str, message: st
     """Process a Vercel webhook by routing to the appropriate team's agent."""
     import logging
 
-    import httpx
-
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
         ConfigServiceClient,
