@@ -369,7 +369,7 @@ async def _forward_to_provider(
     tools = openai_body.get("tools", [])
     if len(tools) > MAX_TOOLS:
         logger.warning(
-            f"Truncating tools from {len(tools)} to {MAX_TOOLS} " f"(provider limit)"
+            f"Truncating tools from {len(tools)} to {MAX_TOOLS} (provider limit)"
         )
         openai_body["tools"] = tools[:MAX_TOOLS]
 
@@ -379,6 +379,9 @@ async def _forward_to_provider(
         "openai": 16384,
         "deepseek": 8192,
         "mistral": 8192,
+        "groq": 8192,
+        "fireworks_ai": 8192,
+        "cohere": 4096,
     }
     max_tokens = openai_body.get("max_tokens")
     provider_cap = PROVIDER_MAX_TOKENS.get(provider)
@@ -533,8 +536,12 @@ async def _forward_to_provider(
         extra_headers = {}
         if cf_token:
             extra_headers["cf-aig-authorization"] = f"Bearer {cf_token}"
-        # Provider API key for pass-through mode (optional)
-        provider_key = (creds or {}).get("provider_api_key", "")
+        # Provider API key — stored per upstream provider (e.g. provider_api_key_openai)
+        # Falls back to generic provider_api_key for configs saved before per-upstream storage
+        upstream = model_name.split("/")[0] if "/" in model_name else ""
+        provider_key = (creds or {}).get(f"provider_api_key_{upstream}", "") or (
+            creds or {}
+        ).get("provider_api_key", "")
         if provider_key:
             litellm_kwargs["api_key"] = provider_key
         else:

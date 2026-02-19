@@ -108,6 +108,23 @@ class SandboxManager:
         self.custom_api = client.CustomObjectsApi()
         self.core_api = client.CoreV1Api()
 
+    def _protect_pod_from_consolidation(self, pod_name: str) -> None:
+        """Annotate a pod with karpenter.sh/do-not-disrupt to prevent eviction.
+
+        Called after a sandbox is claimed or created so Karpenter won't evict
+        active investigation pods during node consolidation. Non-fatal if it fails.
+        """
+        try:
+            self.core_api.patch_namespaced_pod(
+                name=pod_name,
+                namespace=self.namespace,
+                body={
+                    "metadata": {"annotations": {"karpenter.sh/do-not-disrupt": "true"}}
+                },
+            )
+        except Exception as e:
+            print(f"⚠️ Failed to annotate pod {pod_name} with do-not-disrupt: {e}")
+
     def _load_k8s_config(self):
         """Load Kubernetes configuration."""
         try:
@@ -521,29 +538,7 @@ static_resources:
                                         "name": "ANTHROPIC_API_KEY",
                                         "value": "sk-ant-placeholder-proxy-will-inject-real-key",
                                     },
-                                    # LLM Provider configuration (multi-LLM support)
-                                    # Set LLM_PROVIDER=openhands and LLM_MODEL to use Gemini/OpenAI
-                                    {
-                                        "name": "LLM_PROVIDER",
-                                        "valueFrom": {
-                                            "secretKeyRef": {
-                                                "name": "incidentfox-secrets",
-                                                "key": "llm-provider",
-                                                "optional": True,  # Defaults to "claude" if not set
-                                            }
-                                        },
-                                    },
-                                    {
-                                        "name": "LLM_MODEL",
-                                        "valueFrom": {
-                                            "secretKeyRef": {
-                                                "name": "incidentfox-secrets",
-                                                "key": "llm-model",
-                                                "optional": True,  # Defaults to provider default
-                                            }
-                                        },
-                                    },
-                                    # Gemini API key (only needed if using LLM_MODEL=gemini/*)
+                                    # Gemini API key (used by credential-proxy for gemini/* models)
                                     {
                                         "name": "GEMINI_API_KEY",
                                         "valueFrom": {
@@ -554,7 +549,7 @@ static_resources:
                                             }
                                         },
                                     },
-                                    # OpenAI API key (only needed if using LLM_MODEL=openai/*)
+                                    # OpenAI API key (used by credential-proxy for openai/* models)
                                     {
                                         "name": "OPENAI_API_KEY",
                                         "valueFrom": {
@@ -604,6 +599,15 @@ static_resources:
                                     {
                                         "name": "DATADOG_BASE_URL",
                                         "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/datadog",
+                                    },
+                                    {
+                                        "name": "AMPLITUDE_BASE_URL",
+                                        "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/amplitude",
+                                    },
+                                    # RAPTOR knowledge base: internal K8s service (no auth needed)
+                                    {
+                                        "name": "RAPTOR_URL",
+                                        "value": f"http://incidentfox-rag.{self.namespace}.svc.cluster.local:8000",
                                     },
                                     # flagd runtime config (for OTel Demo incident scenarios)
                                     {
@@ -1316,6 +1320,54 @@ static_resources:
         print(f"⏰ SandboxClaim {claim_name} binding timed out after {elapsed:.0f}s")
         return None
 
+    def _get_sandbox_pod_ip(self, sandbox_name: str) -> Optional[str]:
+        """Get the pod IP for a sandbox by looking up its pods via the K8s API."""
+        try:
+            # The sandbox controller labels pods with a name-hash selector
+            sandbox = self.custom_api.get_namespaced_custom_object(
+                group="agents.x-k8s.io",
+                version="v1alpha1",
+                namespace=self.namespace,
+                plural="sandboxes",
+                name=sandbox_name,
+            )
+            # Get pod labels from the sandbox's podTemplate
+            pod_labels = (
+                sandbox.get("spec", {})
+                .get("podTemplate", {})
+                .get("metadata", {})
+                .get("labels", {})
+            )
+            if pod_labels:
+                selector = ",".join(f"{k}={v}" for k, v in pod_labels.items())
+                pods = self.core_api.list_namespaced_pod(
+                    namespace=self.namespace, label_selector=selector
+                )
+                for pod in pods.items:
+                    if pod.status and pod.status.pod_ip:
+                        return pod.status.pod_ip
+        except ApiException as e:
+            print(
+                f"⚠️ K8s API error looking up sandbox {sandbox_name}: {e.status} {e.reason}"
+            )
+
+        # Fallback: try listing pods with the sandbox-name-hash label
+        # (used by the agent-sandbox controller for headless Service selectors)
+        try:
+            pods = self.core_api.list_namespaced_pod(
+                namespace=self.namespace,
+                label_selector=f"agents.x-k8s.io/sandbox-name={sandbox_name}",
+            )
+            for pod in pods.items:
+                if pod.status and pod.status.pod_ip:
+                    return pod.status.pod_ip
+        except ApiException as e:
+            print(
+                f"⚠️ K8s API error listing pods for {sandbox_name}: {e.status} {e.reason}"
+            )
+
+        return None
+
     def inject_jwt(
         self,
         sandbox_name: str,
@@ -1324,16 +1376,16 @@ static_resources:
         tenant_id: str,
         team_id: str,
         team_token: Optional[str] = None,
+        configured_integrations: Optional[str] = None,
     ) -> bool:
         """
         Inject JWT and tenant context into a warm sandbox via /claim endpoint.
 
-        This configures the sandbox for use by:
-        1. Writing JWT to /tmp/sandbox-jwt (read by Envoy Lua filter)
-        2. Setting environment variables for tenant context
+        Calls the sandbox pod directly by IP (from K8s API) to avoid DNS
+        propagation delays. Falls back to routing through sandbox-router.
 
         Args:
-            sandbox_name: Name of the sandbox pod
+            sandbox_name: Name of the sandbox
             jwt_token: JWT token for credential authentication
             thread_id: Investigation thread ID
             tenant_id: Organization/tenant ID
@@ -1343,14 +1395,6 @@ static_resources:
         Returns:
             True if successful, False otherwise
         """
-        router_url = self.get_router_url()
-
-        headers = {
-            "X-Sandbox-ID": sandbox_name,
-            "X-Sandbox-Port": "8888",
-            "X-Sandbox-Namespace": self.namespace,
-        }
-
         payload = {
             "jwt_token": jwt_token,
             "thread_id": thread_id,
@@ -1359,44 +1403,57 @@ static_resources:
         }
         if team_token:
             payload["team_token"] = team_token
+        if configured_integrations:
+            payload["configured_integrations"] = configured_integrations
 
-        # Retry with backoff — DNS/Service for newly-bound warm pool pods
-        # may take a few seconds to propagate
+        # Try direct pod IP first (avoids DNS propagation delays)
         for attempt in range(5):
-            try:
-                response = requests.post(
-                    f"{router_url}/claim",
-                    headers=headers,
-                    json=payload,
-                    timeout=10,
-                )
-                response.raise_for_status()
-                print(
-                    f"✅ Injected JWT into sandbox {sandbox_name} for thread {thread_id}"
-                )
-                return True
-            except requests.RequestException as e:
-                # 409 Conflict means JWT was already injected (previous timed-out
-                # attempt actually succeeded). Treat as success.
-                if (
-                    isinstance(e, requests.exceptions.HTTPError)
-                    and e.response is not None
-                    and e.response.status_code == 409
-                ):
+            pod_ip = self._get_sandbox_pod_ip(sandbox_name)
+            if pod_ip:
+                try:
+                    response = requests.post(
+                        f"http://{pod_ip}:8888/claim",
+                        json=payload,
+                        timeout=10,
+                    )
+                    response.raise_for_status()
                     print(
-                        f"✅ JWT already injected into sandbox {sandbox_name} (409 Conflict = success)"
+                        f"✅ Injected JWT into sandbox {sandbox_name} (direct pod IP {pod_ip})"
                     )
                     return True
+                except requests.RequestException as e:
+                    if (
+                        isinstance(e, requests.exceptions.HTTPError)
+                        and e.response is not None
+                        and e.response.status_code == 409
+                    ):
+                        print(
+                            f"✅ JWT already injected into {sandbox_name} (409 = success)"
+                        )
+                        return True
 
+                    if attempt < 4:
+                        delay = min(1.0 * (2**attempt), 4.0)
+                        print(
+                            f"⚠️ JWT inject attempt {attempt + 1}/5 failed for {sandbox_name} "
+                            f"(pod IP {pod_ip}), retrying in {delay}s... ({e})"
+                        )
+                        time.sleep(delay)
+                    else:
+                        print(f"❌ Failed to inject JWT into {sandbox_name}: {e}")
+                        return False
+            else:
                 if attempt < 4:
                     delay = min(1.0 * (2**attempt), 4.0)
                     print(
-                        f"⚠️ JWT inject attempt {attempt + 1}/5 failed for {sandbox_name}, "
-                        f"retrying in {delay}s... ({e})"
+                        f"⚠️ JWT inject attempt {attempt + 1}/5: pod IP not found for "
+                        f"{sandbox_name}, retrying in {delay}s..."
                     )
                     time.sleep(delay)
                 else:
-                    print(f"❌ Failed to inject JWT into {sandbox_name}: {e}")
+                    print(
+                        f"❌ Failed to inject JWT into {sandbox_name}: pod IP not found"
+                    )
                     return False
 
     def delete_sandbox_claim(self, thread_id: str):
@@ -1463,6 +1520,12 @@ static_resources:
             # Use provided JWT or the one generated with the claim
             jwt_to_inject = jwt_token if jwt_token else claim_jwt
 
+            # Fetch configured integrations (non-sensitive metadata for system prompt)
+            configured_integrations = fetch_configured_integrations(
+                jwt_to_inject, tenant_id, team_id
+            )
+            print(f"📦 Configured integrations for sandbox: {configured_integrations}")
+
             # Step 2: Wait for binding
             # Instant if warm pods available; waits for replenishment if pool exhausted
             step2_start = time.time()
@@ -1478,7 +1541,7 @@ static_resources:
                     f"⚠️ [WARMPOOL] Binding failed after {total_ms:.0f}ms, falling back to direct creation"
                 )
                 self.delete_sandbox_claim(thread_id)
-                return self.create_sandbox(
+                sandbox_info = self.create_sandbox(
                     thread_id=thread_id,
                     tenant_id=tenant_id,
                     team_id=team_id,
@@ -1486,6 +1549,12 @@ static_resources:
                     jwt_token=jwt_to_inject,
                     team_token=team_token,
                 )
+                if not self.wait_for_ready(thread_id):
+                    raise Exception(
+                        f"Sandbox {sandbox_info.name} failed to become ready"
+                    )
+                self._protect_pod_from_consolidation(sandbox_info.name)
+                return sandbox_info
 
             # Step 3: Inject JWT via /claim endpoint
             # (Pod readiness check skipped — warm pool pods are already running)
@@ -1497,13 +1566,14 @@ static_resources:
                 tenant_id=tenant_id,
                 team_id=team_id,
                 team_token=team_token,
+                configured_integrations=configured_integrations,
             ):
                 total_ms = (time.time() - warmpool_start) * 1000
                 print(
                     f"⚠️ [WARMPOOL] JWT injection failed after {total_ms:.0f}ms, falling back to direct creation"
                 )
                 self.delete_sandbox_claim(thread_id)
-                return self.create_sandbox(
+                sandbox_info = self.create_sandbox(
                     thread_id=thread_id,
                     tenant_id=tenant_id,
                     team_id=team_id,
@@ -1511,8 +1581,17 @@ static_resources:
                     jwt_token=jwt_to_inject,
                     team_token=team_token,
                 )
+                if not self.wait_for_ready(thread_id):
+                    raise Exception(
+                        f"Sandbox {sandbox_info.name} failed to become ready"
+                    )
+                self._protect_pod_from_consolidation(sandbox_info.name)
+                return sandbox_info
             step3_ms = (time.time() - step3_start) * 1000
             print(f"⏱️ [WARMPOOL] Step 3 - Inject JWT: {step3_ms:.0f}ms")
+
+            # Step 4: Protect from Karpenter consolidation
+            self._protect_pod_from_consolidation(bound_sandbox)
 
             total_ms = (time.time() - warmpool_start) * 1000
             print(
@@ -1538,7 +1617,7 @@ static_resources:
             except Exception:
                 pass
 
-            return self.create_sandbox(
+            sandbox_info = self.create_sandbox(
                 thread_id=thread_id,
                 tenant_id=tenant_id,
                 team_id=team_id,
@@ -1546,6 +1625,9 @@ static_resources:
                 jwt_token=jwt_token,
                 team_token=team_token,
             )
+            if not self.wait_for_ready(thread_id):
+                raise Exception(f"Sandbox {sandbox_info.name} failed to become ready")
+            return sandbox_info
 
     def get_warm_pool_status(self) -> dict:
         """

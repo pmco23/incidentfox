@@ -78,6 +78,62 @@ class ConfigServiceClient:
         r.raise_for_status()
         return dict(r.json())
 
+    def create_org_node(self, raw_token: str, org_id: str, name: str) -> dict[str, Any]:
+        """Create an org node. Returns ``{"exists": True}`` if it already exists."""
+        url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/nodes"
+        payload = {
+            "node_id": org_id,
+            "node_type": "org",
+            "name": name,
+            "parent_id": None,
+        }
+        try:
+            if self._http is not None:
+                r = self._http.post(url, headers=self._headers(raw_token), json=payload)
+            else:
+                with httpx.Client(timeout=10.0) as c:
+                    r = c.post(url, headers=self._headers(raw_token), json=payload)
+            if r.status_code == 400 and "already exists" in r.text.lower():
+                return {"org_id": org_id, "exists": True}
+            r.raise_for_status()
+            return dict(r.json())
+        except httpx.HTTPStatusError as exc:
+            if (
+                exc.response.status_code == 400
+                and "already exists" in exc.response.text.lower()
+            ):
+                return {"org_id": org_id, "exists": True}
+            raise
+
+    def create_team_node(
+        self, raw_token: str, org_id: str, team_node_id: str, name: str
+    ) -> dict[str, Any]:
+        """Create a team node under an org. Returns ``{"exists": True}`` if it already exists."""
+        url = f"{self.base_url}/api/v1/admin/orgs/{org_id}/nodes"
+        payload = {
+            "node_id": team_node_id,
+            "node_type": "team",
+            "name": name,
+            "parent_id": org_id,
+        }
+        try:
+            if self._http is not None:
+                r = self._http.post(url, headers=self._headers(raw_token), json=payload)
+            else:
+                with httpx.Client(timeout=10.0) as c:
+                    r = c.post(url, headers=self._headers(raw_token), json=payload)
+            if r.status_code == 400 and "already exists" in r.text.lower():
+                return {"team_node_id": team_node_id, "exists": True}
+            r.raise_for_status()
+            return dict(r.json())
+        except httpx.HTTPStatusError as exc:
+            if (
+                exc.response.status_code == 400
+                and "already exists" in exc.response.text.lower()
+            ):
+                return {"team_node_id": team_node_id, "exists": True}
+            raise
+
     def patch_node_config(
         self, raw_token: str, org_id: str, node_id: str, patch: dict[str, Any]
     ) -> dict[str, Any]:
@@ -540,6 +596,9 @@ class AgentApiClient:
             dict[str, Any]
         ] = None,  # DEPRECATED: use output_destinations
         trigger_source: Optional[str] = None,  # Source that triggered this run
+        tenant_id: Optional[str] = None,  # Org ID for credential lookup
+        team_id: Optional[str] = None,  # Team node ID for credential lookup
+        session_id: Optional[str] = None,  # Stable thread/session ID for sandbox reuse
     ) -> dict[str, Any]:
         """Call the agent service's /investigate endpoint and consume the SSE stream."""
         base = agent_base_url.rstrip("/") if agent_base_url else self.base_url
@@ -550,17 +609,17 @@ class AgentApiClient:
             "prompt": message,
             "team_token": team_token,
         }
-        # Use correlation_id as thread_id for traceability
-        if correlation_id:
+        # session_id = stable per thread (enables sandbox reuse for follow-ups)
+        # correlation_id = unique per request (for tracing only)
+        if session_id:
+            payload["thread_id"] = session_id
+        elif correlation_id:
             payload["thread_id"] = correlation_id
 
-        # Derive tenant/team from context if available
-        if context and isinstance(context.get("metadata"), dict):
-            meta = context["metadata"]
-            if "tenant_id" in meta:
-                payload["tenant_id"] = meta["tenant_id"]
-            if "team_id" in meta:
-                payload["team_id"] = meta["team_id"]
+        if tenant_id:
+            payload["tenant_id"] = tenant_id
+        if team_id:
+            payload["team_id"] = team_id
 
         # HTTP timeout should be >= agent timeout
         request_timeout = 30.0

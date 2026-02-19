@@ -38,6 +38,10 @@ CONFIG_SERVICE_ADMIN_TOKEN = os.environ.get("CONFIG_SERVICE_ADMIN_TOKEN", "")
 FREE_TRIAL_DAYS = int(os.environ.get("FREE_TRIAL_DAYS", "7"))
 FREE_TRIAL_ENABLED = os.environ.get("FREE_TRIAL_ENABLED", "true").lower() == "true"
 
+# Local mode configuration
+# When CONFIG_MODE=local, use 'local' org instead of 'slack-{team_id}'
+CONFIG_MODE = os.environ.get("CONFIG_MODE", "")
+
 # NOTE: INCIDENTFOX_ANTHROPIC_API_KEY is no longer needed here.
 # The credential-resolver fetches the shared key from Secrets Manager at runtime.
 # We only store trial metadata (is_trial=True, expiration) during provisioning.
@@ -251,7 +255,11 @@ class ConfigServiceClient:
             del _team_token_cache[slack_team_id]
 
         # Issue new token
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         try:
@@ -273,26 +281,32 @@ class ConfigServiceClient:
             logger.error(f"Failed to issue team token for {slack_team_id}: {e}")
             return None
 
-    def lookup_routing(self, channel_id: str) -> Optional[Dict[str, str]]:
+    def lookup_routing(
+        self, channel_id: str, workspace_id: str = None
+    ) -> Optional[Dict[str, str]]:
         """
-        Look up team routing by Slack channel ID.
+        Look up team routing for a Slack message.
 
-        This enables channel-based routing where different Slack channels
-        can be mapped to different teams within the same workspace.
+        Sends both channel ID and workspace ID to the routing endpoint.
+        The endpoint tries channel-level routing first (specific team),
+        then falls back to workspace-level routing (default team).
 
         Args:
             channel_id: Slack channel ID (e.g., "C0ADSDTFF41")
+            workspace_id: Slack workspace ID (e.g., "T09UF9JAHD1") for fallback routing
 
         Returns:
             Dict with org_id and team_node_id if a match is found, None otherwise.
-            Example: {"org_id": "incidentfox-demo", "team_node_id": "weirwood-demo"}
         """
         url = f"{self.base_url}/api/v1/internal/routing/lookup"
         headers = {
             "X-Internal-Service": "slack-bot",
             "Content-Type": "application/json",
         }
-        payload = {"identifiers": {"slack_channel_id": channel_id}}
+        identifiers = {"slack_channel_id": channel_id}
+        if workspace_id:
+            identifiers["slack_workspace_id"] = workspace_id
+        payload = {"identifiers": identifiers}
 
         try:
             response = self._session.post(
@@ -303,55 +317,57 @@ class ConfigServiceClient:
 
             if result.get("found"):
                 logger.info(
-                    f"Channel routing found: channel={channel_id} -> "
-                    f"org={result['org_id']}, team={result['team_node_id']}"
+                    f"Routing found: channel={channel_id} -> "
+                    f"org={result['org_id']}, team={result['team_node_id']} "
+                    f"(matched_by={result.get('matched_by')})"
                 )
                 return {
                     "org_id": result["org_id"],
                     "team_node_id": result["team_node_id"],
                 }
 
-            logger.debug(f"No channel routing found for {channel_id}")
+            logger.debug(
+                f"No routing found for channel={channel_id}, workspace={workspace_id}"
+            )
             return None
 
         except requests.exceptions.RequestException as e:
-            logger.warning(f"Channel routing lookup failed for {channel_id}: {e}")
+            logger.warning(f"Routing lookup failed for {channel_id}: {e}")
             return None
 
     def get_team_token_for_channel(
         self, slack_team_id: str, channel_id: str
-    ) -> Optional[str]:
+    ) -> Optional[Dict[str, str]]:
         """
-        Get a team token, using channel-based routing if available.
+        Get a team token and routing info via the routing lookup.
 
-        This method first tries to find a team mapped to the specific channel.
-        If no channel mapping exists, it falls back to workspace-based routing
-        (the "default" team for the workspace).
+        The routing endpoint handles both channel-level routing (specific team)
+        and workspace-level fallback (default team) in a single lookup.
 
         Args:
             slack_team_id: Slack workspace ID (team_id)
             channel_id: Slack channel ID
 
         Returns:
-            Team token string, or None if not found/provisioned.
+            Dict with "token", "org_id", "team_node_id", or None if not found.
         """
-        # Try channel-based routing first
-        routing = self.lookup_routing(channel_id)
+        routing = self.lookup_routing(channel_id, workspace_id=slack_team_id)
 
-        if routing:
-            org_id = routing["org_id"]
-            team_node_id = routing["team_node_id"]
-        else:
-            # Fall back to workspace-based routing
-            org_id = f"slack-{slack_team_id}"
-            team_node_id = "default"
+        if not routing:
+            logger.warning(
+                f"No routing for channel={channel_id}, workspace={slack_team_id}"
+            )
+            return None
+
+        org_id = routing["org_id"]
+        team_node_id = routing["team_node_id"]
 
         try:
             token_response = self._issue_team_token(org_id, team_node_id)
             token = token_response.get("token")
             if token:
                 logger.debug(f"Issued team token for org={org_id}, team={team_node_id}")
-                return token
+                return {"token": token, "org_id": org_id, "team_node_id": team_node_id}
             return None
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 404:
@@ -391,18 +407,18 @@ class ConfigServiceClient:
         """
         expires_at = datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)
 
-        # Store trial metadata (not the shared key)
-        # subscription_status="none" means they need to subscribe after trial
+        # Store trial metadata at org level (not nested under integrations)
+        # The credential-resolver checks these fields at the top level
         config = {
+            "is_trial": True,
+            "trial_expires_at": expires_at.isoformat(),
+            "trial_started_at": datetime.utcnow().isoformat(),
+            "subscription_status": "none",  # Must subscribe after trial
             "integrations": {
                 "anthropic": {
-                    "is_trial": True,
-                    "trial_expires_at": expires_at.isoformat(),
-                    "trial_started_at": datetime.utcnow().isoformat(),
                     "workspace_attribution": org_id,  # For cost tracking
-                    "subscription_status": "none",  # Must subscribe after trial
                 }
-            }
+            },
         }
 
         self._update_config(org_id, team_node_id, config)
@@ -432,6 +448,25 @@ class ConfigServiceClient:
         response.raise_for_status()
         return response.json()
 
+    def register_local_routing(self, workspace_id: str) -> None:
+        """Register the Slack workspace ID as a routing identifier in local mode.
+
+        Called at startup in single-workspace local mode so the routing lookup
+        works without requiring the user to manually configure SLACK_WORKSPACE_ID.
+
+        Args:
+            workspace_id: Slack workspace ID (e.g., "T09UF9JAHD1")
+        """
+        try:
+            self._update_config(
+                "local",
+                "default",
+                {"routing": {"slack_workspace_ids": [workspace_id]}},
+            )
+            logger.info(f"Registered local routing for workspace {workspace_id}")
+        except Exception as e:
+            logger.warning(f"Failed to register local routing for {workspace_id}: {e}")
+
     def get_workspace_config(
         self,
         slack_team_id: str,
@@ -444,7 +479,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails (non-404 errors).
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         url = f"{self.base_url}/api/v1/config/me"
@@ -645,7 +684,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails.
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         config = {
@@ -775,7 +818,11 @@ class ConfigServiceClient:
         Raises:
             ConfigServiceError: If the config service request fails.
         """
-        org_id = f"slack-{slack_team_id}"
+        # In local mode, use 'local' org instead of per-workspace orgs
+        if CONFIG_MODE == "local":
+            org_id = "local"
+        else:
+            org_id = f"slack-{slack_team_id}"
         team_node_id = "default"
 
         update = {"integrations": {integration_id: config}}

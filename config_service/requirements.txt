@@ -3,6 +3,8 @@ pydantic>=2.0.0
 pydantic-settings>=2.0.0
 email-validator>=2.0.0  # Required for pydantic EmailStr
 pyyaml>=6.0
+ruamel.yaml>=0.18.0  # For YAML config with comment preservation
+watchdog>=3.0.0  # For file watching in local mode
 structlog>=23.0.0
 
 # Database
@@ -25,6 +27,9 @@ prometheus-client>=0.19.0
 # Auth (OIDC/JWT)
 PyJWT>=2.8.0
 cryptography>=41.0.0
+
+# Cron expression parsing for scheduled jobs
+croniter>=2.0.0
 
 # Optional cache (enabled via CONFIG_CACHE_BACKEND=redis)
 redis>=5.0.0

@@ -19,6 +19,8 @@ import uuid
 from functools import partial
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+import httpx
+
 if TYPE_CHECKING:
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
@@ -46,16 +48,51 @@ def generate_session_id(space_id: str, thread_key: str) -> str:
     Generate session ID for thread-based conversational context.
 
     Uses space + thread key for stable ID across follow-up messages.
-    Sanitized for use as K8s DNS names (RFC 1123).
+    Sanitized for use as K8s resource names (RFC 1123: lowercase alphanumeric
+    and hyphens only, max 63 chars for labels).
 
     Example:
         space_id="ABC123", thread_key="spaces/ABC123/threads/xyz"
         -> "gchat-abc123-xyz"
     """
+    import re
+
+    def _sanitize(value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
     # Extract thread ID from full thread name
     thread_id = thread_key.split("/")[-1] if thread_key else "main"
-    sanitized = thread_id.replace("/", "-").replace(".", "-").lower()[:50]
-    return f"gchat-{space_id.lower()[:20]}-{sanitized}"
+    sanitized_space = _sanitize(space_id)[:20]
+    sanitized_thread = _sanitize(thread_id)[:30]
+    # "gchat-" (6) + space (≤20) + "-" (1) + thread (≤30) = ≤57, under 63
+    return f"gchat-{sanitized_space}-{sanitized_thread}"
+
+
+WELCOME_MESSAGE = (
+    "*Welcome to IncidentFox!*\n\n"
+    "IncidentFox is an AI-powered incident investigation assistant "
+    "for Google Chat\u2122.\n\n"
+    "Get started by mentioning me with a question or issue:\n"
+    "- `@IncidentFox investigate high error rate on checkout service`\n"
+    "- `@IncidentFox why is pod X crashing in namespace Y?`\n"
+    "- `@IncidentFox help` \u2014 see all available commands\n\n"
+    "I\u2019ll analyze logs, metrics, and infrastructure to help you "
+    "triage incidents faster."
+)
+
+HELP_MESSAGE = (
+    "*IncidentFox Help*\n\n"
+    "I\u2019m an AI-powered incident investigation assistant. "
+    "Mention me with a description of the issue and I\u2019ll investigate.\n\n"
+    "*Example prompts:*\n"
+    "- `@IncidentFox investigate high latency on the payments service`\n"
+    "- `@IncidentFox why are pods restarting in the production namespace?`\n"
+    "- `@IncidentFox check the error logs for the auth service`\n"
+    "- `@IncidentFox triage this alert: <paste alert details>`\n"
+    "- `@IncidentFox help` \u2014 show this help message\n\n"
+    "I can access your team\u2019s Kubernetes clusters, logs, metrics, and more "
+    "to help you find the root cause faster."
+)
 
 
 class GoogleChatIntegration:
@@ -91,7 +128,7 @@ class GoogleChatIntegration:
         if event_type == "MESSAGE":
             return await self._handle_message(event_data, correlation_id)
         elif event_type == "ADDED_TO_SPACE":
-            return self._handle_added_to_space(event_data, correlation_id)
+            return await self._handle_added_to_space(event_data, correlation_id)
         elif event_type == "REMOVED_FROM_SPACE":
             return self._handle_removed_from_space(event_data, correlation_id)
         elif event_type == "CARD_CLICKED":
@@ -150,6 +187,15 @@ class GoogleChatIntegration:
             text_length=len(text),
         )
 
+        # Static help response — no LLM call
+        if text.lower() == "help":
+            _log(
+                "gchat_help_requested",
+                correlation_id=correlation_id,
+                space_id=space_id,
+            )
+            return {"text": HELP_MESSAGE}
+
         if not text:
             return {
                 "text": "Hey! What would you like me to investigate?",
@@ -170,14 +216,9 @@ class GoogleChatIntegration:
             )
         )
 
-        # Return immediate response
-        response: Dict[str, Any] = {
-            "text": "IncidentFox is working on it...",
-        }
-        if thread_key:
-            response["thread"] = {"name": thread_key}
-
-        return response
+        # Return empty — sync createMessageAction can't reply in threads.
+        # The async handler sends a "working on it" + result via REST API.
+        return {}
 
     async def _process_message_async(
         self,
@@ -204,15 +245,35 @@ class GoogleChatIntegration:
 
             if not routing.get("found"):
                 _log(
-                    "gchat_no_routing",
+                    "gchat_no_routing_attempting_provision",
                     correlation_id=correlation_id,
                     space_id=space_id,
                     tried=routing.get("tried", []),
                 )
-                return
-
-            org_id = routing["org_id"]
-            team_node_id = routing["team_node_id"]
+                provision = await self._auto_provision(
+                    space_id=space_id,
+                    correlation_id=correlation_id,
+                )
+                if not provision:
+                    try:
+                        await self._send_message_to_space(
+                            space_name=space_name,
+                            text=(
+                                "Sorry, I couldn't set up IncidentFox automatically. "
+                                "Please contact your administrator to configure the integration."
+                            ),
+                            thread_key="",
+                            effective_config={},
+                            correlation_id=correlation_id,
+                        )
+                    except Exception:
+                        pass
+                    return
+                org_id = provision["org_id"]
+                team_node_id = provision["team_node_id"]
+            else:
+                org_id = routing["org_id"]
+                team_node_id = routing["team_node_id"]
 
             _log(
                 "gchat_routing_found",
@@ -265,6 +326,15 @@ class GoogleChatIntegration:
                     error=str(e),
                 )
 
+            # Send "working on it" in the thread via REST API
+            await self._send_message_to_space(
+                space_name=space_name,
+                text="IncidentFox is working on it...",
+                thread_key=thread_key,
+                effective_config=effective_config,
+                correlation_id=correlation_id,
+            )
+
             run_id = uuid.uuid4().hex
 
             # Resolve output destinations
@@ -305,34 +375,26 @@ class GoogleChatIntegration:
                     team_token=team_token,
                     agent_name=entrance_agent_name,
                     message=text,
-                    context={
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "metadata": {
-                            "google_chat": {
-                                "space_id": space_id,
-                                "space_name": space_name,
-                                "thread_key": thread_key,
-                            },
-                            "trigger": "google_chat",
-                        },
-                    },
+                    tenant_id=org_id,
+                    team_id=team_node_id,
                     timeout=int(
                         os.getenv("ORCHESTRATOR_GCHAT_AGENT_TIMEOUT_SECONDS", "300")
                     ),
                     correlation_id=correlation_id,
                     agent_base_url=dedicated_agent_url,
+                    session_id=session_id,
                 )
             )
 
-            # TODO: Send result back to Google Chat space via REST API
+            # Send result back to Google Chat space
             result_text = result.get("result", "")
             if result_text:
-                _log(
-                    "gchat_result_ready",
-                    correlation_id=correlation_id,
+                await self._send_message_to_space(
                     space_name=space_name,
-                    result_length=len(result_text),
+                    text=result_text,
+                    thread_key=thread_key,
+                    effective_config=effective_config,
+                    correlation_id=correlation_id,
                 )
 
             _log(
@@ -352,7 +414,205 @@ class GoogleChatIntegration:
                 error=str(e),
             )
 
-    def _handle_added_to_space(
+    async def _send_message_to_space(
+        self,
+        space_name: str,
+        text: str,
+        thread_key: str,
+        effective_config: Dict[str, Any],
+        correlation_id: str,
+    ) -> None:
+        """
+        Send a message to a Google Chat space via REST API.
+
+        Uses service account credentials from team config or environment
+        to authenticate with the Google Chat API.
+        """
+        try:
+            # Get service account credentials
+            sa_key_json = (
+                (effective_config or {})
+                .get("integrations", {})
+                .get("google_chat", {})
+                .get("service_account_key")
+            ) or os.getenv("GOOGLE_CHAT_SERVICE_ACCOUNT_KEY", "")
+
+            if not sa_key_json:
+                _log(
+                    "gchat_send_no_credentials",
+                    correlation_id=correlation_id,
+                    space_name=space_name,
+                )
+                return
+
+            # Parse key — may be raw JSON, base64-encoded JSON, or a dict
+            if isinstance(sa_key_json, str):
+                try:
+                    sa_key_info = json.loads(sa_key_json)
+                except json.JSONDecodeError:
+                    # Try base64 decode
+                    import base64
+
+                    sa_key_info = json.loads(base64.b64decode(sa_key_json))
+            else:
+                sa_key_info = sa_key_json
+
+            # Build access token from service account
+            from google.oauth2 import service_account
+
+            credentials = service_account.Credentials.from_service_account_info(
+                sa_key_info,
+                scopes=["https://www.googleapis.com/auth/chat.bot"],
+            )
+            # Refresh to get access token
+            from google.auth.transport import requests as google_requests
+
+            credentials.refresh(google_requests.Request())
+            access_token = credentials.token
+
+            # Build message payload
+            url = f"https://chat.googleapis.com/v1/{space_name}/messages"
+            payload: Dict[str, Any] = {"text": text}
+            if thread_key:
+                payload["thread"] = {"name": thread_key}
+
+            params = {}
+            if thread_key:
+                params["messageReplyOption"] = "REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD"
+
+            # Send message
+            resp = await asyncio.to_thread(
+                self._post_gchat_message,
+                url=url,
+                access_token=access_token,
+                payload=payload,
+                params=params,
+            )
+
+            _log(
+                "gchat_message_sent",
+                correlation_id=correlation_id,
+                space_name=space_name,
+                result_length=len(text),
+                status_code=resp,
+            )
+
+        except Exception as e:
+            _log(
+                "gchat_send_failed",
+                correlation_id=correlation_id,
+                space_name=space_name,
+                error=str(e),
+            )
+
+    @staticmethod
+    def _post_gchat_message(
+        url: str,
+        access_token: str,
+        payload: Dict[str, Any],
+        params: Dict[str, str],
+    ) -> int:
+        """Sync helper to POST a message to Google Chat API. Returns status code."""
+        with httpx.Client(timeout=15.0) as c:
+            r = c.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                params=params,
+            )
+            r.raise_for_status()
+            return r.status_code
+
+    async def _auto_provision(
+        self,
+        space_id: str,
+        correlation_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Auto-provision an org + team for a new Google Chat space.
+
+        Creates the org and default team in config-service, then registers
+        the routing identifier so subsequent messages are routed correctly.
+
+        Returns ``{"org_id": ..., "team_node_id": ...}`` on success, or None.
+        """
+        try:
+            admin_token = (os.getenv("ORCHESTRATOR_INTERNAL_ADMIN_TOKEN") or "").strip()
+            if not admin_token:
+                _log(
+                    "gchat_auto_provision_no_admin_token", correlation_id=correlation_id
+                )
+                return None
+
+            cfg = self.config_service
+
+            org_id = f"gchat-{space_id}"
+            org_name = f"Google Chat {space_id[:16]}"
+            team_node_id = "default"
+
+            # Step 1: Create org (idempotent)
+            await asyncio.to_thread(cfg.create_org_node, admin_token, org_id, org_name)
+
+            # Step 2: Create default team (idempotent)
+            await asyncio.to_thread(
+                cfg.create_team_node, admin_token, org_id, team_node_id, "Default Team"
+            )
+
+            # Step 3: Update routing to include this space ID.
+            existing_ids: list[str] = []
+            try:
+                eff = await asyncio.to_thread(
+                    cfg.get_effective_config_for_node,
+                    admin_token,
+                    org_id,
+                    team_node_id,
+                )
+                existing_ids = list(
+                    eff.get("routing", {}).get("google_chat_space_ids", [])
+                )
+            except Exception:
+                pass
+
+            if space_id not in existing_ids:
+                existing_ids.append(space_id)
+
+            await asyncio.to_thread(
+                cfg.patch_node_config,
+                admin_token,
+                org_id,
+                team_node_id,
+                {
+                    "routing": {"google_chat_space_ids": existing_ids},
+                    "integrations": {
+                        "anthropic": {
+                            "is_trial": True,
+                            "trial_expires_at": "2030-12-31T23:59:59.000000",
+                            "subscription_status": "active",
+                        },
+                    },
+                },
+            )
+
+            _log(
+                "gchat_auto_provision_success",
+                correlation_id=correlation_id,
+                org_id=org_id,
+                team_node_id=team_node_id,
+                space_id=space_id,
+            )
+            return {"org_id": org_id, "team_node_id": team_node_id}
+
+        except Exception as e:
+            _log(
+                "gchat_auto_provision_failed",
+                correlation_id=correlation_id,
+                error=str(e),
+            )
+            return None
+
+    async def _handle_added_to_space(
         self,
         event_data: Dict[str, Any],
         correlation_id: str,
@@ -361,6 +621,7 @@ class GoogleChatIntegration:
         space = event_data.get("space", {})
         space_name = space.get("name", "")
         space_type = space.get("type", "")  # ROOM, DM, etc.
+        space_id = space_name.split("/")[-1] if space_name else ""
 
         user = event_data.get("user", {})
         user_display_name = user.get("displayName", "")
@@ -373,12 +634,16 @@ class GoogleChatIntegration:
             added_by=user_display_name,
         )
 
-        return {
-            "text": (
-                "Hi! I'm IncidentFox, your AI incident investigation assistant. "
-                "Mention me with a question or issue description, and I'll help investigate!"
-            ),
-        }
+        # Proactively provision so first message routes correctly
+        if space_id:
+            asyncio.create_task(
+                self._auto_provision(
+                    space_id=space_id,
+                    correlation_id=correlation_id,
+                )
+            )
+
+        return {"text": WELCOME_MESSAGE}
 
     def _handle_removed_from_space(
         self,

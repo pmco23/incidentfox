@@ -38,7 +38,7 @@ LLM_PROVIDERS = [
         "anthropic",
         "Anthropic (Claude)",
         "claude-sonnet-4-20250514",
-        "Default — uses IncidentFox key or your own",
+        "Default — add ANTHROPIC_API_KEY to .env or use IncidentFox key",
     ),
     ("openai", "OpenAI", "openai/gpt-4o", "GPT-4o, o3, o1 models"),
     ("gemini", "Google Gemini", "gemini/gemini-2.5-flash", "Direct Gemini API"),
@@ -68,7 +68,7 @@ LLM_PROVIDERS = [
     (
         "cloudflare_ai",
         "Cloudflare AI Gateway",
-        "cloudflare_ai/openai/gpt-4o",
+        "openai/gpt-4o",
         "Route through Cloudflare AI Gateway",
     ),
     # --- Tier 4: Inference platforms (host other providers' models) ---
@@ -95,7 +95,7 @@ LLM_PROVIDERS = [
     (
         "custom_endpoint",
         "Custom Endpoint",
-        "custom_endpoint/my-model",
+        "my-model",
         "Any OpenAI-compatible endpoint",
     ),
 ]
@@ -1904,6 +1904,50 @@ INTEGRATIONS: List[Dict[str, Any]] = [
         "icon_fallback": ":snowflake:",
         "description": "Query data warehouse and analytics.",
     },
+    {
+        "id": "amplitude",
+        "name": "Amplitude",
+        "category": "observability",
+        "status": "active",
+        "icon": ":bar_chart:",
+        "icon_fallback": ":chart:",
+        "description": "Query product analytics events, user activity, and funnels.",
+        "setup_instructions": (
+            "*Setup Instructions:*\n"
+            "1. Log into Amplitude\n"
+            "2. Go to *Settings* > *Projects* > select your project\n"
+            "3. Go to *General* tab, scroll to *API Credentials*\n"
+            "4. Copy the *API Key* and *Secret Key*\n"
+            "5. Paste both below"
+        ),
+        "docs_url": "https://www.docs.developers.amplitude.com/analytics/apis/",
+        "fields": [
+            {
+                "id": "api_key",
+                "name": "API Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "your-amplitude-api-key",
+                "hint": "Found in Amplitude project settings under API Credentials",
+            },
+            {
+                "id": "secret_key",
+                "name": "Secret Key",
+                "type": "secret",
+                "required": True,
+                "placeholder": "your-amplitude-secret-key",
+                "hint": "Found alongside the API Key in project settings",
+            },
+            {
+                "id": "region",
+                "name": "Region",
+                "type": "string",
+                "required": False,
+                "placeholder": "US (default) or EU",
+                "hint": "US for amplitude.com, EU for analytics.eu.amplitude.com",
+            },
+        ],
+    },
 ]
 
 
@@ -2313,10 +2357,8 @@ def validate_provider_api_key(
         if provider_key:
             headers["Authorization"] = f"Bearer {provider_key}"
 
-        # Strip cloudflare_ai/ prefix for the model name
-        test_model = (
-            model_id.split("/", 1)[1] if model_id and "/" in model_id else model_id
-        )
+        # Use the model as-is — user types e.g. "openai/gpt-4o", not "cloudflare_ai/..."
+        test_model = model_id
 
         try:
             resp = _requests.post(
@@ -2325,7 +2367,6 @@ def validate_provider_api_key(
                 json={
                     "model": test_model,
                     "messages": [{"role": "user", "content": "hi"}],
-                    "max_tokens": 1,
                 },
                 timeout=15,
             )
@@ -3547,15 +3588,16 @@ def build_ai_model_modal(
         }
     )
 
+    _is_local_mode = os.getenv("CONFIG_MODE", "").lower() == "local"
+    _provider_hint = (
+        ":bulb: *Anthropic (Claude)* is the default. Add *ANTHROPIC_API_KEY* to your .env file, or pick another provider."
+        if _is_local_mode
+        else ":bulb: With *Anthropic*, leave the API key blank to use IncidentFox's key, or enter your own. Other providers always require your own key."
+    )
     blocks.append(
         {
             "type": "context",
-            "elements": [
-                {
-                    "type": "mrkdwn",
-                    "text": ":bulb: *Anthropic (Claude)* is the default and uses IncidentFox's API key. Choose another provider to use your own key.",
-                }
-            ],
+            "elements": [{"type": "mrkdwn", "text": _provider_hint}],
         }
     )
 
@@ -3564,6 +3606,17 @@ def build_ai_model_modal(
         provider_schema = get_integration_by_id(provider_id)
         if provider_schema:
             provider_name = provider_schema.get("name", provider_id)
+
+            # Cloudflare: map per-upstream provider_api_key for display
+            if (
+                provider_id == "cloudflare_ai"
+                and current_model
+                and "/" in current_model
+            ):
+                upstream = current_model.split("/")[0]
+                stored = existing_provider_config.get(f"provider_api_key_{upstream}")
+                if stored:
+                    existing_provider_config["provider_api_key"] = stored
 
             # Find model prefix hint
             model_placeholder = ""
@@ -3600,7 +3653,11 @@ def build_ai_model_modal(
                     },
                 }
                 if current_model:
-                    model_element["initial_value"] = current_model
+                    # Strip provider prefix for display — user doesn't need to see it
+                    display_model = current_model
+                    if current_model.startswith(f"{provider_id}/"):
+                        display_model = current_model[len(provider_id) + 1 :]
+                    model_element["initial_value"] = display_model
                 hint_text = f"Enter the full model ID. Example: {model_placeholder}"
             else:
                 from model_catalog import get_models_for_provider
@@ -3710,7 +3767,7 @@ def build_ai_model_modal(
                     field_placeholder = field_def.get("placeholder", "")
 
                     field_names.append(field_id)
-                    field_has_value = field_id in existing_provider_config
+                    field_has_value = bool(existing_provider_config.get(field_id))
                     make_optional = field_has_value or not field_required
 
                     if field_type == "secret":
@@ -3831,7 +3888,11 @@ def build_ai_model_modal(
                         "elements": [
                             {
                                 "type": "mrkdwn",
-                                "text": ":lock: Using IncidentFox's Anthropic API key with zero data retention.",
+                                "text": (
+                                    ":warning: Local mode requires your own key. Set *ANTHROPIC_API_KEY=sk-ant-...* in your .env file and restart."
+                                    if os.getenv("CONFIG_MODE", "").lower() == "local"
+                                    else ":lock: Using IncidentFox's Anthropic API key with zero data retention."
+                                ),
                             }
                         ],
                     }

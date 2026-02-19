@@ -212,10 +212,6 @@ services:
       name: incidentfox-agent
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-staging-agent"
-    # K8s tools - agent can access otel-demo namespace
-    kubernetes:
-      enabled: true
-      namespace: "otel-demo"
     # Enable sandbox mode with gVisor isolation
     sandbox:
       enabled: true
@@ -225,12 +221,12 @@ services:
     # Warm pool for instant sandbox provisioning (<2s)
     warmPool:
       enabled: true
-      replicas: 3
+      replicas: 1
       autoscaler:
         enabled: true
-        minReplicas: 3
-        maxReplicas: 10
-        buffer: 3
+        minReplicas: 1
+        maxReplicas: 3
+        buffer: 1
     hpa:
       enabled: true
       minReplicas: 2
@@ -260,6 +256,8 @@ services:
       runAsNonRoot: true
       runAsUser: 1000
     extraEnv:
+      - name: CONFIG_SERVICE_URL
+        value: "http://incidentfox-config-service.incidentfox.svc.cluster.local:8080"
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox.svc.cluster.local:8085"
       - name: SANDBOX_TTL_MINUTES
@@ -311,7 +309,7 @@ services:
   knowledgeBase:
     enabled: false  # Deprecated - use ultimateRag instead
 
-  # Ultimate RAG - Knowledge base with graph queries, teaching, analytics
+  # Ultimate RAG - Self-learning knowledge base
   ultimateRag:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-ultimate-rag:latest"

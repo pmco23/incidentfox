@@ -1773,13 +1773,10 @@ def _handle_mention_impl(event, say, client, context):
             logger.info(f"Trial expired for team {team_id}, skipping investigation")
             return
     except Exception as e:
-        logger.error(f"Failed to check trial status: {e}")
-        client.chat_postMessage(
-            channel=channel_id,
-            thread_ts=event.get("thread_ts") or event["ts"],
-            text=":x: Unable to verify your account status. Please try again later.",
-        )
-        return
+        # Config service unreachable — log and continue.
+        # The credential-proxy enforces trial expiration at runtime,
+        # so this check is a UX guardrail, not a security gate.
+        logger.warning(f"Failed to check trial status (continuing): {e}")
 
     # Thread context: use existing thread or create new one
     thread_ts = event.get("thread_ts") or event["ts"]
@@ -2099,23 +2096,30 @@ def _handle_mention_impl(event, say, client, context):
     logger.info(f"🔔 Auto-listen enabled for thread {thread_ts} in {channel_id}")
 
     try:
-        # Get team token for config-driven agents
-        # This enables the agent to load team config (agent definitions, tools, LLM settings)
+        # Get team token and routing info for config-driven agents
         # Uses channel-based routing: checks if this channel maps to a specific team,
         # falls back to workspace-based routing ("default" team) if no mapping exists.
-        team_token = None
+        routing_result = None
         try:
             config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
+            routing_result = config_client.get_team_token_for_channel(
+                team_id, channel_id
+            )
         except Exception as e:
             logger.warning(f"Failed to get team token for {team_id}/{channel_id}: {e}")
+
+        resolved_org_id = routing_result["org_id"] if routing_result else None
+        resolved_team_node_id = (
+            routing_result["team_node_id"] if routing_result else None
+        )
+        team_token = routing_result["token"] if routing_result else None
 
         # Build request payload with prompt and optional images
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
-            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
-            "team_id": team_id,
+            "tenant_id": resolved_org_id,
+            "team_id": resolved_team_node_id,
         }
 
         # Add team_token for config-driven agents (enables dynamic config loading)
@@ -2256,8 +2260,7 @@ def _run_auto_listen_investigation(event, client, context):
             )
             return
     except Exception as e:
-        logger.error(f"Failed to check trial status: {e}")
-        return
+        logger.warning(f"Failed to check trial status (continuing): {e}")
 
     # Generate thread_id for sre-agent
     sanitized_thread_ts = thread_ts.replace(".", "-")
@@ -2433,18 +2436,26 @@ def _run_auto_listen_investigation(event, client, context):
     )
 
     try:
-        team_token = None
+        routing_result = None
         try:
             config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
+            routing_result = config_client.get_team_token_for_channel(
+                team_id, channel_id
+            )
         except Exception as e:
             logger.warning(f"Failed to get team token: {e}")
+
+        resolved_org_id = routing_result["org_id"] if routing_result else None
+        resolved_team_node_id = (
+            routing_result["team_node_id"] if routing_result else None
+        )
+        team_token = routing_result["token"] if routing_result else None
 
         request_payload = {
             "prompt": enriched_prompt,
             "thread_id": thread_id,
-            "tenant_id": team_id,
-            "team_id": team_id,
+            "tenant_id": resolved_org_id,
+            "team_id": resolved_team_node_id,
         }
 
         if team_token:
@@ -2851,21 +2862,28 @@ Use all available tools to gather context about this issue."""
     logger.info(f"🔔 Auto-listen enabled for alert thread {thread_ts} in {channel_id}")
 
     try:
-        # Get team token for config-driven agents
-        # Uses channel-based routing with fallback to workspace-based routing
-        team_token = None
+        # Get team token and routing info for config-driven agents
+        routing_result = None
         try:
             config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
+            routing_result = config_client.get_team_token_for_channel(
+                team_id, channel_id
+            )
         except Exception as e:
             logger.warning(f"Failed to get team token for {team_id}/{channel_id}: {e}")
+
+        resolved_org_id = routing_result["org_id"] if routing_result else None
+        resolved_team_node_id = (
+            routing_result["team_node_id"] if routing_result else None
+        )
+        team_token = routing_result["token"] if routing_result else None
 
         # Call sre-agent to investigate
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
-            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
-            "team_id": team_id,
+            "tenant_id": resolved_org_id,
+            "team_id": resolved_team_node_id,
         }
 
         # Add team_token for config-driven agents
@@ -3036,12 +3054,9 @@ def handle_message(event, client, context):
                 )
                 return
         except Exception as e:
-            logger.error(f"Failed to check trial status for DM: {e}")
-            client.chat_postMessage(
-                channel=channel_id,
-                text=":x: Unable to verify your account status. Please try again later.",
-            )
-            return
+            # Config service unreachable — log and continue.
+            # The credential-proxy enforces trial expiration at runtime.
+            logger.warning(f"Failed to check trial status for DM (continuing): {e}")
 
         # Continue to DM investigation below
         # (Extract images, build prompt, trigger investigation)
@@ -3265,12 +3280,12 @@ def handle_message(event, client, context):
         )
 
         try:
-            # Get team token for config-driven agents
+            # Get team token and routing info for config-driven agents
             # For DMs, channel routing won't match, falls back to workspace-based routing
-            team_token = None
+            routing_result = None
             try:
                 config_client = get_config_client()
-                team_token = config_client.get_team_token_for_channel(
+                routing_result = config_client.get_team_token_for_channel(
                     team_id, channel_id
                 )
             except Exception as e:
@@ -3278,12 +3293,18 @@ def handle_message(event, client, context):
                     f"Failed to get team token for {team_id}/{channel_id}: {e}"
                 )
 
+            resolved_org_id = routing_result["org_id"] if routing_result else None
+            resolved_team_node_id = (
+                routing_result["team_node_id"] if routing_result else None
+            )
+            team_token = routing_result["token"] if routing_result else None
+
             # Build request payload
             request_payload = {
                 "prompt": enriched_prompt,
                 "thread_id": thread_id,
-                "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
-                "team_id": team_id,
+                "tenant_id": resolved_org_id,
+                "team_id": resolved_team_node_id,
             }
 
             # Add team_token for config-driven agents
@@ -3413,8 +3434,9 @@ def handle_message(event, client, context):
                     )
                     return
             except Exception as e:
-                logger.error(f"Failed to check trial status for alert: {e}")
-                return  # Block if we can't verify trial status
+                logger.warning(
+                    f"Failed to check trial status for alert (continuing): {e}"
+                )
 
             logger.info("✅ Confirmed: NEW ALERT - triggering investigation")
             threading.Thread(
@@ -3714,21 +3736,28 @@ Use the Coralogix tools to fetch details about this insight and gather relevant 
     )
 
     try:
-        # Get team token for config-driven agents
-        # Uses channel-based routing with fallback to workspace-based routing
-        team_token = None
+        # Get team token and routing info for config-driven agents
+        routing_result = None
         try:
             config_client = get_config_client()
-            team_token = config_client.get_team_token_for_channel(team_id, channel_id)
+            routing_result = config_client.get_team_token_for_channel(
+                team_id, channel_id
+            )
         except Exception as e:
             logger.warning(f"Failed to get team token for {team_id}/{channel_id}: {e}")
+
+        resolved_org_id = routing_result["org_id"] if routing_result else None
+        resolved_team_node_id = (
+            routing_result["team_node_id"] if routing_result else None
+        )
+        team_token = routing_result["token"] if routing_result else None
 
         # Call sre-agent to investigate
         request_payload = {
             "prompt": investigation_prompt,
             "thread_id": thread_id,
-            "tenant_id": team_id,  # Slack team_id = tenant for credential lookup
-            "team_id": team_id,
+            "tenant_id": resolved_org_id,
+            "team_id": resolved_team_node_id,
         }
 
         # Add team_token for config-driven agents
@@ -5407,6 +5436,12 @@ def handle_open_ai_model_selector(ack, body, client):
         logger.warning(f"Failed to pre-fill AI model modal: {e}")
 
 
+# Guard against provider-switch race conditions: slow model catalog fetches
+# (e.g. OpenAI) can overwrite a fast provider switch (e.g. Cloudflare).
+# Each selection increments the counter; stale handlers skip their update.
+_provider_switch_seq: dict = {}  # view_id → sequence number
+
+
 @app.action("ai_provider_select")
 def handle_ai_provider_change(ack, body, client):
     """Handle provider dropdown change — update the modal with provider-specific fields."""
@@ -5421,6 +5456,10 @@ def handle_ai_provider_change(ack, body, client):
     )
     if not selected_provider or not view_id:
         return
+
+    # Claim a sequence number before doing any slow work
+    _provider_switch_seq[view_id] = _provider_switch_seq.get(view_id, 0) + 1
+    my_seq = _provider_switch_seq[view_id]
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5438,6 +5477,13 @@ def handle_ai_provider_change(ack, body, client):
             current_model=None,  # Don't carry over model from different provider
             existing_provider_config=existing_provider_config,
         )
+
+        # Skip update if user already switched to another provider
+        if _provider_switch_seq.get(view_id) != my_seq:
+            logger.info(
+                f"Skipping stale provider update for {selected_provider} (view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
         logger.info(
@@ -5460,6 +5506,10 @@ def handle_model_select_change(ack, body, client):
     )
     if not selected_model or not view_id:
         return
+
+    # Snapshot the provider-switch sequence — if it changes, a provider switch
+    # happened and this model description update is stale.
+    seq_before = _provider_switch_seq.get(view_id, 0)
 
     try:
         private_metadata = json.loads(view.get("private_metadata", "{}"))
@@ -5495,6 +5545,13 @@ def handle_model_select_change(ack, body, client):
             existing_provider_config=existing_provider_config,
             model_description=description,
         )
+
+        # Skip if provider changed while we were building the modal
+        if _provider_switch_seq.get(view_id, 0) != seq_before:
+            logger.info(
+                f"Skipping stale model description update (provider switched, view {view_id})"
+            )
+            return
 
         client.views_update(view_id=view_id, view=modal)
     except Exception as e:
@@ -5561,6 +5618,14 @@ def handle_ai_model_config_submission(ack, body, client, view):
     except Exception:
         existing_provider_config = {}
 
+    # Cloudflare: map per-upstream provider_api_key into generic field for the form loop
+    _cf_upstream = ""
+    if provider_id == "cloudflare_ai" and model_id and "/" in model_id:
+        _cf_upstream = model_id.split("/")[0]
+        stored_key = existing_provider_config.get(f"provider_api_key_{_cf_upstream}")
+        if stored_key:
+            existing_provider_config["provider_api_key"] = stored_key
+
     provider_config = {}
     for field_id in field_names:
         block_id = f"field_{field_id}"
@@ -5575,9 +5640,7 @@ def handle_ai_model_config_submission(ack, body, client, view):
                     provider_config[field_id] = existing_provider_config[field_id]
             elif val:
                 provider_config[field_id] = val
-            elif field_id in existing_provider_config:
-                # Secret field left blank — preserve existing value
-                provider_config[field_id] = existing_provider_config[field_id]
+            # Blank field = user intentionally cleared it — don't preserve old value
         elif "selected_option" in field_value:
             selected = field_value.get("selected_option", {})
             if selected:
@@ -5588,6 +5651,17 @@ def handle_ai_model_config_submission(ack, body, client, view):
             # Checkboxes (boolean)
             selected = field_value.get("selected_options", [])
             provider_config[field_id] = len(selected) > 0
+
+    # Cloudflare: store provider_api_key per upstream provider (openai, anthropic, etc.)
+    if provider_id == "cloudflare_ai":
+        upstream = model_id.split("/")[0] if "/" in model_id else ""
+        if upstream:
+            # Move the form value to per-provider key (if user entered one)
+            generic_val = provider_config.pop("provider_api_key", "")
+            if generic_val:
+                provider_config[f"provider_api_key_{upstream}"] = generic_val
+        # Clear generic key so it doesn't persist from previous saves
+        provider_config.setdefault("provider_api_key", "")
 
     # 3. Show loading state immediately (Slack requires ack within 3 seconds)
     #    Push on top of form so user can go Back on error (form fields preserved)
@@ -5660,12 +5734,19 @@ def handle_ai_model_config_submission(ack, body, client, view):
             logger.info(f"Saved {provider_id} provider config for team {team_id}")
 
         # 6. Save LLM model preference
+        #    Prepend provider prefix for routing (user doesn't type it)
+        save_model_id = model_id
+        _prefix_providers = {"cloudflare_ai", "custom_endpoint"}
+        if provider_id in _prefix_providers and not model_id.startswith(
+            f"{provider_id}/"
+        ):
+            save_model_id = f"{provider_id}/{model_id}"
         config_client.save_integration_config(
             slack_team_id=team_id,
             integration_id="llm",
-            config={"model": model_id},
+            config={"model": save_model_id},
         )
-        logger.info(f"Saved llm model={model_id} for team {team_id}")
+        logger.info(f"Saved llm model={save_model_id} for team {team_id}")
 
     except Exception as e:
         logger.error(f"Failed to save AI model config: {e}", exc_info=True)
@@ -6733,6 +6814,33 @@ if __name__ == "__main__":
     logger.info(f"SRE Agent URL: {SRE_AGENT_URL}")
     logger.info("Starting...")
 
+    # Validate required Slack credentials
+    # OAuth mode (production) needs SLACK_CLIENT_ID + SLACK_CLIENT_SECRET (already validated at module level)
+    # Single-workspace mode (dev) needs SLACK_BOT_TOKEN
+    if not oauth_enabled:
+        missing_tokens = []
+        if not os.environ.get("SLACK_BOT_TOKEN"):
+            missing_tokens.append("SLACK_BOT_TOKEN")
+        if SLACK_APP_MODE == "socket" and not os.environ.get("SLACK_APP_TOKEN"):
+            missing_tokens.append("SLACK_APP_TOKEN")
+
+        if missing_tokens:
+            logger.warning("=" * 70)
+            logger.warning(
+                "⚠️  Slack credentials not configured - slack-bot will not start"
+            )
+            logger.warning("=" * 70)
+            logger.warning("")
+            logger.warning(f"Missing environment variables: {', '.join(missing_tokens)}")
+            logger.warning("")
+            logger.warning("To enable Slack integration, add these to your .env file:")
+            logger.warning("  SLACK_BOT_TOKEN=xoxb-your-bot-token")
+            logger.warning("  SLACK_APP_TOKEN=xapp-your-app-token  (for Socket Mode)")
+            logger.warning("")
+            logger.warning("Then restart with: docker compose restart slack-bot")
+            logger.warning("=" * 70)
+            exit(0)  # Exit gracefully (not an error)
+
     if SLACK_APP_MODE == "http":
         # Production: HTTP mode with Flask
         # Configure Flask to find templates and assets
@@ -7023,8 +7131,19 @@ if __name__ == "__main__":
         flask_app.run(host="0.0.0.0", port=port)
     else:
         # Local dev: Socket Mode
-        if "SLACK_APP_TOKEN" not in os.environ:
-            logger.error("SLACK_APP_TOKEN not found. Set it in .env for Socket Mode.")
-            exit(1)
+        # Register all handlers on the app instance (in HTTP mode, this is done by SlackAppRegistry)
+        register_all_handlers(app)
+
+        # In local mode, auto-register the workspace routing so the routing lookup
+        # works without requiring the user to manually set SLACK_WORKSPACE_ID.
+        if os.environ.get("CONFIG_MODE", "").lower() == "local":
+            try:
+                auth_resp = app.client.auth_test()
+                workspace_id = auth_resp.get("team_id")
+                if workspace_id:
+                    get_config_client().register_local_routing(workspace_id)
+            except Exception as e:
+                logger.warning(f"Could not auto-register local routing: {e}")
+
         handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
         handler.start()

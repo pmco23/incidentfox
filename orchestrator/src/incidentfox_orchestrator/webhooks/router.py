@@ -288,6 +288,23 @@ async def github_webhook(
         )
         return JSONResponse(content={"ok": True})
 
+    # Only process actionable event types — ignore noisy CI/CD events
+    # (workflow_run, check_suite, check_run, status, deployment_status, etc.)
+    _ACTIONABLE_GITHUB_EVENTS = {
+        "pull_request",
+        "push",
+        "issues",
+        "issue_comment",
+    }
+    if x_github_event not in _ACTIONABLE_GITHUB_EVENTS:
+        _log(
+            "github_webhook_skipped",
+            event_type=x_github_event,
+            delivery_id=x_github_delivery,
+            reason="non_actionable_event_type",
+        )
+        return JSONResponse(content={"ok": True})
+
     # Extract repository for routing
     repo = payload.get("repository", {})
     repo_full_name = repo.get("full_name", "")  # e.g., "org/repo"
@@ -573,6 +590,17 @@ async def _process_github_webhook(
                 agent_base_url=dedicated_agent_url,
                 output_destinations=output_destinations,
                 trigger_source="github",
+                tenant_id=org_id,
+                team_id=team_node_id,
+                session_id=(
+                    f"github-{repo_full_name.replace('/', '-')}-pr-{pr_number}"
+                    if pr_number
+                    else (
+                        f"github-{repo_full_name.replace('/', '-')}-issue-{issue_number}"
+                        if issue_number
+                        else None
+                    )
+                ),
             )
         )
 
@@ -1122,6 +1150,8 @@ async def _process_pagerduty_webhook(
             agent_base_url=dedicated_agent_url,
             output_destinations=output_destinations,
             trigger_source="pagerduty",
+            tenant_id=org_id,
+            team_id=team_node_id,
         )
 
         # Note: Agent service handles run completion recording
@@ -1540,6 +1570,8 @@ async def _process_incidentio_webhook(
                 agent_base_url=dedicated_agent_url,
                 output_destinations=output_destinations,
                 trigger_source="incidentio",
+                tenant_id=org_id,
+                team_id=team_node_id,
             )
         )
 
@@ -2141,11 +2173,18 @@ async def google_chat_webhook(
         )
 
     # Verify JWT
-    google_chat_project_id = os.getenv("GOOGLE_CHAT_PROJECT_ID", "").strip()
+    # Google Chat HTTP endpoints use the webhook URL as the JWT audience.
+    # Behind TLS-terminating LB, request.url is http:// but the token uses https://
+    url = str(request.url)
+    if request.headers.get("x-forwarded-proto") == "https" and url.startswith(
+        "http://"
+    ):
+        url = "https://" + url[len("http://") :]
+    expected_audience = os.getenv("GOOGLE_CHAT_AUDIENCE", "").strip() or url
     try:
         verify_google_chat_bearer_token(
             authorization=authorization or None,
-            expected_audience=google_chat_project_id,
+            expected_audience=expected_audience,
         )
     except SignatureVerificationError as e:
         _log("google_chat_auth_failed", reason=e.reason)
@@ -2158,7 +2197,50 @@ async def google_chat_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="invalid_json")
 
-    event_type = payload.get("type", "")
+    # Google Chat sends different payload formats:
+    # - Legacy/Chat app: {"type": "MESSAGE", "message": {...}, "space": {...}}
+    # - Workspace Add-on: {"commonEventObject": {...}, "chat": {
+    #       "messagePayload": {"message": {...}, "space": {...}},
+    #       "user": {...}, "eventTime": "..."
+    #   }}
+    # Normalize to legacy format for downstream handlers
+    chat_data = payload.get("chat", {}) or {}
+    event_type = payload.get("type", "") or payload.get("eventType", "")
+
+    if not event_type and chat_data:
+        # Workspace Add-on format — infer event type from payload keys
+        if "messagePayload" in chat_data:
+            event_type = "MESSAGE"
+            # Unwrap: chat.messagePayload contains {message, space}
+            msg_payload = chat_data["messagePayload"]
+            event_data = {
+                "type": "MESSAGE",
+                "message": msg_payload.get("message", {}),
+                "space": msg_payload.get("space", {}),
+                "user": chat_data.get("user", {}),
+                "eventTime": chat_data.get("eventTime", ""),
+            }
+        elif "addedToSpacePayload" in chat_data:
+            event_type = "ADDED_TO_SPACE"
+            space_payload = chat_data["addedToSpacePayload"]
+            event_data = {
+                "type": "ADDED_TO_SPACE",
+                "space": space_payload.get("space", {}),
+                "user": chat_data.get("user", {}),
+            }
+        elif "removedFromSpacePayload" in chat_data:
+            event_type = "REMOVED_FROM_SPACE"
+            space_payload = chat_data["removedFromSpacePayload"]
+            event_data = {
+                "type": "REMOVED_FROM_SPACE",
+                "space": space_payload.get("space", {}),
+                "user": chat_data.get("user", {}),
+            }
+        else:
+            event_data = payload
+    else:
+        event_data = payload
+
     correlation_id = __import__("uuid").uuid4().hex
 
     _log(
@@ -2168,11 +2250,24 @@ async def google_chat_webhook(
     )
 
     # Handle event and return response
+    is_addon_format = bool(chat_data)
     response = await gchat_integration.handle_event(
         event_type=event_type,
-        event_data=payload,
+        event_data=event_data,
         correlation_id=correlation_id,
     )
+
+    # Workspace Add-on format requires wrapping the response
+    if is_addon_format and response.get("text"):
+        response = {
+            "hostAppDataAction": {
+                "chatDataAction": {
+                    "createMessageAction": {
+                        "message": response,
+                    }
+                }
+            }
+        }
 
     return JSONResponse(content=response)
 
@@ -2394,6 +2489,8 @@ async def _process_blameless_webhook(
             agent_base_url=dedicated_agent_url,
             output_destinations=output_destinations,
             trigger_source="blameless",
+            tenant_id=org_id,
+            team_id=team_node_id,
         )
 
         _log(
@@ -2592,6 +2689,8 @@ async def _process_firehydrant_webhook(
             agent_base_url=dedicated_agent_url,
             output_destinations=output_destinations,
             trigger_source="firehydrant",
+            tenant_id=org_id,
+            team_id=team_node_id,
         )
 
         _log(

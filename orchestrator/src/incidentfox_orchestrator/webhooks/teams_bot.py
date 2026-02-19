@@ -52,16 +52,18 @@ def generate_session_id(channel_id: str, conversation_id: str) -> str:
     Generate session ID for conversation context.
 
     Uses channel + conversation ID for stable ID across follow-up messages.
-    Sanitized for use as K8s DNS names (RFC 1123).
+    Sanitized for use as K8s resource names (RFC 1123: lowercase alphanumeric
+    and hyphens only, max 63 chars for labels).
     """
-    # Sanitize the conversation_id (can be very long with special chars)
-    sanitized_conv = (
-        conversation_id.replace(":", "-")
-        .replace(";", "-")
-        .replace("@", "-")
-        .lower()[:40]
-    )
-    sanitized_channel = channel_id.lower()[:20] if channel_id else "dm"
+    import re
+
+    def _sanitize(value: str) -> str:
+        """Replace non-alphanumeric chars with hyphens, strip leading/trailing."""
+        return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+
+    sanitized_channel = _sanitize(channel_id)[:20] if channel_id else "dm"
+    sanitized_conv = _sanitize(conversation_id)[:30]
+    # "teams-" (6) + channel (≤20) + "-" (1) + conv (≤30) = ≤57, well under 63
     return f"teams-{sanitized_channel}-{sanitized_conv}"
 
 
@@ -84,6 +86,33 @@ def _strip_mentions(activity: Activity) -> str:
                     text = text.replace(mention_text, "")
 
     return text.strip()
+
+
+WELCOME_MESSAGE = (
+    "**Welcome to IncidentFox!**\n\n"
+    "IncidentFox is an AI-powered incident investigation assistant "
+    "for Microsoft Teams.\n\n"
+    "Get started by mentioning me with a question or issue:\n"
+    "- `@IncidentFox investigate high error rate on checkout service`\n"
+    "- `@IncidentFox why is pod X crashing in namespace Y?`\n"
+    "- `@IncidentFox help` \u2014 see all available commands\n\n"
+    "I\u2019ll analyze logs, metrics, and infrastructure to help you "
+    "triage incidents faster."
+)
+
+HELP_MESSAGE = (
+    "**IncidentFox Help**\n\n"
+    "I\u2019m an AI-powered incident investigation assistant. "
+    "Mention me with a description of the issue and I\u2019ll investigate.\n\n"
+    "**Example prompts:**\n"
+    "- `@IncidentFox investigate high latency on the payments service`\n"
+    "- `@IncidentFox why are pods restarting in the production namespace?`\n"
+    "- `@IncidentFox check the error logs for the auth service`\n"
+    "- `@IncidentFox triage this alert: <paste alert details>`\n"
+    "- `@IncidentFox help` \u2014 show this help message\n\n"
+    "I can access your team\u2019s Kubernetes clusters, logs, metrics, and more "
+    "to help you find the root cause faster."
+)
 
 
 class TeamsIntegration:
@@ -176,6 +205,36 @@ class TeamsIntegration:
         conversation = activity.conversation
         conversation_id = conversation.id if conversation else ""
 
+        # Check if this is a thread reply (conversation_id includes ";messageid=")
+        is_thread_reply = ";messageid=" in conversation_id
+
+        # Check if the bot was @mentioned
+        bot_id = activity.recipient.id if activity.recipient else ""
+        is_mentioned = False
+        if activity.entities:
+            for entity in activity.entities:
+                if entity.type == "mention":
+                    mentioned = getattr(entity, "mentioned", None)
+                    mentioned_id = (
+                        getattr(mentioned, "id", None)
+                        if mentioned
+                        else entity.additional_properties.get("mentioned", {}).get("id")
+                    )
+                    if mentioned_id == bot_id:
+                        is_mentioned = True
+                        break
+
+        # With RSC ChannelMessage.Read.Group, the bot receives ALL channel
+        # messages.  Only process messages that either @mention the bot or are
+        # thread replies (follow-ups to a conversation the bot is likely in).
+        if not is_mentioned and not is_thread_reply:
+            _log(
+                "teams_message_ignored_no_mention",
+                correlation_id=correlation_id,
+                conversation_id=conversation_id[:50],
+            )
+            return
+
         # Strip @mention from text
         text = _strip_mentions(activity)
 
@@ -184,7 +243,10 @@ class TeamsIntegration:
         user_id = from_user.id if from_user else ""
         user_name = from_user.name if from_user else ""
 
-        session_id = generate_session_id(channel_id or team_id, conversation_id)
+        # For thread replies, conversation_id includes ";messageid=XXX".
+        # Strip it so all messages in the same thread share the same session.
+        base_conversation_id = conversation_id.split(";")[0]
+        session_id = generate_session_id(channel_id or team_id, base_conversation_id)
 
         _log(
             "teams_message_processing",
@@ -195,12 +257,24 @@ class TeamsIntegration:
             user_id=user_id,
             session_id=session_id,
             text_length=len(text),
+            is_mentioned=is_mentioned,
+            is_thread_reply=is_thread_reply,
         )
 
         if not text:
             await turn_context.send_activity(
                 "Hey! What would you like me to investigate?"
             )
+            return
+
+        # Static help response — no LLM call
+        if text.lower() == "help":
+            _log(
+                "teams_help_requested",
+                correlation_id=correlation_id,
+                channel_id=channel_id,
+            )
+            await turn_context.send_activity(HELP_MESSAGE)
             return
 
         # Send typing indicator
@@ -211,15 +285,26 @@ class TeamsIntegration:
             "IncidentFox is working on it..."
         )
         initial_message_id = initial_response.id if initial_response else None
+        _log(
+            "teams_initial_response_sent",
+            correlation_id=correlation_id,
+            initial_message_id=initial_message_id,
+            service_url=getattr(activity, "service_url", "unknown"),
+        )
+
+        # Extract tenant_id (Azure AD tenant) for auto-provisioning
+        tenant_id = getattr(conversation, "tenant_id", "") or ""
 
         # Get conversation reference for proactive messaging
         conversation_ref = TurnContext.get_conversation_reference(activity)
 
         # Fire off background processing
+        # Use base_conversation_id (without ;messageid=) for routing so
+        # thread replies match the same org/team as the parent message.
         asyncio.create_task(
             self._process_message_async(
                 channel_id=channel_id or team_id,
-                conversation_id=conversation_id,
+                conversation_id=base_conversation_id,
                 conversation_ref=conversation_ref,
                 text=text,
                 user_id=user_id,
@@ -227,6 +312,7 @@ class TeamsIntegration:
                 session_id=session_id,
                 correlation_id=correlation_id,
                 initial_message_id=initial_message_id,
+                tenant_id=tenant_id,
             )
         )
 
@@ -241,6 +327,7 @@ class TeamsIntegration:
         session_id: str,
         correlation_id: str,
         initial_message_id: Optional[str],
+        tenant_id: str = "",
     ) -> None:
         """Process message asynchronously."""
         try:
@@ -257,17 +344,39 @@ class TeamsIntegration:
 
             if not routing.get("found"):
                 _log(
-                    "teams_no_routing",
+                    "teams_no_routing_attempting_provision",
                     correlation_id=correlation_id,
                     routing_id=routing_id,
                     channel_id=channel_id,
                     conversation_id=conversation_id,
+                    tenant_id=tenant_id,
                     tried=routing.get("tried", []),
                 )
-                return
+                provision = await self._auto_provision(
+                    routing_id=routing_id,
+                    tenant_id=tenant_id,
+                    correlation_id=correlation_id,
+                )
+                if not provision:
+                    try:
 
-            org_id = routing["org_id"]
-            team_node_id = routing["team_node_id"]
+                        async def _send_error(tc: TurnContext):
+                            await tc.send_activity(
+                                "Sorry, I couldn't set up IncidentFox automatically. "
+                                "Please contact your administrator to configure the integration."
+                            )
+
+                        await self.adapter.continue_conversation(
+                            conversation_ref, _send_error, self.app_id
+                        )
+                    except Exception:
+                        pass
+                    return
+                org_id = provision["org_id"]
+                team_node_id = provision["team_node_id"]
+            else:
+                org_id = routing["org_id"]
+                team_node_id = routing["team_node_id"]
 
             _log(
                 "teams_routing_found",
@@ -413,43 +522,68 @@ class TeamsIntegration:
                     team_token=team_token,
                     agent_name=entrance_agent_name,
                     message=text,
-                    context={
-                        "user_id": user_id,
-                        "session_id": session_id,
-                        "metadata": {
-                            "teams": {
-                                "channel_id": channel_id,
-                                "conversation_id": conversation_id[:100],
-                            },
-                            "trigger": "teams",
-                        },
-                    },
+                    tenant_id=org_id,
+                    team_id=team_node_id,
                     timeout=int(
                         os.getenv("ORCHESTRATOR_TEAMS_AGENT_TIMEOUT_SECONDS", "300")
                     ),
                     correlation_id=correlation_id,
                     agent_base_url=dedicated_agent_url,
+                    session_id=session_id,
                 )
             )
 
-            # Send agent result back to Teams conversation as a reply
-            # to the "working on it" message (shows as quoted reply in Teams)
+            # Send agent result back to Teams conversation
             result_text = result.get("result", "")
+
             if result_text:
-
-                async def _send_result(turn_context: TurnContext):
-                    reply = Activity(
-                        type=ActivityTypes.message,
-                        text=result_text,
-                        reply_to_id=initial_message_id,
+                try:
+                    _log(
+                        "teams_sending_result",
+                        correlation_id=correlation_id,
+                        result_length=len(result_text),
+                        service_url=getattr(conversation_ref, "service_url", "unknown"),
+                        conversation_id=(
+                            conversation_ref.conversation.id
+                            if conversation_ref.conversation
+                            else "unknown"
+                        ),
                     )
-                    await turn_context.send_activity(reply)
 
-                await self.adapter.continue_conversation(
-                    conversation_ref,
-                    _send_result,
-                    self.app_id,
-                )
+                    send_response = None
+
+                    async def _send_result(turn_context: TurnContext):
+                        nonlocal send_response
+                        reply = Activity(
+                            type=ActivityTypes.message,
+                            text=result_text,
+                            reply_to_id=initial_message_id,
+                        )
+                        send_response = await turn_context.send_activity(reply)
+                        _log(
+                            "teams_send_activity_response",
+                            correlation_id=correlation_id,
+                            response_id=(send_response.id if send_response else None),
+                        )
+
+                    await self.adapter.continue_conversation(
+                        conversation_ref,
+                        _send_result,
+                        self.app_id,
+                    )
+                    _log(
+                        "teams_result_sent",
+                        correlation_id=correlation_id,
+                        result_length=len(result_text),
+                        response_id=(send_response.id if send_response else None),
+                    )
+                except Exception as send_err:
+                    _log(
+                        "teams_result_send_failed",
+                        correlation_id=correlation_id,
+                        error=str(send_err),
+                        error_type=type(send_err).__name__,
+                    )
 
             _log(
                 "teams_message_completed",
@@ -467,6 +601,98 @@ class TeamsIntegration:
                 channel_id=channel_id,
                 error=str(e),
             )
+
+    async def _auto_provision(
+        self,
+        routing_id: str,
+        tenant_id: str,
+        correlation_id: str,
+    ) -> Optional[Dict[str, str]]:
+        """Auto-provision an org + team for a new Teams channel/conversation.
+
+        Creates the org and default team in config-service, then registers
+        the routing identifier so subsequent messages are routed correctly.
+
+        Returns ``{"org_id": ..., "team_node_id": ...}`` on success, or None.
+        """
+        try:
+            admin_token = (os.getenv("ORCHESTRATOR_INTERNAL_ADMIN_TOKEN") or "").strip()
+            if not admin_token:
+                _log(
+                    "teams_auto_provision_no_admin_token", correlation_id=correlation_id
+                )
+                return None
+
+            cfg = self.config_service
+
+            # Derive org_id from tenant (Azure AD tenant groups all channels)
+            if tenant_id:
+                org_id = f"teams-{tenant_id}"
+                org_name = f"Teams Tenant {tenant_id[:8]}"
+            else:
+                org_id = f"teams-{routing_id[:40]}"
+                org_name = f"Teams {routing_id[:16]}"
+
+            team_node_id = "default"
+
+            # Step 1: Create org (idempotent — returns exists=True if already there)
+            await asyncio.to_thread(cfg.create_org_node, admin_token, org_id, org_name)
+
+            # Step 2: Create default team (idempotent)
+            await asyncio.to_thread(
+                cfg.create_team_node, admin_token, org_id, team_node_id, "Default Team"
+            )
+
+            # Step 3: Update routing to include this channel/conversation ID.
+            # Fetch current routing first so we don't clobber existing entries.
+            existing_ids: list[str] = []
+            try:
+                eff = await asyncio.to_thread(
+                    cfg.get_effective_config_for_node,
+                    admin_token,
+                    org_id,
+                    team_node_id,
+                )
+                existing_ids = list(eff.get("routing", {}).get("teams_channel_ids", []))
+            except Exception:
+                pass  # New team — no config yet
+
+            if routing_id not in existing_ids:
+                existing_ids.append(routing_id)
+
+            await asyncio.to_thread(
+                cfg.patch_node_config,
+                admin_token,
+                org_id,
+                team_node_id,
+                {
+                    "routing": {"teams_channel_ids": existing_ids},
+                    "integrations": {
+                        "anthropic": {
+                            "is_trial": True,
+                            "trial_expires_at": "2030-12-31T23:59:59.000000",
+                            "subscription_status": "active",
+                        },
+                    },
+                },
+            )
+
+            _log(
+                "teams_auto_provision_success",
+                correlation_id=correlation_id,
+                org_id=org_id,
+                team_node_id=team_node_id,
+                routing_id=routing_id,
+            )
+            return {"org_id": org_id, "team_node_id": team_node_id}
+
+        except Exception as e:
+            _log(
+                "teams_auto_provision_failed",
+                correlation_id=correlation_id,
+                error=str(e),
+            )
+            return None
 
     async def _handle_conversation_update(self, turn_context: TurnContext) -> None:
         """Handle conversation update (bot added/removed, members changed)."""
@@ -488,10 +714,23 @@ class TeamsIntegration:
                     activity.conversation.id if activity.conversation else None
                 ),
             )
-            await turn_context.send_activity(
-                "Hi! I'm IncidentFox, your AI incident investigation assistant. "
-                "Mention me with a question or issue description, and I'll help investigate!"
-            )
+            await turn_context.send_activity(WELCOME_MESSAGE)
+
+            # Proactively provision so first message routes correctly
+            channel_data = activity.channel_data or {}
+            ch_info = channel_data.get("channel", {})
+            ch_id = ch_info.get("id", "") if isinstance(ch_info, dict) else ""
+            conv_id = activity.conversation.id if activity.conversation else ""
+            t_id = getattr(activity.conversation, "tenant_id", "") or ""
+            routing_id = ch_id or conv_id
+            if routing_id:
+                asyncio.create_task(
+                    self._auto_provision(
+                        routing_id=routing_id,
+                        tenant_id=t_id,
+                        correlation_id=correlation_id,
+                    )
+                )
 
         if members_removed:
             _log(

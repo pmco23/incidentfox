@@ -207,10 +207,6 @@ services:
       name: incidentfox-agent
       annotations:
         eks.amazonaws.com/role-arn: "arn:aws:iam::103002841599:role/incidentfox-prod-agent"
-    # K8s tools - agent can access customer namespaces via k8s-gateway
-    kubernetes:
-      enabled: true
-      namespace: "incidentfox-prod"
     # Enable sandbox mode with gVisor isolation
     sandbox:
       enabled: true
@@ -220,12 +216,12 @@ services:
     # Warm pool for instant sandbox provisioning (<2s)
     warmPool:
       enabled: true
-      replicas: 3
+      replicas: 2
       autoscaler:
         enabled: true
-        minReplicas: 3
-        maxReplicas: 10
-        buffer: 3
+        minReplicas: 2
+        maxReplicas: 5
+        buffer: 2
     startupProbe:
       enabled: true
       path: "/health"
@@ -237,6 +233,8 @@ services:
       runAsNonRoot: true
       runAsUser: 1000
     extraEnv:
+      - name: CONFIG_SERVICE_URL
+        value: "http://incidentfox-config-service.incidentfox-prod.svc.cluster.local:8080"
       - name: K8S_GATEWAY_URL
         value: "http://incidentfox-k8s-gateway.incidentfox-prod.svc.cluster.local:8085"
       - name: SANDBOX_TTL_MINUTES
@@ -270,7 +268,7 @@ services:
   credentialResolver:
     enabled: true
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/credential-resolver:latest"
-    replicas: 2
+    replicas: 1
     credentialSource: config_service
     jwtMode: strict
     sharedAnthropicKey:
@@ -320,3 +318,15 @@ services:
     image: "103002841599.dkr.ecr.us-west-2.amazonaws.com/incidentfox-k8s-gateway:latest"
     replicas: 2
     logLevel: "INFO"
+
+# Karpenter — auto-provisions AMD64 nodes for sandbox burst traffic
+karpenter:
+  enabled: true
+  clusterName: "incidentfox-prod"
+  nodeRoleName: "incidentfox-prod-karpenter-node"
+  capacityTypes: ["on-demand", "spot"]
+  limits:
+    cpu: "16"
+    memory: "64Gi"
+  consolidateAfter: "5m"
+  rootVolumeSize: "40Gi"

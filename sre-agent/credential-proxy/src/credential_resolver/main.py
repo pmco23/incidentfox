@@ -28,8 +28,61 @@ from .jwt_auth import validate_sandbox_jwt
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Credential source: "config_service" (SaaS) or "environment" (local/self-hosted)
-CREDENTIAL_SOURCE = os.getenv("CREDENTIAL_SOURCE", "environment")
+# Cache for GitHub App installation tokens (key: installation_id, value: token)
+# Tokens are valid for 1 hour; we cache for 50 minutes to refresh early
+_github_app_token_cache: TTLCache = TTLCache(maxsize=32, ttl=3000)
+
+
+def _get_github_app_token(creds: dict) -> str | None:
+    """Generate a GitHub App installation token from app credentials.
+
+    Requires creds to have: app_id, private_key, installation_id.
+    Returns an installation access token, or None if not GitHub App creds.
+    """
+    app_id = creds.get("app_id")
+    private_key = creds.get("private_key")
+    installation_id = creds.get("installation_id")
+
+    if not (app_id and private_key and installation_id):
+        return None
+
+    # Check cache
+    cache_key = str(installation_id)
+    if cache_key in _github_app_token_cache:
+        return _github_app_token_cache[cache_key]
+
+    try:
+        import time
+
+        import httpx
+        import jwt
+
+        # Generate JWT signed with app's private key
+        now = int(time.time())
+        payload = {"iat": now - 60, "exp": now + (10 * 60), "iss": str(app_id)}
+        app_jwt = jwt.encode(payload, private_key, algorithm="RS256")
+
+        # Exchange JWT for installation access token
+        with httpx.Client(timeout=10.0) as client:
+            resp = client.post(
+                f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+                headers={
+                    "Authorization": f"Bearer {app_jwt}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+            resp.raise_for_status()
+            token = resp.json()["token"]
+            _github_app_token_cache[cache_key] = token
+            logger.info(
+                f"Generated GitHub App installation token "
+                f"(app_id={app_id}, installation_id={installation_id})"
+            )
+            return token
+    except Exception as e:
+        logger.error(f"Failed to generate GitHub App token: {e}")
+        return None
+
 
 # JWT validation mode: "strict" (require valid JWT) or "permissive" (allow missing JWT for local dev)
 JWT_MODE = os.getenv("JWT_MODE", "strict")
@@ -37,12 +90,8 @@ JWT_MODE = os.getenv("JWT_MODE", "strict")
 # Cache for credentials (5-minute TTL)
 credential_cache: TTLCache = TTLCache(maxsize=1000, ttl=300)
 
-# Config Service client (only initialized if needed)
+# Config Service client
 config_client: ConfigServiceClient | None = None
-
-# Environment-based credentials (for local/self-hosted mode)
-# Loaded at startup from environment variables
-ENV_CREDENTIALS: dict[str, dict] = {}
 
 
 def load_env_credentials() -> dict[str, dict]:
@@ -226,6 +275,11 @@ def load_env_credentials() -> dict[str, dict]:
             "domain": os.getenv("VICTORIAMETRICS_URL"),
             "api_key": os.getenv("VICTORIAMETRICS_TOKEN"),
         },
+        "amplitude": {
+            "api_key": os.getenv("AMPLITUDE_API_KEY"),
+            "secret_key": os.getenv("AMPLITUDE_SECRET_KEY"),
+            "region": os.getenv("AMPLITUDE_REGION", "US"),
+        },
     }
 
 
@@ -241,47 +295,64 @@ def mask_secret(value: str | None, visible_chars: int = 6) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
-    global config_client, ENV_CREDENTIALS
+    global config_client
 
-    logger.info(
-        f"Starting credential-resolver with source={CREDENTIAL_SOURCE}, jwt_mode={JWT_MODE}"
+    logger.info(f"Starting credential-resolver (jwt_mode={JWT_MODE})")
+
+    config_client = ConfigServiceClient()
+    logger.info("Config Service client initialized")
+
+    # Bootstrap LLM key validation — check env vars directly since config-service
+    # isn't ready to query yet.  Credentials flow: .env → local.yaml → config-service
+    # → here at runtime.  This catches the common "forgot to set API key" mistake early.
+    _LLM_PROVIDER_IDS = {
+        "anthropic",
+        "openai",
+        "gemini",
+        "deepseek",
+        "xai",
+        "groq",
+        "mistral",
+        "cohere",
+        "together_ai",
+        "fireworks_ai",
+        "openrouter",
+        "bedrock",
+        "vertex_ai",
+        "azure_ai",
+        "azure",
+        "ollama",
+        "moonshot",
+        "minimax",
+    }
+    env_creds = load_env_credentials()
+    any_llm = any(
+        is_integration_configured(k, env_creds.get(k, {})) for k in _LLM_PROVIDER_IDS
     )
+    if not any_llm:
+        import sys
 
-    if CREDENTIAL_SOURCE == "config_service":
-        config_client = ConfigServiceClient()
-        logger.info("Config Service client initialized")
-    else:
-        ENV_CREDENTIALS = load_env_credentials()
-        # Check which integrations are configured using shared validation
-        configured = [
-            k for k, v in ENV_CREDENTIALS.items() if is_integration_configured(k, v)
-        ]
-        logger.info(f"Environment credentials loaded for: {configured}")
+        logger.error("=" * 60)
+        logger.error("STARTUP ERROR: No LLM API key configured.")
+        logger.error("The agent cannot run without an LLM provider.")
+        logger.error("")
+        logger.error("Add at least one of these to your .env file:")
+        logger.error("  ANTHROPIC_API_KEY=sk-ant-...   (Anthropic Claude — default)")
+        logger.error("  OPENAI_API_KEY=sk-...           (OpenAI GPT)")
+        logger.error("  GEMINI_API_KEY=...              (Google Gemini)")
+        logger.error("  GROQ_API_KEY=...                (Groq — fast & cheap)")
+        logger.error("  OLLAMA_HOST=http://...          (local Ollama)")
+        logger.error("")
+        logger.error("See .env.example for the full list of supported providers.")
+        logger.error("=" * 60)
+        sys.exit(1)
 
-        # Debug: show masked credentials to verify they're loaded
-        for integration, creds in ENV_CREDENTIALS.items():
-            if is_integration_configured(integration, creds):
-                # Log the primary credential for each type
-                if integration == "datadog":
-                    logger.info(
-                        f"  {integration}: api_key={mask_secret(creds.get('api_key'))}, "
-                        f"app_key={mask_secret(creds.get('app_key'))}, site={creds.get('site')}"
-                    )
-                elif integration in [
-                    "confluence",
-                    "grafana",
-                    "elasticsearch",
-                    "prometheus",
-                    "jaeger",
-                ]:
-                    logger.info(
-                        f"  {integration}: domain={creds.get('domain') or '(not set)'}, "
-                        f"api_key={mask_secret(creds.get('api_key'))}"
-                    )
-                else:
-                    logger.info(
-                        f"  {integration}: api_key={mask_secret(creds.get('api_key'))}"
-                    )
+    configured = [
+        k
+        for k in _LLM_PROVIDER_IDS
+        if is_integration_configured(k, env_creds.get(k, {}))
+    ]
+    logger.info(f"LLM providers available in env: {configured}")
 
     yield
 
@@ -307,7 +378,7 @@ class ExtAuthzResponse(BaseModel):
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    return {"status": "healthy", "source": CREDENTIAL_SOURCE, "jwt_mode": JWT_MODE}
+    return {"status": "healthy", "source": "config_service", "jwt_mode": JWT_MODE}
 
 
 @app.get("/api/integrations")
@@ -354,6 +425,7 @@ async def list_integrations(request: Request):
         "blameless",
         "firehydrant",
         "victoriametrics",
+        "amplitude",
     ]
 
     available = []
@@ -392,9 +464,15 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
     if integration_id in ["prometheus", "jaeger", "victoriametrics"]:
         return bool(creds.get("domain"))
 
-    # GitHub: api_key required (domain optional for GHE)
+    # GitHub: api_key OR GitHub App credentials (app_id + private_key + installation_id)
     if integration_id == "github":
-        return bool(creds.get("api_key"))
+        has_pat = bool(creds.get("api_key"))
+        has_app = bool(
+            creds.get("app_id")
+            and creds.get("private_key")
+            and creds.get("installation_id")
+        )
+        return has_pat or has_app
 
     # Honeycomb: api_key required (domain optional, defaults to api.honeycomb.io)
     if integration_id == "honeycomb":
@@ -478,6 +556,10 @@ def is_integration_configured(integration_id: str, creds: dict | None) -> bool:
     # FireHydrant: api_key required (SaaS at api.firehydrant.io)
     if integration_id == "firehydrant":
         return bool(creds.get("api_key"))
+
+    # Amplitude: api_key + secret_key required (HTTP Basic auth)
+    if integration_id == "amplitude":
+        return bool(creds.get("api_key") and creds.get("secret_key"))
 
     # Default: api_key required (coralogix, incident_io, etc.)
     return bool(creds.get("api_key"))
@@ -579,6 +661,10 @@ def get_integration_metadata(integration_id: str, creds: dict) -> dict:
     elif integration_id == "victoriametrics":
         # Return URL
         return {"url": creds.get("domain")}
+
+    elif integration_id == "amplitude":
+        # Return region (US/EU) for API endpoint construction
+        return {"region": creds.get("region", "US")}
 
     # Default: just indicate it's configured (incident_io, etc.)
     return {}
@@ -956,12 +1042,89 @@ async def jaeger_proxy(path: str, request: Request):
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
 )
 async def github_proxy(path: str, request: Request):
-    """Reverse proxy for GitHub API requests (for GitHub Enterprise).
+    """Reverse proxy for GitHub API requests.
 
-    Note: For github.com, clients can use the fixed URL directly.
-    This proxy is for GitHub Enterprise with customer-specific URLs.
+    Defaults to api.github.com for standard GitHub.
+    Supports GitHub Enterprise via optional 'domain' field in credentials.
     """
-    return await generic_proxy("github", path, request)
+    import httpx
+
+    logger.info(f"GitHub proxy: {request.method} /{path}")
+
+    # Validate JWT and extract tenant context
+    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
+
+    # Get GitHub credentials
+    creds = await get_credentials(tenant_id, team_id, "github")
+    if not creds:
+        logger.error(f"GitHub not configured for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Github integration not configured",
+        )
+
+    # Resolve the API token: GitHub App (preferred) or PAT fallback
+    # Use asyncio.to_thread to avoid blocking the event loop when generating
+    # a new GitHub App token (cache misses involve a sync HTTP call)
+    import asyncio
+
+    api_token = await asyncio.to_thread(_get_github_app_token, creds)
+    if api_token:
+        logger.info("GitHub proxy: using GitHub App installation token")
+    else:
+        api_token = creds.get("api_key")
+    if not api_token:
+        logger.error(f"GitHub: no api_key or App credentials for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Github integration not configured",
+        )
+
+    # Build target URL (default to github.com, support GHE via domain field)
+    domain = creds.get("domain", "https://api.github.com")
+    if not domain.startswith(("http://", "https://")):
+        domain = f"https://{domain}"
+    target_url = f"{domain.rstrip('/')}/{path}"
+    logger.info(f"GitHub proxy: forwarding to {target_url}")
+
+    auth_headers = {"Authorization": f"Bearer {api_token}"}
+
+    forward_headers = {
+        "Content-Type": request.headers.get("Content-Type", "application/json"),
+        "Accept": request.headers.get("Accept", "application/vnd.github+json"),
+        **auth_headers,
+    }
+
+    # Get query params
+    query_params = dict(request.query_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=forward_headers,
+                params=query_params,
+                content=body,
+            )
+
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers={
+                "Content-Type": resp.headers.get("Content-Type", "application/json"),
+            },
+        )
+    except httpx.TimeoutException:
+        logger.error("GitHub request timed out")
+        raise HTTPException(status_code=504, detail="GitHub request timed out")
+    except httpx.RequestError as e:
+        logger.error(f"GitHub request error: {e}")
+        raise HTTPException(status_code=502, detail=f"GitHub request failed: {e}")
 
 
 @app.api_route(
@@ -1379,6 +1542,83 @@ async def pagerduty_proxy(path: str, request: Request):
     except httpx.RequestError as e:
         logger.error(f"PagerDuty request error: {e}")
         raise HTTPException(status_code=502, detail=f"PagerDuty request failed: {e}")
+
+
+@app.api_route(
+    "/amplitude/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+)
+async def amplitude_proxy(path: str, request: Request):
+    """Reverse proxy for Amplitude API requests.
+
+    Amplitude is SaaS at amplitude.com (US) or analytics.eu.amplitude.com (EU).
+    """
+    import httpx
+
+    logger.info(f"Amplitude proxy: {request.method} /{path}")
+
+    # Validate JWT and extract tenant context
+    tenant_id, team_id, sandbox_name = await extract_tenant_context(request)
+
+    # Get Amplitude credentials
+    creds = await get_credentials(tenant_id, team_id, "amplitude")
+    if not creds or not creds.get("api_key") or not creds.get("secret_key"):
+        logger.error(f"Amplitude not configured for tenant={tenant_id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Amplitude integration not configured",
+        )
+
+    # Build Amplitude API URL (region-aware)
+    region = (creds.get("region") or "US").upper()
+    if region == "EU":
+        base = "https://analytics.eu.amplitude.com/api/2"
+    else:
+        base = "https://amplitude.com/api/2"
+    target_url = f"{base}/{path}"
+    logger.info(f"Amplitude proxy: forwarding to {target_url}")
+
+    # Build auth headers
+    auth_headers = build_auth_headers("amplitude", creds)
+
+    forward_headers = {
+        "Content-Type": request.headers.get("Content-Type", "application/json"),
+        "Accept": request.headers.get("Accept", "application/json"),
+        **auth_headers,
+    }
+
+    query_params = dict(request.query_params)
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            body = None
+            if request.method in ["POST", "PUT", "PATCH"]:
+                body = await request.body()
+
+            response = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=forward_headers,
+                params=query_params,
+                content=body,
+            )
+
+            return Response(
+                content=response.content,
+                status_code=response.status_code,
+                headers={
+                    "Content-Type": response.headers.get(
+                        "Content-Type", "application/json"
+                    )
+                },
+            )
+
+    except httpx.TimeoutException:
+        logger.error(f"Amplitude request timeout: {target_url}")
+        raise HTTPException(status_code=504, detail="Amplitude request timed out")
+    except httpx.RequestError as e:
+        logger.error(f"Amplitude request error: {e}")
+        raise HTTPException(status_code=502, detail=f"Amplitude request failed: {e}")
 
 
 @app.api_route(
@@ -1835,7 +2075,32 @@ async def ext_authz_check(request: Request, path: str = ""):
         f"sandbox={sandbox_name}, integration={integration_id}, host={target_host}"
     )
 
-    # 3. Get credentials and validate based on integration type
+    # 3. LLM bypass: when integration is "anthropic" but the configured model is
+    # non-Claude, skip anthropic credential check. The LLM proxy handles its own
+    # credential lookup for the actual provider (OpenAI, Gemini, etc.).
+    #
+    # Model resolution priority:
+    #   1. LLM_MODEL env var (explicit override)
+    #   2. integrations.llm.model from config-service (set via local.yaml ai_model)
+    llm_model = os.getenv("LLM_MODEL", "")
+    if not llm_model and config_client:
+        llm_model = await config_client.get_llm_model(tenant_id, team_id) or ""
+    if integration_id == "anthropic" and llm_model:
+        from .llm_proxy import is_claude_model
+
+        if not is_claude_model(llm_model):
+            logger.info(
+                f"LLM bypass: model={llm_model} is non-Claude, "
+                f"skipping anthropic credential check"
+            )
+            headers_to_add = {
+                "x-tenant-id": tenant_id,
+                "x-team-id": team_id,
+                "x-llm-model": llm_model,
+            }
+            return Response(status_code=200, headers=headers_to_add)
+
+    # 4. Get credentials and validate based on integration type
     creds = await get_credentials(tenant_id, team_id, integration_id)
 
     # Check LLM_MODEL — if set to a non-Claude model and integration is "anthropic",
@@ -1859,7 +2124,7 @@ async def ext_authz_check(request: Request, path: str = ""):
             detail=f"Credentials not configured for {integration_id}",
         )
 
-    # 4. Build auth headers and return them as HTTP response headers
+    # 5. Build auth headers and return them as HTTP response headers
     # Envoy's ext_authz will forward these based on allowed_upstream_headers config
     if llm_bypass:
         # Non-Claude LLM: skip anthropic auth headers, LLM proxy handles credentials
@@ -1871,11 +2136,11 @@ async def ext_authz_check(request: Request, path: str = ""):
     else:
         headers_to_add = build_auth_headers(integration_id, creds)
 
-    # 5. Add tenant context headers (needed by LLM proxy and other internal services)
+    # 6. Add tenant context headers (needed by LLM proxy and other internal services)
     headers_to_add["x-tenant-id"] = tenant_id
     headers_to_add["x-team-id"] = team_id
 
-    # 6. Add LLM model override if configured
+    # 7. Add LLM model override if configured
     if llm_model:
         headers_to_add["x-llm-model"] = llm_model
 
@@ -1915,19 +2180,14 @@ async def extract_tenant_context(request: Request) -> tuple[str, str, str]:
     # Permissive mode: fall back to headers (for local dev only)
     logger.warning("JWT validation failed - falling back to headers (permissive mode)")
     tenant_id = request.headers.get("x-tenant-id", "local")
-    team_id = request.headers.get("x-team-id", "local")
+    team_id = request.headers.get("x-team-id", "default")
     return tenant_id, team_id, "unknown"
 
 
 async def get_credentials(
     tenant_id: str, team_id: str, integration_id: str
 ) -> dict | None:
-    """Get credentials from configured source."""
-    if CREDENTIAL_SOURCE == "environment":
-        # Local/self-hosted: load from env vars
-        return ENV_CREDENTIALS.get(integration_id)
-
-    # SaaS: fetch from Config Service (cached)
+    """Get credentials from Config Service (with 5-minute cache)."""
     cache_key = (tenant_id, team_id, integration_id)
     if cache_key in credential_cache:
         return credential_cache[cache_key]
@@ -2011,9 +2271,9 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         return {}
 
     elif integration_id == "github":
-        # GitHub uses Bearer token
-        api_key = creds.get("api_key", "")
-        return {"Authorization": f"Bearer {api_key}"}
+        # GitHub: prefer App installation token, fall back to PAT
+        token = _get_github_app_token(creds) or creds.get("api_key", "")
+        return {"Authorization": f"Bearer {token}"}
 
     elif integration_id == "incident_io":
         # incident.io uses Bearer token
@@ -2070,6 +2330,14 @@ def build_auth_headers(integration_id: str, creds: dict) -> dict[str, str]:
         # GitLab uses PRIVATE-TOKEN header
         api_key = creds.get("api_key", "")
         return {"PRIVATE-TOKEN": api_key}
+
+    elif integration_id == "amplitude":
+        # Amplitude uses HTTP Basic auth (api_key:secret_key)
+        api_key = creds.get("api_key", "")
+        secret_key = creds.get("secret_key", "")
+        auth_string = f"{api_key}:{secret_key}"
+        encoded = base64.b64encode(auth_string.encode()).decode()
+        return {"Authorization": f"Basic {encoded}"}
 
     elif integration_id in [
         "openai",
