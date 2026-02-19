@@ -73,10 +73,19 @@ spec:
             - name: trees-volume
               mountPath: /trees
       {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
       containers:
         - name: ultimate-rag
           image: {{ required "services.ultimateRag.image is required" .Values.services.ultimateRag.image }}
           imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           command:
             - /bin/bash
             - -c
