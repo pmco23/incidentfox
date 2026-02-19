@@ -387,8 +387,6 @@ async def _process_github_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
     audit_api = None
 
@@ -494,7 +492,7 @@ async def _process_github_webhook(
                     )
                     return
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Construct message based on event type
         message = _build_github_message(event_type, payload)
@@ -991,7 +989,6 @@ async def _process_pagerduty_webhook(
     """Process PagerDuty webhook asynchronously."""
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
-        AuditApiClient,
         ConfigServiceClient,
     )
 
@@ -1004,21 +1001,19 @@ async def _process_pagerduty_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
-    audit_api = None
 
     try:
         cfg: ConfigServiceClient = request.app.state.config_service
         agent_api: AgentApiClient = request.app.state.agent_api
-        audit_api = getattr(request.app.state, "audit_api", None)
+        getattr(request.app.state, "audit_api", None)
         correlation_service: Optional[CorrelationServiceClient] = getattr(
             request.app.state, "correlation_service", None
         )
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"pagerduty_service_id": service_id},
         )
@@ -1038,8 +1033,11 @@ async def _process_pagerduty_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -1050,7 +1048,9 @@ async def _process_pagerduty_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"
@@ -1058,7 +1058,7 @@ async def _process_pagerduty_webhook(
         except Exception:
             pass  # Fall back to shared agent
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Build message
         event_type = event.get("event_type", "")
@@ -1380,7 +1380,6 @@ async def _process_incidentio_webhook(
 
     from incidentfox_orchestrator.clients import (
         AgentApiClient,
-        AuditApiClient,
         ConfigServiceClient,
     )
 
@@ -1397,15 +1396,12 @@ async def _process_incidentio_webhook(
     )
 
     # Track whether agent run was created so we can mark it failed on exception
-    agent_run_created = False
-    run_id = None
     org_id = None
-    audit_api = None
 
     try:
         cfg: ConfigServiceClient = request.app.state.config_service
         agent_api: AgentApiClient = request.app.state.agent_api
-        audit_api = getattr(request.app.state, "audit_api", None)
+        getattr(request.app.state, "audit_api", None)
         correlation_service: Optional[CorrelationServiceClient] = getattr(
             request.app.state, "correlation_service", None
         )
@@ -1469,7 +1465,7 @@ async def _process_incidentio_webhook(
         except Exception:
             pass  # Fall back to shared agent
 
-        run_id = __import__("uuid").uuid4().hex
+        __import__("uuid").uuid4().hex
 
         # Build message - handle both public alerts and incidents
         if is_public_alert:
@@ -2473,7 +2469,8 @@ async def _process_blameless_webhook(
         agent_api: AgentApiClient = request.app.state.agent_api
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"blameless_team_id": team_id},
         )
@@ -2493,8 +2490,11 @@ async def _process_blameless_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2505,7 +2505,9 @@ async def _process_blameless_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"
@@ -2682,7 +2684,8 @@ async def _process_firehydrant_webhook(
         agent_api: AgentApiClient = request.app.state.agent_api
 
         # Look up team via routing
-        routing = cfg.lookup_routing(
+        routing = await asyncio.to_thread(
+            cfg.lookup_routing,
             internal_service_name="orchestrator",
             identifiers={"firehydrant_team_id": team_id},
         )
@@ -2702,8 +2705,11 @@ async def _process_firehydrant_webhook(
         if not admin_token:
             return
 
-        imp = cfg.issue_team_impersonation_token(
-            admin_token, org_id=org_id, team_node_id=team_node_id
+        imp = await asyncio.to_thread(
+            cfg.issue_team_impersonation_token,
+            admin_token,
+            org_id=org_id,
+            team_node_id=team_node_id,
         )
         team_token = str(imp.get("token") or "")
         if not team_token:
@@ -2714,7 +2720,9 @@ async def _process_firehydrant_webhook(
         dedicated_agent_url: Optional[str] = None
         effective_config: dict = {}
         try:
-            effective_config = cfg.get_effective_config(team_token=team_token)
+            effective_config = await asyncio.to_thread(
+                cfg.get_effective_config, team_token=team_token
+            )
             entrance_agent_name = effective_config.get("entrance_agent", "planner")
             dedicated_agent_url = effective_config.get("agent", {}).get(
                 "dedicated_service_url"
@@ -2916,8 +2924,6 @@ def _build_vercel_message(
 async def _process_vercel_webhook(request: Request, project_id: str, message: str):
     """Process a Vercel webhook by routing to the appropriate team's agent."""
     import logging
-
-    import httpx
 
     from incidentfox_orchestrator.clients import (
         AgentApiClient,

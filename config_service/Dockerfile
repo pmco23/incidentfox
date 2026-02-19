@@ -39,10 +39,10 @@ COPY alembic.ini /app/alembic.ini
 COPY scripts /app/scripts
 COPY templates /app/templates
 
-ENV PYTHONPATH=/app
-
 RUN chown -R appuser:appuser /app
 USER appuser
+
+ENV PYTHONPATH=/app
 
 EXPOSE 8080
 

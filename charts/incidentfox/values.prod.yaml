@@ -104,6 +104,8 @@ externalSecrets:
       secretName: incidentfox-jwt-secret
       secretKey: JWT_SECRET
       remoteRefKey: incidentfox/prod/jwt_secret
+      investigateAuthTokenKey: INVESTIGATE_AUTH_TOKEN
+      investigateAuthTokenRemoteRefKey: incidentfox/prod/investigate_auth_token
     # Shared Anthropic key for free trials
     sharedAnthropicKey:
       enabled: true
@@ -285,7 +287,7 @@ services:
   # Sandbox Cleanup for expired sandbox garbage collection
   sandboxCleanup:
     enabled: true
-    image: "bitnami/kubectl:latest"
+    image: "bitnami/kubectl:1.29.2"
     schedule: "*/15 * * * *"
 
   # Credential Resolver for sandbox credential injection

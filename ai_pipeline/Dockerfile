@@ -19,10 +19,10 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Copy source code
 COPY src /app/src
 
-ENV PYTHONPATH=/app/src
-
 RUN chown -R appuser:appuser /app
 USER appuser
+
+ENV PYTHONPATH=/app/src
 
 # Default command runs the scheduled tasks
 # Override with specific subcommands: run-ingestion, run-teaching, run-maintenance

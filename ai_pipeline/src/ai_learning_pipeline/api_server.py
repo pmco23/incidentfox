@@ -5,7 +5,6 @@ Exposes HTTP endpoints for triggering pipeline tasks on-demand,
 including the onboarding scan triggered by the Slack bot.
 """
 
-import asyncio
 import json
 import os
 from datetime import datetime

@@ -22,10 +22,8 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from ai_learning_pipeline.tasks.scanners import Document, get_scanner
+from ai_learning_pipeline.tasks.scanners import get_scanner
 from ai_learning_pipeline.tasks.scanners.github_scanner import (
-    INFRA_SIGNAL_FILES,
-    OPS_DOC_PATHS,
     _collect_infra_signals,
     _format_architecture_document,
     _format_repo_summaries,

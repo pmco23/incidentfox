@@ -8,23 +8,19 @@ All external APIs (Slack, GitHub, OpenAI, config service, RAG) are mocked.
 """
 
 import json
-from datetime import datetime
-from typing import Any, Dict, List
+from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from ai_learning_pipeline.tasks.onboarding_scan import (
-    AnalysisResult,
     IntegrationRecommender,
     OnboardingScanTask,
     Recommendation,
     SignalAnalyzer,
 )
-from ai_learning_pipeline.tasks.scanners import Document, get_scanner
+from ai_learning_pipeline.tasks.scanners import get_scanner
 from ai_learning_pipeline.tasks.scanners.slack_scanner import (
-    CollectedMessage,
-    ScanResult,
     Signal,
     SlackEnvironmentScanner,
 )

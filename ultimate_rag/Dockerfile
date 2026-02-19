@@ -64,10 +64,9 @@ RUN echo "" > ./ultimate_rag/__init__.py
 COPY ultimate_rag/entrypoint.sh .
 RUN chmod +x entrypoint.sh
 
-# Create trees directory
-RUN mkdir -p /app/trees
-
-RUN chown -R appuser:appuser /app /app/trees
+# Create trees directory and set ownership
+RUN mkdir -p /app/trees && \
+    chown -R appuser:appuser /app /app/trees
 USER appuser
 
 # Environment
