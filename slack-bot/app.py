@@ -4182,7 +4182,6 @@ def handle_view_full_output(ack, body, client):
     """Handle "View Full" button - show complete untruncated file content."""
     ack()
 
-
     # Parse button value: thread_id|thought_idx|tool_idx
     button_value = body["actions"][0].get("value", "")
     try:
@@ -4276,7 +4275,6 @@ def handle_view_full_output(ack, body, client):
 def handle_view_subagent_details(ack, body, client):
     """Handle "View Details" button for subagent - show all child tool calls."""
     ack()
-
 
     # Parse button value: thread_id|thought_idx|task_idx|subagent_id
     button_value = body["actions"][0].get("value", "")

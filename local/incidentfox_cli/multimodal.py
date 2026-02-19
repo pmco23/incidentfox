@@ -237,7 +237,6 @@ class VoiceRecorder:
         if not self.is_available():
             return None
 
-
         # Record audio
         if on_start:
             on_start()

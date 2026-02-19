@@ -45,7 +45,9 @@ import asyncio
 _background_tasks: Dict[str, asyncio.Task] = {}
 _message_queues: Dict[str, asyncio.Queue] = {}  # Queue for sending prompts
 _response_queues: Dict[str, asyncio.Queue] = {}  # Queue for receiving events
-_active_sessions: Dict[str, object] = {}  # Thread ID -> agent session (for interrupt/answer)
+_active_sessions: Dict[str, object] = (
+    {}
+)  # Thread ID -> agent session (for interrupt/answer)
 
 app = FastAPI(
     title="IncidentFox Investigation Server (Simple Mode)",
