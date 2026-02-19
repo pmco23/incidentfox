@@ -46,7 +46,10 @@ def main():
         content = sys.stdin.read()
 
     if not content:
-        print("Error: No content provided. Use --file or pipe content to stdin.", file=sys.stderr)
+        print(
+            "Error: No content provided. Use --file or pipe content to stdin.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     result = create_or_update_file(

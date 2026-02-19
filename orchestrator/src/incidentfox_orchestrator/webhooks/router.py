@@ -2839,7 +2839,9 @@ async def vercel_log_drain(request: Request, background_tasks: BackgroundTasks):
         events = [events]
 
     # Filter for error events
-    error_events = [e for e in events if e.get("type") == "error" or e.get("level") == "error"]
+    error_events = [
+        e for e in events if e.get("type") == "error" or e.get("level") == "error"
+    ]
     if not error_events:
         return {"status": "ok", "message": "No error events"}
 
@@ -2853,11 +2855,17 @@ async def vercel_log_drain(request: Request, background_tasks: BackgroundTasks):
     if project_id in _vercel_debounce:
         elapsed = now - _vercel_debounce[project_id]
         if elapsed < _VERCEL_DEBOUNCE_SECONDS:
-            return {"status": "ok", "message": f"Debounced (last trigger {int(elapsed)}s ago)"}
+            return {
+                "status": "ok",
+                "message": f"Debounced (last trigger {int(elapsed)}s ago)",
+            }
 
     # Skip if we already investigated this deployment
     if deployment_id and deployment_id in _vercel_investigated_deployments:
-        return {"status": "ok", "message": f"Already investigated deployment {deployment_id}"}
+        return {
+            "status": "ok",
+            "message": f"Already investigated deployment {deployment_id}",
+        }
 
     # Update debounce state
     _vercel_debounce[project_id] = now
@@ -2880,12 +2888,16 @@ async def vercel_log_drain(request: Request, background_tasks: BackgroundTasks):
     return {"status": "ok", "message": "Processing Vercel error events"}
 
 
-def _build_vercel_message(error_events: list, project_id: str, deployment_id: str) -> str:
+def _build_vercel_message(
+    error_events: list, project_id: str, deployment_id: str
+) -> str:
     """Build a message for the agent from Vercel error events."""
     first = error_events[0]
     error_message = first.get("message", "Unknown error")
     path = first.get("path", first.get("proxy", {}).get("path", "unknown"))
-    status_code = first.get("statusCode", first.get("proxy", {}).get("statusCode", "unknown"))
+    status_code = first.get(
+        "statusCode", first.get("proxy", {}).get("statusCode", "unknown")
+    )
 
     msg = (
         f"Vercel runtime error detected.\n\n"
@@ -2903,8 +2915,9 @@ def _build_vercel_message(error_events: list, project_id: str, deployment_id: st
 
 async def _process_vercel_webhook(request: Request, project_id: str, message: str):
     """Process a Vercel webhook by routing to the appropriate team's agent."""
-    import httpx
     import logging
+
+    import httpx
 
     from incidentfox_orchestrator.clients import (
         AgentApiClient,

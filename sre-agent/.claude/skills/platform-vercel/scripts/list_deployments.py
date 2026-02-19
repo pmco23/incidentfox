@@ -33,7 +33,9 @@ def main():
         choices=["production", "preview"],
         help="Filter by deployment target",
     )
-    parser.add_argument("--limit", type=int, default=20, help="Max deployments to return (default: 20)")
+    parser.add_argument(
+        "--limit", type=int, default=20, help="Max deployments to return (default: 20)"
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 

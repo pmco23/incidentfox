@@ -21,7 +21,9 @@ from vercel_client import format_deployment, get_deployment
 
 def main():
     parser = argparse.ArgumentParser(description="Get Vercel deployment details")
-    parser.add_argument("--deployment", required=True, help="Deployment ID (dpl_...) or deployment URL")
+    parser.add_argument(
+        "--deployment", required=True, help="Deployment ID (dpl_...) or deployment URL"
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 

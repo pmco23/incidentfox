@@ -167,9 +167,7 @@ def get_deployment(deployment_id: str) -> dict[str, Any]:
     return api_request("GET", f"/v13/deployments/{deployment_id}")
 
 
-def get_deployment_events(
-    deployment_id: str, limit: int = 50
-) -> list[dict[str, Any]]:
+def get_deployment_events(deployment_id: str, limit: int = 50) -> list[dict[str, Any]]:
     """Get build log events for a deployment.
 
     Args:
@@ -249,7 +247,10 @@ def format_project(project: dict[str, Any]) -> str:
     # Domains
     aliases = project.get("alias", [])
     if isinstance(aliases, list):
-        domains = ", ".join(a.get("domain", str(a)) if isinstance(a, dict) else str(a) for a in aliases[:5])
+        domains = ", ".join(
+            a.get("domain", str(a)) if isinstance(a, dict) else str(a)
+            for a in aliases[:5]
+        )
     else:
         domains = ""
 
@@ -308,11 +309,17 @@ def format_deployment(deployment: dict[str, Any]) -> str:
         lines.append(f"Branch: {branch}")
     if commit_sha:
         short_sha = commit_sha[:8] if len(commit_sha) > 8 else commit_sha
-        lines.append(f"Commit: {short_sha} - {commit_msg}" if commit_msg else f"Commit: {short_sha}")
+        lines.append(
+            f"Commit: {short_sha} - {commit_msg}"
+            if commit_msg
+            else f"Commit: {short_sha}"
+        )
     if created:
         lines.append(f"Created: {_format_timestamp(created)}")
     if building_at and ready:
-        lines.append(f"Build: {_format_timestamp(building_at)} -> {_format_timestamp(ready)}")
+        lines.append(
+            f"Build: {_format_timestamp(building_at)} -> {_format_timestamp(ready)}"
+        )
     if error_code:
         lines.append(f"Error: [{error_code}] {error_message}")
 

@@ -21,7 +21,9 @@ from vercel_client import format_project, list_projects
 
 def main():
     parser = argparse.ArgumentParser(description="List Vercel projects")
-    parser.add_argument("--limit", type=int, default=20, help="Max projects to return (default: 20)")
+    parser.add_argument(
+        "--limit", type=int, default=20, help="Max projects to return (default: 20)"
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 

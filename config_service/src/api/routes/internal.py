@@ -741,7 +741,12 @@ def _normalize_identifier(identifier_type: str, value: str) -> str:
     """Normalize identifier value for comparison."""
     value = value.strip()
     # Lowercase for text-based identifiers
-    if identifier_type in ("coralogix_team_names", "github_repos", "vercel_project_ids", "services"):
+    if identifier_type in (
+        "coralogix_team_names",
+        "github_repos",
+        "vercel_project_ids",
+        "services",
+    ):
         value = value.lower()
     return value
 

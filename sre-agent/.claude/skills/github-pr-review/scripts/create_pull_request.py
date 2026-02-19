@@ -21,7 +21,9 @@ def main():
     )
     parser.add_argument("--repo", required=True, help="Repository (OWNER/REPO)")
     parser.add_argument("--title", required=True, help="Pull request title")
-    parser.add_argument("--head", required=True, help="Head branch (source branch with changes)")
+    parser.add_argument(
+        "--head", required=True, help="Head branch (source branch with changes)"
+    )
     parser.add_argument(
         "--base",
         help="Base branch to merge into (default: repo's default branch)",

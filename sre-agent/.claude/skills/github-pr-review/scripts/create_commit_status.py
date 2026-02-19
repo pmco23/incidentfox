@@ -27,7 +27,9 @@ def main():
         choices=["error", "failure", "pending", "success"],
         help="Status state",
     )
-    parser.add_argument("--description", default="", help="Short description (max 140 chars)")
+    parser.add_argument(
+        "--description", default="", help="Short description (max 140 chars)"
+    )
     parser.add_argument(
         "--context",
         default="IncidentFox",
@@ -56,7 +58,7 @@ def main():
     print(f"  Context: {result.get('context')}")
     print(f"  Description: {result.get('description')}")
     print(f"  URL: {result.get('url')}")
-    if result.get('target_url'):
+    if result.get("target_url"):
         print(f"  Target URL: {result.get('target_url')}")
 
 

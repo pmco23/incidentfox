@@ -50,7 +50,9 @@ def _format_event(event: dict) -> str:
 def main():
     parser = argparse.ArgumentParser(description="Get Vercel deployment build logs")
     parser.add_argument("--deployment", required=True, help="Deployment ID")
-    parser.add_argument("--limit", type=int, default=50, help="Max events to return (default: 50)")
+    parser.add_argument(
+        "--limit", type=int, default=50, help="Max events to return (default: 50)"
+    )
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     args = parser.parse_args()
 
