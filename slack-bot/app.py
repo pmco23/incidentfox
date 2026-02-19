@@ -324,6 +324,9 @@ if __name__ == "__main__":
         registry.load_all()
 
         # Legacy handler for backward compat (default app)
+        # Register handlers on the module-level app so the legacy
+        # /slack/events route works (not just the slug-based routes).
+        register_all_handlers(app)
         handler = SlackRequestHandler(app)
 
         # --- Slug-based routes (multi-app) ---
