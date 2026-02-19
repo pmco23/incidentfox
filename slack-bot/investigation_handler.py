@@ -25,6 +25,8 @@ def _sre_agent_headers() -> dict:
     if SRE_AGENT_AUTH_TOKEN:
         headers["Authorization"] = f"Bearer {SRE_AGENT_AUTH_TOKEN}"
     return headers
+
+
 from file_handler import (
     _download_slack_image,
     _extract_file_attachments_from_event,
