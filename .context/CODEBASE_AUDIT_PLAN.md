@@ -229,29 +229,34 @@ This phase is highly parallelizable. Each tool port is independent:
 
 ---
 
-## Phase 3: Core Logic Review — config-service
+## Phase 3: Core Logic Review — config-service ✅ COMPLETE
 
 **Why**: This is the control plane. Bugs here affect every team's config, auth, and audit trail.
 
-### 3A. Config hierarchy & merge logic
-- [ ] Review hierarchical merge: org → team, dicts merge, lists replace
-- [ ] Test edge cases: deep nesting, conflicting keys, null values
-- [ ] Review `config_v2.py` (9 classes) — is the v2 API correct?
-- [ ] Check `effective config` endpoint behavior
+**Results**: 10 findings (1 P0, 2 P1, 4 P2, 3 P3). 3 fixed, 7 deferred. See `.context/findings/phase-3-config-service-findings.md`.
 
-### 3B. Database & migrations
-- [ ] Review SQLAlchemy models in `src/db/models.py` (32 classes!)
-- [ ] Check Alembic migrations for correctness and reversibility
-- [ ] Review encryption implementation (`src/crypto/`)
-- [ ] Check for N+1 query patterns
-- [ ] Review connection pooling config
+### 3A. Config hierarchy & merge logic ✅
+- [x] Review hierarchical merge: org → team, dicts merge, lists replace
+- [x] Test edge cases: deep nesting, conflicting keys, null values
+- [x] Review `config_v2.py` (9 classes) — is the v2 API correct?
+- [x] Check `effective config` endpoint behavior
+- **Fixed**: Removed debug logging from config_v2.py (P2)
 
-### 3C. API routes (massive surface area)
-- [ ] `routes/admin.py` (14 classes) — admin operations
-- [ ] `routes/internal.py` (42 classes!) — internal API
-- [ ] `routes/security.py` (15 classes) — security policies
-- [ ] `routes/team.py` (25 classes) — team management
-- [ ] Review all route auth decorators — are they consistent?
+### 3B. Database & migrations ✅
+- [x] Review SQLAlchemy models in `src/db/models.py` (32 classes!)
+- [x] Check Alembic migrations for correctness and reversibility
+- [x] Review encryption implementation (`src/crypto/`)
+- [x] Check for N+1 query patterns
+- [x] Review connection pooling config
+- **Fixed**: Token expiration timezone handling (P0)
+
+### 3C. API routes (massive surface area) ✅
+- [x] `routes/admin.py` (14 classes) — admin operations
+- [x] `routes/internal.py` (42 classes!) — internal API
+- [x] `routes/security.py` (15 classes) — security policies
+- [x] `routes/team.py` (25 classes) — team management
+- [x] Review all route auth decorators — are they consistent?
+- **Fixed**: Internal service authentication with shared secret (P1)
 
 ### 3D. Run existing tests
 - [ ] Run the 13 test files in `config_service/tests/`
