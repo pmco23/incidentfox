@@ -60,8 +60,7 @@ class _RestrictedUnpickler(pickle.Unpickler):
         if module in self._SAFE_MODULES:
             return super().find_class(module, name)
         raise pickle.UnpicklingError(
-            f"Blocked unpickling of {module}.{name} — "
-            f"only safe types are allowed"
+            f"Blocked unpickling of {module}.{name} — " f"only safe types are allowed"
         )
 
 
@@ -73,6 +72,7 @@ def safe_pickle_load(f) -> Any:
 def safe_pickle_loads(data: bytes) -> Any:
     """Load pickle bytes using restricted unpickler."""
     return _RestrictedUnpickler(io.BytesIO(data)).load()
+
 
 from .node import KnowledgeNode, KnowledgeTree, TreeForest
 from .types import ImportanceScore, KnowledgeType

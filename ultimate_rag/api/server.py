@@ -1025,9 +1025,10 @@ class UltimateRAGServer:
                     resolved = Path(request.file_path).resolve()
                 except (ValueError, OSError):
                     raise HTTPException(400, "Invalid file path")
-                if not str(resolved).startswith(
-                    str(allowed_base) + os.sep
-                ) and resolved != allowed_base:
+                if (
+                    not str(resolved).startswith(str(allowed_base) + os.sep)
+                    and resolved != allowed_base
+                ):
                     raise HTTPException(
                         403,
                         "File path must be within the configured trees directory",
