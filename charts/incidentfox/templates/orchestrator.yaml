@@ -48,6 +48,14 @@ spec:
               value: {{ printf "http://incidentfox-ai-pipeline-api.%s.svc.cluster.local:%d" .Values.namespace (.Values.services.aiPipelineApi.servicePort | int) | quote }}
             - name: AGENT_API_URL
               value: {{ printf "http://incidentfox-agent.%s.svc.cluster.local:%d" .Values.namespace (.Values.services.agent.servicePort | int) | quote }}
+            # Service-to-service auth for sre-agent /investigate (must match agent's INVESTIGATE_AUTH_TOKEN)
+            {{- if .Values.externalSecrets.contract.jwtSecret }}
+            - name: INVESTIGATE_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.externalSecrets.contract.jwtSecret.secretName | default "incidentfox-jwt-secret" }}
+                  key: {{ .Values.externalSecrets.contract.jwtSecret.investigateAuthTokenKey | default "INVESTIGATE_AUTH_TOKEN" }}
+            {{- end }}
             - name: ORCHESTRATOR_ADMIN_AUTH_CACHE_TTL_SECONDS
               value: {{ default 15 .Values.services.orchestrator.adminAuthCacheTtlSeconds | int | quote }}
             - name: ORCHESTRATOR_REQUIRE_ADMIN_STAR
