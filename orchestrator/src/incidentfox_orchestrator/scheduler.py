@@ -149,7 +149,106 @@ async def _execute_agent_run(app, job: dict) -> dict:
         correlation_id=f"scheduled-{job['id']}",
     )
 
+    # Deliver output to configured destinations (Slack, etc.)
+    if result.get("success") and result.get("result"):
+        await _deliver_output(
+            app, output_destinations, result["result"], job
+        )
+
     return result
+
+
+async def _deliver_output(
+    app, destinations: list[dict], text: str, job: dict
+) -> None:
+    """Post agent result to output destinations (Slack channels, etc.)."""
+    for dest in destinations:
+        dest_type = dest.get("type", "")
+        if dest_type == "slack":
+            await _deliver_to_slack(app, dest, text, job)
+        else:
+            _log(
+                "scheduler_output_unsupported_type",
+                dest_type=dest_type,
+                job_id=job["id"],
+            )
+
+
+async def _deliver_to_slack(
+    app, dest: dict, text: str, job: dict
+) -> None:
+    """Post result to a Slack channel."""
+    channel_id = dest.get("channel_id")
+    if not channel_id:
+        _log("scheduler_slack_no_channel", job_id=job["id"])
+        return
+
+    # Resolve bot token: dest override → team config → env var fallback
+    bot_token = dest.get("bot_token") or os.getenv("SLACK_BOT_TOKEN", "")
+    if not bot_token:
+        # Try fetching from team config via config-service
+        try:
+            admin_token = os.getenv("ORCHESTRATOR_INTERNAL_ADMIN_TOKEN", "")
+            if admin_token:
+                config_service = app.state.config_service
+                team_config = config_service.get_effective_config_for_node(
+                    admin_token,
+                    job["org_id"],
+                    job["team_node_id"],
+                )
+                bot_token = (
+                    team_config.get("integrations", {})
+                    .get("slack", {})
+                    .get("bot_token", "")
+                )
+        except Exception:
+            pass
+
+    if not bot_token:
+        _log(
+            "scheduler_slack_no_token",
+            job_id=job["id"],
+            channel_id=channel_id,
+        )
+        return
+
+    job_name = job.get("name", "Scheduled Report")
+    channel_name = dest.get("channel_name", channel_id)
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://slack.com/api/chat.postMessage",
+                headers={
+                    "Authorization": f"Bearer {bot_token}",
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                json={
+                    "channel": channel_id,
+                    "text": text,
+                    "unfurl_links": False,
+                },
+            )
+            data = resp.json()
+            if data.get("ok"):
+                _log(
+                    "scheduler_slack_posted",
+                    job_id=job["id"],
+                    channel=channel_name,
+                )
+            else:
+                _log(
+                    "scheduler_slack_error",
+                    job_id=job["id"],
+                    error=data.get("error", "unknown"),
+                    channel=channel_name,
+                )
+    except Exception as e:
+        _log(
+            "scheduler_slack_failed",
+            job_id=job["id"],
+            error=str(e),
+        )
 
 
 async def _get_team_token(app, org_id: str, team_node_id: str) -> str | None:
