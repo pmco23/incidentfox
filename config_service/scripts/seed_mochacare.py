@@ -115,24 +115,19 @@ Format your report as:
 Keep reports concise. If everything is healthy, say so briefly. Only go into detail when there are actual issues.
 """
 
-MORNING_REPORT_PROMPT = """Generate a status report for the last 12 hours (overnight, 8PM to 8AM).
+MORNING_REPORT_PROMPT = (
+    "Check Grafana and Amplitude for the last 12 hours (8PM-8AM overnight). "
+    "Reply with a ONE-LINE summary if everything is normal "
+    '(e.g. "All clear overnight - 0 errors, 99.8% uptime."). '
+    "Only expand to 2-3 short bullet points if something needs attention."
+)
 
-Focus on:
-- Any errors or agent failures that occurred overnight
-- System health during low-traffic hours
-- Anything that needs attention before the workday starts
-
-Query Grafana dashboards for the time range and summarize findings. Post the report to Slack."""
-
-EVENING_REPORT_PROMPT = """Generate a status report for the last 12 hours (daytime, 8AM to 8PM).
-
-Focus on:
-- Error trends during peak hours
-- Agent success/failure rates
-- Any latency issues or degradation
-- Summary of the day's system health
-
-Query Grafana dashboards for the time range and summarize findings. Post the report to Slack."""
+EVENING_REPORT_PROMPT = (
+    "Check Grafana and Amplitude for the last 12 hours (8AM-8PM daytime). "
+    "Reply with a ONE-LINE summary if everything is normal "
+    '(e.g. "Healthy day - 2 minor errors, all resolved, 99.9% uptime."). '
+    "Only expand to 2-3 short bullet points if something needs attention."
+)
 
 
 def main() -> None:
@@ -347,7 +342,7 @@ def main() -> None:
             job_config = {
                 "prompt": job_def["prompt"],
                 "agent_name": "planner",
-                "max_turns": 15,
+                "max_turns": 8,
                 "output_destinations": [
                     {
                         "type": "slack",
@@ -399,7 +394,7 @@ def main() -> None:
     print("  Evening: 8:00 PM — covers daytime (8AM-8PM)")
     print("\nAgent Config:")
     print("  Model: claude-sonnet-4 (temperature=0.3)")
-    print("  Max turns: 20 (reports: 15)")
+    print("  Max turns: 20 (reports: 8)")
     print("  Mode: planner + investigation")
     print("\n" + "=" * 60)
     print("\nNext steps:")
