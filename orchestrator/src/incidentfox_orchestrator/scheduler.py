@@ -221,8 +221,16 @@ async def _deliver_to_slack(
         )
         return
 
-    job_name = job.get("name", "Scheduled Report")
     channel_name = dest.get("channel_name", channel_id)
+
+    # Clean up agent output: strip narration before the report title.
+    # The agent accumulates all assistant text blocks, so early "I'll check..."
+    # narration gets prepended to the actual report. Strip it.
+    cleaned = text
+    title_marker = "*IncidentFox Automatic Status Report*"
+    idx = cleaned.find(title_marker)
+    if idx > 0:
+        cleaned = cleaned[idx:]
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -234,7 +242,7 @@ async def _deliver_to_slack(
                 },
                 json={
                     "channel": channel_id,
-                    "text": text,
+                    "text": cleaned,
                     "unfurl_links": False,
                 },
             )

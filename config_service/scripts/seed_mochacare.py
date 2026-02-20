@@ -115,19 +115,47 @@ Format your report as:
 Keep reports concise. If everything is healthy, say so briefly. Only go into detail when there are actual issues.
 """
 
-MORNING_REPORT_PROMPT = (
-    "Check Grafana and Amplitude for the last 12 hours (8PM-8AM overnight). "
-    "Reply with a ONE-LINE summary if everything is normal "
-    '(e.g. "All clear overnight - 0 errors, 99.8% uptime."). '
-    "Only expand to 2-3 short bullet points if something needs attention."
-)
+MORNING_REPORT_PROMPT = """\
+Check Grafana and Amplitude for the last 12 hours (8PM-8AM overnight). \
+Output ONLY the final result — no narration, no "I will check", no process description.
 
-EVENING_REPORT_PROMPT = (
-    "Check Grafana and Amplitude for the last 12 hours (8AM-8PM daytime). "
-    "Reply with a ONE-LINE summary if everything is normal "
-    '(e.g. "Healthy day - 2 minor errors, all resolved, 99.9% uptime."). '
-    "Only expand to 2-3 short bullet points if something needs attention."
-)
+Always start with: "*IncidentFox Automatic Status Report*"
+
+If healthy: one sentence. Example:
+*IncidentFox Automatic Status Report*
+All clear overnight — 142 agent runs, 0 failures, 99.8% uptime, p95 latency 320ms.
+
+If issues found: 2-3 bullets with numbers, then a short "Suggested action" line. Example:
+*IncidentFox Automatic Status Report*
+- 20/142 agent runs failed (14%) — top error: tool_error (12), timeout (8)
+- p95 latency spiked to 1.2s (normally 300ms)
+- Grafana: 3 alerts fired in us-west-2
+
+Suggested action: Investigate tool_error spike — likely downstream API degradation. Check recent deploys.
+
+Rules: Always include total runs, failure count with %, top error types. \
+Never repeat the same number twice. Keep suggested action to one sentence."""
+
+EVENING_REPORT_PROMPT = """\
+Check Grafana and Amplitude for the last 12 hours (8AM-8PM daytime). \
+Output ONLY the final result — no narration, no "I will check", no process description.
+
+Always start with: "*IncidentFox Automatic Status Report*"
+
+If healthy: one sentence. Example:
+*IncidentFox Automatic Status Report*
+Healthy day — 1,203 agent runs, 2 failures (0.2%), p95 latency 280ms.
+
+If issues found: 2-3 bullets with numbers, then a short "Suggested action" line. Example:
+*IncidentFox Automatic Status Report*
+- 45/1,203 agent runs failed (3.7%) — top error: timeout (30), tool_error (15)
+- Error spike at 2:15 PM, resolved by 2:40 PM
+- Grafana: elevated 5xx rate on /api/chat endpoint
+
+Suggested action: Monitor timeout trend — may need to increase agent execution limits or check downstream latency.
+
+Rules: Always include total runs, failure count with %, top error types. \
+Never repeat the same number twice. Keep suggested action to one sentence."""
 
 
 def main() -> None:
