@@ -183,10 +183,11 @@ async def _deliver_to_slack(
         _log("scheduler_slack_no_channel", job_id=job["id"])
         return
 
-    # Resolve bot token: dest override → team config → env var fallback
-    bot_token = dest.get("bot_token") or os.getenv("SLACK_BOT_TOKEN", "")
+    # Resolve bot token with multiple fallback strategies
+    bot_token = dest.get("bot_token", "")
+
+    # 1. Try team config integrations.slack.bot_token
     if not bot_token:
-        # Try fetching from team config via config-service
         try:
             admin_token = os.getenv("ORCHESTRATOR_INTERNAL_ADMIN_TOKEN", "")
             if admin_token:
@@ -203,6 +204,14 @@ async def _deliver_to_slack(
                 )
         except Exception:
             pass
+
+    # 2. Try Slack installation from config-service internal API
+    if not bot_token:
+        bot_token = await _get_slack_bot_token(app, dest.get("slack_team_id"))
+
+    # 3. Fall back to env var (legacy single-tenant)
+    if not bot_token:
+        bot_token = os.getenv("SLACK_BOT_TOKEN", "")
 
     if not bot_token:
         _log(
@@ -249,6 +258,40 @@ async def _deliver_to_slack(
             job_id=job["id"],
             error=str(e),
         )
+
+
+async def _get_slack_bot_token(
+    app, slack_team_id: str | None = None
+) -> str:
+    """Fetch a Slack bot token from config-service's installation store."""
+    config_service = app.state.config_service
+    base_url = config_service.base_url.rstrip("/")
+    url = f"{base_url}/api/v1/internal/slack/installations/find"
+
+    # If no specific team_id, try to find any installation for the default app
+    params: dict[str, str] = {"slack_app_slug": "incidentfox"}
+    if slack_team_id:
+        params["team_id"] = slack_team_id
+    else:
+        # Query the first available installation
+        params["team_id"] = ""  # Will need to list instead
+
+    try:
+        # Try finding installation by team_id if available
+        if slack_team_id:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    url,
+                    params={"team_id": slack_team_id, "slack_app_slug": "incidentfox"},
+                    headers={"X-Internal-Service": SERVICE_ID},
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data and data.get("bot_token"):
+                        return data["bot_token"]
+    except Exception:
+        pass
+    return ""
 
 
 async def _get_team_token(app, org_id: str, team_node_id: str) -> str | None:

@@ -353,6 +353,7 @@ def main() -> None:
                         "type": "slack",
                         "channel_id": slack_channel_id,
                         "channel_name": slack_channel_name,
+                        "slack_team_id": os.getenv("MOCHACARE_SLACK_TEAM_ID", ""),
                     }
                 ],
             }
