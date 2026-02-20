@@ -311,7 +311,10 @@ def main() -> None:
             output_cfg.default_destinations = default_destinations
 
         # 5. Create scheduled jobs (morning + evening reports)
-        now = datetime.now(timezone.utc)
+        import zoneinfo
+
+        job_tz = zoneinfo.ZoneInfo(tz)
+        now = datetime.now(job_tz)
 
         job_defs = [
             {
@@ -337,6 +340,9 @@ def main() -> None:
 
             cron = croniter(job_def["schedule"], now)
             next_run = cron.get_next(datetime)
+            if next_run.tzinfo is None:
+                next_run = next_run.replace(tzinfo=job_tz)
+            next_run = next_run.astimezone(timezone.utc)
 
             job_config = {
                 "prompt": job_def["prompt"],

@@ -106,8 +106,12 @@ def _compute_next_run(
 
     tz = zoneinfo.ZoneInfo(tz_name)
     base = after or datetime.now(tz)
+    # Always convert to the target timezone so croniter computes in the
+    # correct local time (e.g. "0 8 * * *" means 8 AM in tz_name, not UTC)
     if base.tzinfo is None:
         base = base.replace(tzinfo=tz)
+    else:
+        base = base.astimezone(tz)
     cron = croniter(schedule, base)
     next_dt = cron.get_next(datetime)
     # Ensure it's timezone-aware in UTC for storage
