@@ -60,7 +60,7 @@ MAX_CONCURRENT_INVESTIGATIONS = int(os.getenv("MAX_CONCURRENT_INVESTIGATIONS", "
 _investigation_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INVESTIGATIONS)
 
 # Service-to-service auth for /investigate and /interrupt.
-# In production, set via K8s Secret (shared between slack-bot and sre-agent).
+# In production, set via K8s Secret (shared between slack-bot, orchestrator, and sre-agent).
 # If unset, auth is disabled (local dev with `make dev`).
 INVESTIGATE_AUTH_TOKEN = os.getenv("INVESTIGATE_AUTH_TOKEN", "")
 if INVESTIGATE_AUTH_TOKEN:
@@ -74,9 +74,9 @@ else:
 def require_service_auth(request: Request) -> None:
     """Verify service-to-service auth token on /investigate and /interrupt.
 
-    In production, only slack-bot (and optionally orchestrator) should call
-    these endpoints. The token prevents any compromised pod from forging
-    tenant context and hijacking credential-proxy.
+    In production, only slack-bot and orchestrator should call these endpoints.
+    The token prevents any compromised pod from forging tenant context
+    and hijacking credential-proxy.
 
     Skipped when INVESTIGATE_AUTH_TOKEN is not configured (local dev).
     """
@@ -605,7 +605,7 @@ def create_investigation_stream(
 
 
 @app.post("/investigate", dependencies=[Depends(require_service_auth)])
-async def investigate(request: InvestigateRequest):
+async def investigate(request: InvestigateRequest, raw_request: Request):
     """
     Run investigation and stream results.
 
@@ -619,6 +619,8 @@ async def investigate(request: InvestigateRequest):
     Concurrency: Limited by _investigation_semaphore. Requests beyond the limit
     wait (backpressure) instead of overloading the pod and crashing.
     """
+    require_service_auth(raw_request)
+
     print(
         f"🔵 [INVESTIGATE] Request received: thread_id={request.thread_id}, prompt={request.prompt[:50]}..."
     )
@@ -788,7 +790,7 @@ async def _investigate_inner(request: InvestigateRequest):
 
 
 @app.post("/interrupt", dependencies=[Depends(require_service_auth)])
-async def interrupt(request: InterruptRequest):
+async def interrupt(request: InterruptRequest, raw_request: Request):
     """
     Interrupt current execution and stop.
 
@@ -805,6 +807,8 @@ async def interrupt(request: InterruptRequest):
     Note: This follows Cursor's UX - interrupt just stops, new messages
     are queued separately.
     """
+    require_service_auth(raw_request)
+
     print(f"🔴 [INTERRUPT] Request received: thread_id={request.thread_id}")
 
     # Check if sandbox exists
