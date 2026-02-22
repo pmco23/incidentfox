@@ -12,6 +12,7 @@ Triggered by:
 - Integration configuration save (progressive scan)
 """
 
+import asyncio
 import json
 import os
 import uuid
@@ -460,7 +461,7 @@ class OnboardingScanTask:
         scanner = SlackEnvironmentScanner(
             bot_token=slack_bot_token, channel_ids=self.channel_ids
         )
-        scan_result = scanner.scan()
+        scan_result = await asyncio.to_thread(scanner.scan)
 
         result["channels_scanned"] = scan_result.channels_scanned
         result["messages_scanned"] = scan_result.messages_scanned
@@ -697,10 +698,76 @@ class OnboardingScanTask:
         )
         return result
 
+    async def _ensure_tree_exists(self, tree: str) -> bool:
+        """Create the RAG tree if it doesn't already exist."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Check if tree exists
+                response = await client.get(
+                    f"{self.rag_url}/api/v1/tree/stats",
+                    params={"tree": tree},
+                )
+                if response.status_code == 200:
+                    return True
+
+                # Create it
+                response = await client.post(
+                    f"{self.rag_url}/api/v1/trees",
+                    json={"tree_name": tree},
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code == 200:
+                    _log("tree_created", tree=tree)
+                    return True
+
+                _log("tree_create_failed", tree=tree, status=response.status_code)
+                return False
+
+        except Exception as e:
+            _log("tree_ensure_failed", tree=tree, error=str(e))
+            return False
+
+    async def _set_knowledge_tree_config(self, tree: str) -> None:
+        """Write knowledge_tree back to the team's config so the web UI can find it."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.patch(
+                    f"{self.config_service_url}/api/v1/config/me",
+                    json={"config": {"knowledge_tree": tree}},
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Org-Id": self.org_id,
+                        "X-Team-Node-Id": self.team_node_id,
+                    },
+                )
+                if response.status_code == 200:
+                    _log(
+                        "knowledge_tree_config_set",
+                        tree=tree,
+                        org_id=self.org_id,
+                        team_node_id=self.team_node_id,
+                    )
+                else:
+                    _log(
+                        "knowledge_tree_config_failed",
+                        tree=tree,
+                        status=response.status_code,
+                    )
+        except Exception as e:
+            _log("knowledge_tree_config_error", tree=tree, error=str(e))
+
     async def _ingest_documents(
         self, documents: List[Document], tree: str
     ) -> Dict[str, Any]:
         """Ingest a list of documents into RAG via /ingest/batch."""
+        # Ensure tree exists before ingesting
+        if not await self._ensure_tree_exists(tree):
+            return {
+                "status": "ingest_failed",
+                "documents_sent": len(documents),
+                "error": "Failed to create tree",
+            }
+
         doc_dicts = []
         for doc in documents:
             meta = dict(doc.metadata) if doc.metadata else {}
@@ -722,7 +789,7 @@ class OnboardingScanTask:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=300.0) as client:
                 response = await client.post(
                     f"{self.rag_url}/ingest/batch",
                     json=payload,
@@ -737,6 +804,10 @@ class OnboardingScanTask:
                         documents_sent=len(documents),
                         chunks_created=data.get("chunks_created", 0),
                     )
+
+                    # Write knowledge_tree to team config so web UI can find it
+                    await self._set_knowledge_tree_config(tree)
+
                     return {
                         "status": "ingested",
                         "documents_sent": len(documents),
@@ -744,6 +815,12 @@ class OnboardingScanTask:
                         "nodes_created": data.get("nodes_created", 0),
                     }
                 else:
+                    _log(
+                        "ingest_failed",
+                        tree=tree,
+                        status=response.status_code,
+                        body=response.text[:200],
+                    )
                     return {
                         "status": "ingest_failed",
                         "documents_sent": len(documents),
@@ -751,6 +828,12 @@ class OnboardingScanTask:
                     }
 
         except Exception as e:
+            _log(
+                "ingest_error",
+                tree=tree,
+                documents_sent=len(documents),
+                error=str(e),
+            )
             return {
                 "status": "ingest_error",
                 "documents_sent": len(documents),

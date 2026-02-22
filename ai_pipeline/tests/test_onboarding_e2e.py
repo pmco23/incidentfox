@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from ai_learning_pipeline.tasks.knowledge_extractor import KnowledgeExtractor
 from ai_learning_pipeline.tasks.onboarding_scan import (
     IntegrationRecommender,
     OnboardingScanTask,
@@ -21,8 +22,11 @@ from ai_learning_pipeline.tasks.onboarding_scan import (
 )
 from ai_learning_pipeline.tasks.scanners import get_scanner
 from ai_learning_pipeline.tasks.scanners.slack_scanner import (
+    CollectedMessage,
     Signal,
     SlackEnvironmentScanner,
+    _extract_text_from_blocks,
+    _get_message_text,
 )
 
 # ===================================================================
@@ -110,6 +114,374 @@ class TestSlackScanner:
         url_signals = [s for s in result.signals if s.signal_type == "url"]
         for s in url_signals:
             assert s.confidence >= 0.9
+
+
+# ===================================================================
+# 1a. Block Kit Text Extraction Tests
+# ===================================================================
+
+
+class TestBlockKitExtraction:
+    """Test _extract_text_from_blocks and _get_message_text helpers."""
+
+    def test_section_block_extracts_mrkdwn(self):
+        """Section blocks with mrkdwn text (e.g. code blocks) are extracted."""
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "Turned off feature flag:\n```flagctl set emailMemoryLeak off```",
+                },
+            }
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert "flagctl set emailMemoryLeak off" in result
+
+    def test_header_block_extracted(self):
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Incident Resolved"},
+            }
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert result == "Incident Resolved"
+
+    def test_rich_text_block_extracted(self):
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {"type": "text", "text": "Ran "},
+                            {"type": "text", "text": "kubectl rollout restart"},
+                            {"type": "text", "text": " to fix it"},
+                        ],
+                    }
+                ],
+            }
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert "kubectl rollout restart" in result
+
+    def test_rich_text_link_extracted(self):
+        blocks = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [
+                            {"type": "text", "text": "See dashboard: "},
+                            {
+                                "type": "link",
+                                "url": "https://grafana.example.com/d/abc",
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert "https://grafana.example.com/d/abc" in result
+
+    def test_context_block_extracted(self):
+        blocks = [
+            {
+                "type": "context",
+                "elements": [
+                    {"type": "mrkdwn", "text": "Posted by AlertManager"},
+                ],
+            }
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert "Posted by AlertManager" in result
+
+    def test_empty_blocks_returns_empty(self):
+        assert _extract_text_from_blocks([]) == ""
+
+    def test_unknown_block_types_skipped(self):
+        blocks = [{"type": "divider"}, {"type": "image", "image_url": "http://x.png"}]
+        assert _extract_text_from_blocks(blocks) == ""
+
+    def test_get_message_text_prefers_blocks(self):
+        """_get_message_text returns block text when blocks are present."""
+        msg = {
+            "text": "plain fallback (no code block here)",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Resolved via `flagctl set emailMemoryLeak off`",
+                    },
+                }
+            ],
+        }
+        result = _get_message_text(msg)
+        assert "flagctl set emailMemoryLeak off" in result
+
+    def test_get_message_text_falls_back_to_plain_text(self):
+        """Falls back to plain text when no blocks are present."""
+        msg = {"text": "simple message without blocks"}
+        assert _get_message_text(msg) == "simple message without blocks"
+
+    def test_get_message_text_falls_back_when_blocks_empty(self):
+        """Falls back when blocks exist but yield no text."""
+        msg = {"text": "fallback", "blocks": [{"type": "divider"}]}
+        assert _get_message_text(msg) == "fallback"
+
+    def test_multiple_blocks_joined_with_newlines(self):
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Alert: High Memory"},
+            },
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "email-service pod OOMKilled"},
+            },
+        ]
+        result = _extract_text_from_blocks(blocks)
+        assert "Alert: High Memory" in result
+        assert "email-service pod OOMKilled" in result
+        assert "\n" in result
+
+
+# ===================================================================
+# 1b. Slack Scanner Thread Tests
+# ===================================================================
+
+
+class TestSlackScannerThreads:
+    """Test thread reply fetching in SlackEnvironmentScanner."""
+
+    def _make_scanner_with_threads(self, channels, messages, thread_replies):
+        """Create a scanner with mocked Slack API including thread replies."""
+        scanner = SlackEnvironmentScanner(
+            bot_token="xoxb-test-token",
+            max_threads_per_channel=10,
+        )
+        # Disable rate limiting for tests
+        scanner._replies_interval = 0
+
+        def mock_api(method, params=None):
+            if method == "conversations.list":
+                return {"ok": True, "channels": channels, "response_metadata": {}}
+            elif method == "conversations.history":
+                return {"ok": True, "messages": messages}
+            elif method == "conversations.replies":
+                parent_ts = params.get("ts", "") if params else ""
+                replies = thread_replies.get(parent_ts, [])
+                return {"ok": True, "messages": replies}
+            return None
+
+        scanner._api_request = mock_api
+        return scanner
+
+    def test_scan_fetches_thread_replies(
+        self, slack_channels, slack_messages_with_threads, slack_thread_replies
+    ):
+        """Thread replies should be collected for RAG-relevant channels."""
+        scanner = self._make_scanner_with_threads(
+            slack_channels, slack_messages_with_threads, slack_thread_replies
+        )
+        result = scanner.scan()
+
+        assert result.error is None
+
+        # Should have thread reply messages collected
+        thread_replies_collected = [
+            m
+            for m in result.collected_messages
+            if m.thread_ts and not m.is_thread_parent
+        ]
+        assert len(thread_replies_collected) > 0
+
+        # Thread parents should be marked
+        parents = [m for m in result.collected_messages if m.is_thread_parent]
+        assert len(parents) > 0
+
+    def test_scan_respects_max_threads_per_channel(
+        self, slack_channels, slack_messages_with_threads, slack_thread_replies
+    ):
+        """Scanner should cap thread fetching at max_threads_per_channel."""
+        scanner = self._make_scanner_with_threads(
+            slack_channels, slack_messages_with_threads, slack_thread_replies
+        )
+        scanner.max_threads_per_channel = 1  # Only fetch 1 thread
+
+        result = scanner.scan()
+
+        # Should have fetched replies for only 1 thread (highest reply_count)
+        parent_tss = {m.ts for m in result.collected_messages if m.is_thread_parent}
+        assert len(parent_tss) <= 1
+
+    def test_thread_reply_parent_not_duplicated(
+        self, slack_channels, slack_messages_with_threads, slack_thread_replies
+    ):
+        """conversations.replies includes the parent; it should not be duplicated within a channel."""
+        scanner = self._make_scanner_with_threads(
+            slack_channels, slack_messages_with_threads, slack_thread_replies
+        )
+        result = scanner.scan()
+
+        # Count how many times each (channel_id, ts) appears within a channel
+        key_counts: dict = {}
+        for m in result.collected_messages:
+            key = (m.channel_id, m.ts)
+            key_counts[key] = key_counts.get(key, 0) + 1
+
+        # No (channel_id, ts) should appear more than once
+        for key, count in key_counts.items():
+            assert count == 1, f"Message {key} appeared {count} times (duplicate)"
+
+    def test_thread_parents_have_reply_count(
+        self, slack_channels, slack_messages_with_threads, slack_thread_replies
+    ):
+        """Thread parent messages should have reply_count set."""
+        scanner = self._make_scanner_with_threads(
+            slack_channels, slack_messages_with_threads, slack_thread_replies
+        )
+        result = scanner.scan()
+
+        parents = [m for m in result.collected_messages if m.is_thread_parent]
+        for p in parents:
+            assert p.reply_count > 0
+
+
+# ===================================================================
+# 1c. Knowledge Extractor Thread Formatting Tests
+# ===================================================================
+
+
+class TestKnowledgeExtractorThreads:
+    """Test thread-aware formatting in KnowledgeExtractor."""
+
+    def test_format_messages_with_threads(self):
+        """Thread blocks should be formatted with [THREAD]...[/THREAD]."""
+        extractor = KnowledgeExtractor()
+
+        messages = [
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U001",
+                text="Some standalone message about deployment",
+                ts="1708300000",
+            ),
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U002",
+                text="PagerDuty alert fired for user-service",
+                ts="1708300100",
+                thread_ts="1708300100",
+                is_thread_parent=True,
+                reply_count=2,
+            ),
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U001",
+                text="Root cause: DB connection pool exhaustion",
+                ts="1708300200",
+                thread_ts="1708300100",
+            ),
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U003",
+                text="Increased pool size, error rate recovering",
+                ts="1708300300",
+                thread_ts="1708300100",
+            ),
+        ]
+
+        formatted = extractor._format_messages_with_threads(messages)
+
+        assert "[THREAD]" in formatted
+        assert "[/THREAD]" in formatted
+        assert "(2 replies)" in formatted
+        assert "PagerDuty alert" in formatted
+        assert "Root cause" in formatted
+        assert "Increased pool size" in formatted
+        # Standalone message should appear outside the thread block
+        assert "Some standalone message" in formatted
+
+    def test_format_preserves_chronological_order(self):
+        """Events should be sorted chronologically by parent/standalone ts."""
+        extractor = KnowledgeExtractor()
+
+        messages = [
+            CollectedMessage(
+                channel_name="alerts",
+                channel_id="C001",
+                user="U001",
+                text="Early standalone message about monitoring setup",
+                ts="1708300000",
+            ),
+            CollectedMessage(
+                channel_name="alerts",
+                channel_id="C001",
+                user="U002",
+                text="Alert: CPU spike on api-gateway",
+                ts="1708300100",
+                thread_ts="1708300100",
+                is_thread_parent=True,
+                reply_count=1,
+            ),
+            CollectedMessage(
+                channel_name="alerts",
+                channel_id="C001",
+                user="U001",
+                text="Scaled up replicas, CPU back to normal",
+                ts="1708300150",
+                thread_ts="1708300100",
+            ),
+            CollectedMessage(
+                channel_name="alerts",
+                channel_id="C001",
+                user="U003",
+                text="Late standalone message about cleanup",
+                ts="1708300200",
+            ),
+        ]
+
+        formatted = extractor._format_messages_with_threads(messages)
+        lines = formatted.split("\n")
+
+        # Find positions
+        early_pos = next(i for i, l in enumerate(lines) if "Early standalone" in l)
+        thread_pos = next(i for i, l in enumerate(lines) if "[THREAD]" in l)
+        late_pos = next(i for i, l in enumerate(lines) if "Late standalone" in l)
+
+        assert early_pos < thread_pos < late_pos
+
+    def test_no_threads_uses_flat_format(self):
+        """When no messages have is_thread_parent, has_threads should be False."""
+        messages = [
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U001",
+                text="Some message",
+                ts="1708300000",
+            ),
+            CollectedMessage(
+                channel_name="incidents",
+                channel_id="C001",
+                user="U002",
+                text="Another message",
+                ts="1708300100",
+            ),
+        ]
+
+        has_threads = any(m.is_thread_parent for m in messages)
+        assert has_threads is False
 
 
 # ===================================================================
@@ -459,6 +831,8 @@ class TestOnboardingScanE2E:
                 return {"ok": True, "channels": slack_channels, "response_metadata": {}}
             elif method == "conversations.history":
                 return {"ok": True, "messages": slack_messages}
+            elif method == "conversations.replies":
+                return {"ok": True, "messages": []}
             return None
 
         # --- Mock OpenAI (for SignalAnalyzer) ---
@@ -521,12 +895,19 @@ class TestOnboardingScanE2E:
                     return config_response
                 elif "pending-changes" in url:
                     return pending_change_response
+                elif "tree/stats" in url:
+                    return httpx.Response(200, json={"nodes": 0})
+                elif "/trees" in url and "ingest" not in url:
+                    return httpx.Response(200, json={"tree_name": "test"})
                 elif "ingest/batch" in url:
                     return rag_response
+                elif "config/me" in url:
+                    return httpx.Response(200, json={"status": "ok"})
                 return httpx.Response(404)
 
             mock_client.get = AsyncMock(side_effect=route_request)
             mock_client.post = AsyncMock(side_effect=route_request)
+            mock_client.patch = AsyncMock(side_effect=route_request)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_http.return_value = mock_client
@@ -665,12 +1046,21 @@ class TestIntegrationScanE2E:
                     return creds_response
                 elif "config/effective" in url:
                     return config_response
+                elif "tree/stats" in url:
+                    # Tree exists check — return 200 so _ensure_tree_exists succeeds
+                    return httpx.Response(200, json={"nodes": 0})
+                elif "/trees" in url and "ingest" not in url:
+                    return httpx.Response(200, json={"tree_name": "test"})
                 elif "ingest/batch" in url:
                     return rag_response
+                elif "config/me" in url:
+                    # _set_knowledge_tree_config PATCH
+                    return httpx.Response(200, json={"status": "ok"})
                 return httpx.Response(404)
 
             mock_client.get = AsyncMock(side_effect=route_request)
             mock_client.post = AsyncMock(side_effect=route_request)
+            mock_client.patch = AsyncMock(side_effect=route_request)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=False)
             mock_http.return_value = mock_client
