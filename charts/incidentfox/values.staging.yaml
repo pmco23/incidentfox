@@ -315,7 +315,7 @@ services:
   # Sandbox Cleanup for expired sandbox garbage collection
   sandboxCleanup:
     enabled: true
-    image: "bitnami/kubectl:1.29.2"
+    image: "registry.k8s.io/kubectl:v1.31.0"
     schedule: "*/15 * * * *"
 
   # Credential Resolver for sandbox credential injection

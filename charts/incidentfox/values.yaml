@@ -704,7 +704,7 @@ services:
   # Runs periodically to garbage collect sandboxes past their TTL.
   sandboxCleanup:
     enabled: false  # Enable when using gVisor sandboxes
-    image: "bitnami/kubectl:1.29.2"
+    image: "registry.k8s.io/kubectl:v1.31.0"
     schedule: "*/15 * * * *"  # Every 15 minutes
     successfulJobsHistoryLimit: 3
     failedJobsHistoryLimit: 3
