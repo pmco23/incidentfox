@@ -707,6 +707,10 @@ static_resources:
                                         "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/github",
                                     },
                                     {
+                                        "name": "GITLAB_BASE_URL",
+                                        "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/gitlab",
+                                    },
+                                    {
                                         "name": "DATADOG_BASE_URL",
                                         "value": f"http://credential-resolver-svc.{cred_resolver_ns}.svc.cluster.local:8002/datadog",
                                     },
